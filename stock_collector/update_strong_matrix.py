@@ -4,9 +4,13 @@
 """
 
 import pandas as pd
+import os
 from pathlib import Path
 import glob
 import logging
+
+# Supabase 寫入（若環境變數未設定則跳過）
+SUPABASE_ENABLED = bool(os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_KEY'))
 
 # 設定日誌
 logging.basicConfig(
@@ -131,6 +135,19 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     # 儲存
     filepath = output_path / output_filename
     pivot.to_csv(filepath, index=False, encoding='utf-8-sig')
+
+    # 寫入 Supabase（若已設定）
+    if SUPABASE_ENABLED:
+        logging.info("寫入 Supabase...")
+        try:
+            import sys
+            sys.path.insert(0, str(base_path))
+            from supabase_writer import write_strong_stock_matrix
+            write_strong_stock_matrix(pivot)
+            logging.info("✓ Supabase 寫入完成")
+        except Exception as e:
+            logging.warning(f"⚠️ Supabase 寫入失敗: {e}")
+            logging.warning("   CSV 已儲存，但 Supabase 未更新")
 
     # 統計
     date_cols = [c for c in pivot.columns if c not in ['stock_id', 'stock_name']]
