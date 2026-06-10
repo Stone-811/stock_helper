@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { TodayStrongStock } from '@/lib/supabase'
+import { TodayStrongStock } from '../lib/supabase'
 
 interface StockCardProps {
   stock: TodayStrongStock

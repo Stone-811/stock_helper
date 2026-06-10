@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import StockCard from '@/components/StockCard'
-import { TodayStrongStock } from '@/lib/supabase'
+import StockCard from '../components/StockCard'
+import { TodayStrongStock } from '../lib/supabase'
 
 interface StrongStocksResponse {
   stocks: TodayStrongStock[]

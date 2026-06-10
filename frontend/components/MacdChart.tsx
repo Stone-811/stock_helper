@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { createChart, ColorType, IChartApi } from 'lightweight-charts'
-import { DailyStock } from '@/lib/supabase'
+import { DailyStock } from '../lib/supabase'
 
 interface MacdChartProps {
   data: DailyStock[]

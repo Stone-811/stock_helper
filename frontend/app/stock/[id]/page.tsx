@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import CandlestickChart from '@/components/CandlestickChart'
-import VolumeChart from '@/components/VolumeChart'
-import MacdChart from '@/components/MacdChart'
-import { DailyStock } from '@/lib/supabase'
+import CandlestickChart from '../../../components/CandlestickChart'
+import VolumeChart from '../../../components/VolumeChart'
+import MacdChart from '../../../components/MacdChart'
+import { DailyStock } from '../../../lib/supabase'
 
 interface StockData {
   stock_id: string
