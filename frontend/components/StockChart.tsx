@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
+import { createChart, ColorType, IChartApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
 import { DailyStock } from '../lib/supabase'
 
 interface StockChartProps {
@@ -37,6 +37,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
+        fontSize: 14,
       },
       width: mainChartRef.current.clientWidth,
       height: mainHeight,
@@ -94,6 +95,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
+        fontSize: 14,
       },
       width: volumeChartRef.current.clientWidth,
       height: volumeHeight,
@@ -126,6 +128,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
+        fontSize: 14,
       },
       width: indicatorChartRef.current.clientWidth,
       height: indicatorHeight,
@@ -181,10 +184,15 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       }
     })
 
-    // 自適應內容
-    mainChart.timeScale().fitContent()
-    volumeChart.timeScale().fitContent()
-    indicatorChart.timeScale().fitContent()
+    // 預設顯示近一年資料（約 250 個交易日），但仍可往前拉
+    const oneYearBars = 250
+    const totalBars = chartData.length
+    const from = Math.max(0, totalBars - oneYearBars)
+    const visibleRange = { from, to: totalBars }
+
+    mainChart.timeScale().setVisibleLogicalRange(visibleRange)
+    volumeChart.timeScale().setVisibleLogicalRange(visibleRange)
+    indicatorChart.timeScale().setVisibleLogicalRange(visibleRange)
 
     // 響應式調整
     const handleResize = () => {
@@ -223,7 +231,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
             <button
               key={key}
               onClick={() => setTimeFrame(key as TimeFrame)}
-              className={`px-3 py-1 text-sm rounded ${
+              className={`px-3 py-1 text-base rounded ${
                 timeFrame === key
                   ? 'bg-blue-600 text-white'
                   : 'bg-[#2a2a3e] text-gray-400 hover:bg-[#3a3a4e]'
@@ -236,11 +244,11 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
         {/* 指標選擇 */}
         <div className="flex items-center gap-2">
-          <span className="text-gray-400 text-sm">指標:</span>
+          <span className="text-gray-400 text-base">指標:</span>
           <select
             value={indicator}
             onChange={(e) => setIndicator(e.target.value as Indicator)}
-            className="bg-[#2a2a3e] text-gray-300 text-sm rounded px-2 py-1 border border-[#3a3a4e]"
+            className="bg-[#2a2a3e] text-gray-300 text-base rounded px-2 py-1 border border-[#3a3a4e]"
           >
             <option value="macd">MACD</option>
             <option value="kd">KD</option>
@@ -249,7 +257,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
         </div>
 
         {/* MA 圖例 */}
-        <div className="flex gap-3 text-xs">
+        <div className="flex gap-3 text-sm">
           <span className="text-yellow-500">MA5</span>
           <span className="text-blue-500">MA10</span>
           <span className="text-pink-500">MA20</span>
@@ -259,7 +267,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
       {/* 價格資訊 */}
       {latestData && (
-        <div className="flex flex-wrap gap-4 mb-2 text-sm">
+        <div className="flex flex-wrap gap-4 mb-2 text-base">
           <span className="text-gray-400">
             日期: <span className="text-white">{latestData.date}</span>
           </span>
