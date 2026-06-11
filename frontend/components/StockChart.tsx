@@ -19,10 +19,21 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
   const [indicator, setIndicator] = useState<Indicator>('macd')
-  const [crosshairData, setCrosshairData] = useState<DailyStock | null>(null)
+  const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
 
   // 根據時間週期轉換資料
   const chartData = convertToTimeFrame(data, timeFrame)
+
+  // 預先計算所有 MA 和指標數值
+  const maData = {
+    ma5: calculateMAValues(chartData, 5),
+    ma10: calculateMAValues(chartData, 10),
+    ma20: calculateMAValues(chartData, 20),
+    ma60: calculateMAValues(chartData, 60),
+  }
+  const macdData = calculateMACDValues(chartData)
+  const kdData = calculateKDValues(chartData)
+  const rsiData = calculateRSIValues(chartData)
 
   useEffect(() => {
     if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || chartData.length === 0) return
@@ -176,11 +187,11 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       }
     })
 
-    // 同步十字線
+    // 同步十字線 - 記錄 index 以便查詢所有指標數值
     mainChart.subscribeCrosshairMove(param => {
       if (param.time) {
-        const dataPoint = chartData.find(d => d.date === param.time)
-        if (dataPoint) setCrosshairData(dataPoint)
+        const idx = chartData.findIndex(d => d.date === param.time)
+        if (idx !== -1) setCrosshairIndex(idx)
       }
     })
 
@@ -213,9 +224,24 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
     }
   }, [chartData, indicator, height])
 
-  const latestData = crosshairData || chartData[chartData.length - 1]
+  // 取得當前游標位置的資料
+  const currentIdx = crosshairIndex >= 0 ? crosshairIndex : chartData.length - 1
+  const latestData = chartData[currentIdx]
   const priceChange = latestData ? latestData.close - latestData.open : 0
   const priceChangePct = latestData && latestData.open ? ((priceChange / latestData.open) * 100).toFixed(2) : '0'
+
+  // 取得當前 MA 數值
+  const currentMA = {
+    ma5: maData.ma5[currentIdx],
+    ma10: maData.ma10[currentIdx],
+    ma20: maData.ma20[currentIdx],
+    ma60: maData.ma60[currentIdx],
+  }
+
+  // 取得當前指標數值
+  const currentMACD = macdData[currentIdx]
+  const currentKD = kdData[currentIdx]
+  const currentRSI = rsiData[currentIdx]
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
@@ -256,41 +282,85 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
           </select>
         </div>
 
-        {/* MA 圖例 */}
-        <div className="flex gap-3 text-sm">
-          <span className="text-yellow-500">MA5</span>
-          <span className="text-blue-500">MA10</span>
-          <span className="text-pink-500">MA20</span>
-          <span className="text-purple-500">MA60</span>
-        </div>
       </div>
 
-      {/* 價格資訊 */}
+      {/* 價格與指標資訊 - 整合顯示 */}
       {latestData && (
-        <div className="flex flex-wrap gap-4 mb-2 text-base">
-          <span className="text-gray-400">
-            日期: <span className="text-white">{latestData.date}</span>
-          </span>
-          <span className="text-gray-400">
-            開: <span className="text-white">{latestData.open?.toFixed(2)}</span>
-          </span>
-          <span className="text-gray-400">
-            高: <span className="text-red-400">{latestData.high?.toFixed(2)}</span>
-          </span>
-          <span className="text-gray-400">
-            低: <span className="text-green-400">{latestData.low?.toFixed(2)}</span>
-          </span>
-          <span className="text-gray-400">
-            收: <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
-              {latestData.close?.toFixed(2)}
+        <div className="space-y-2 mb-3">
+          {/* 第一行：日期、OHLCV */}
+          <div className="flex flex-wrap gap-4 text-base">
+            <span className="text-gray-400">
+              日期: <span className="text-white">{latestData.date}</span>
             </span>
-          </span>
-          <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
-            {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePct}%)
-          </span>
-          <span className="text-gray-400">
-            量: <span className="text-white">{latestData.volume?.toLocaleString()}</span>
-          </span>
+            <span className="text-gray-400">
+              開: <span className="text-white">{latestData.open?.toFixed(2)}</span>
+            </span>
+            <span className="text-gray-400">
+              高: <span className="text-red-400">{latestData.high?.toFixed(2)}</span>
+            </span>
+            <span className="text-gray-400">
+              低: <span className="text-green-400">{latestData.low?.toFixed(2)}</span>
+            </span>
+            <span className="text-gray-400">
+              收: <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
+                {latestData.close?.toFixed(2)}
+              </span>
+            </span>
+            <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
+              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePct}%)
+            </span>
+            <span className="text-gray-400">
+              量: <span className="text-white">{latestData.volume?.toLocaleString()}</span>
+            </span>
+          </div>
+
+          {/* 第二行：MA 數值 */}
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span className="text-yellow-500">
+              MA5: {currentMA.ma5?.toFixed(2) || '-'}
+            </span>
+            <span className="text-blue-500">
+              MA10: {currentMA.ma10?.toFixed(2) || '-'}
+            </span>
+            <span className="text-pink-500">
+              MA20: {currentMA.ma20?.toFixed(2) || '-'}
+            </span>
+            <span className="text-purple-500">
+              MA60: {currentMA.ma60?.toFixed(2) || '-'}
+            </span>
+          </div>
+
+          {/* 第三行：技術指標數值 */}
+          <div className="flex flex-wrap gap-4 text-sm">
+            {indicator === 'macd' && currentMACD && (
+              <>
+                <span className="text-blue-400">
+                  DIF: {currentMACD.dif?.toFixed(2) || '-'}
+                </span>
+                <span className="text-orange-400">
+                  MACD: {currentMACD.macd?.toFixed(2) || '-'}
+                </span>
+                <span className={currentMACD.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>
+                  柱狀: {currentMACD.histogram?.toFixed(2) || '-'}
+                </span>
+              </>
+            )}
+            {indicator === 'kd' && currentKD && (
+              <>
+                <span className="text-blue-400">
+                  K: {currentKD.k?.toFixed(2) || '-'}
+                </span>
+                <span className="text-orange-400">
+                  D: {currentKD.d?.toFixed(2) || '-'}
+                </span>
+              </>
+            )}
+            {indicator === 'rsi' && (
+              <span className="text-purple-400">
+                RSI: {currentRSI?.toFixed(2) || '-'}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -355,6 +425,89 @@ function calculateMA(data: DailyStock[], period: number): LineData[] {
       time: data[i].date as string,
       value: sum / period,
     })
+  }
+  return result
+}
+
+// 計算 MA 並返回按 index 索引的數組
+function calculateMAValues(data: DailyStock[], period: number): (number | null)[] {
+  const result: (number | null)[] = new Array(data.length).fill(null)
+  for (let i = period - 1; i < data.length; i++) {
+    const sum = data.slice(i - period + 1, i + 1).reduce((acc, item) => acc + item.close, 0)
+    result[i] = sum / period
+  }
+  return result
+}
+
+// 計算 MACD 並返回按 index 索引的數組
+function calculateMACDValues(data: DailyStock[], fast = 12, slow = 26, signal = 9): ({ dif: number; macd: number; histogram: number } | null)[] {
+  const result: ({ dif: number; macd: number; histogram: number } | null)[] = new Array(data.length).fill(null)
+  const closes = data.map(d => d.close)
+  const emaFast = calculateEMA(closes, fast)
+  const emaSlow = calculateEMA(closes, slow)
+
+  const dif: number[] = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i < slow - 1) {
+      dif.push(0)
+    } else {
+      dif.push(emaFast[i] - emaSlow[i])
+    }
+  }
+
+  const macdLine = calculateEMA(dif.slice(slow - 1), signal)
+  const fullMacd = new Array(slow - 1).fill(0).concat(macdLine)
+
+  for (let i = slow + signal - 2; i < data.length; i++) {
+    result[i] = {
+      dif: dif[i],
+      macd: fullMacd[i],
+      histogram: dif[i] - fullMacd[i],
+    }
+  }
+  return result
+}
+
+// 計算 KD 並返回按 index 索引的數組
+function calculateKDValues(data: DailyStock[], period = 9): ({ k: number; d: number } | null)[] {
+  const result: ({ k: number; d: number } | null)[] = new Array(data.length).fill(null)
+  let prevK = 50
+  let prevD = 50
+
+  for (let i = period - 1; i < data.length; i++) {
+    const periodData = data.slice(i - period + 1, i + 1)
+    const high = Math.max(...periodData.map(d => d.high))
+    const low = Math.min(...periodData.map(d => d.low))
+    const close = data[i].close
+
+    const rsv = high !== low ? ((close - low) / (high - low)) * 100 : 50
+    const k = (2 / 3) * prevK + (1 / 3) * rsv
+    const d = (2 / 3) * prevD + (1 / 3) * k
+
+    result[i] = { k, d }
+    prevK = k
+    prevD = d
+  }
+  return result
+}
+
+// 計算 RSI 並返回按 index 索引的數組
+function calculateRSIValues(data: DailyStock[], period = 14): (number | null)[] {
+  const result: (number | null)[] = new Array(data.length).fill(null)
+  const gains: number[] = []
+  const losses: number[] = []
+
+  for (let i = 1; i < data.length; i++) {
+    const change = data[i].close - data[i - 1].close
+    gains.push(change > 0 ? change : 0)
+    losses.push(change < 0 ? -change : 0)
+
+    if (i >= period) {
+      const avgGain = gains.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const avgLoss = losses.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
+      result[i] = 100 - (100 / (1 + rs))
+    }
   }
   return result
 }
