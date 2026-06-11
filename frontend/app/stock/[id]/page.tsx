@@ -92,18 +92,18 @@ export default function StockDetail() {
           <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             {/* 價格 */}
             <div className="col-span-2">
-              <div className="text-gray-500 text-sm">收盤價</div>
+              <div className="text-gray-900 text-base font-medium">收盤價</div>
               <div className={`text-3xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
                 ${latest.close.toFixed(2)}
               </div>
-              <div className={`text-sm ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
+              <div className={`text-base ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
                 {isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePct}%)
               </div>
             </div>
 
             {/* MACD 狀態 */}
             <div>
-              <div className="text-gray-500 text-sm">MACD</div>
+              <div className="text-gray-900 text-base font-medium">MACD</div>
               <div className={`text-xl font-bold ${latest.macd_status === '多' ? 'text-red-600' : 'text-green-600'}`}>
                 {latest.macd_status === '多' ? '多頭' : '空頭'}
               </div>
@@ -111,58 +111,58 @@ export default function StockDetail() {
 
             {/* 成交量 */}
             <div>
-              <div className="text-gray-500 text-sm">成交量</div>
-              <div className="text-xl font-bold">{latest.volume.toLocaleString()}</div>
-              <div className="text-xs text-gray-400">張</div>
+              <div className="text-gray-900 text-base font-medium">成交量</div>
+              <div className="text-xl font-bold text-gray-900">{latest.volume.toLocaleString()}</div>
+              <div className="text-sm text-gray-700">張</div>
             </div>
 
             {/* 強勢次數 */}
             <div>
-              <div className="text-gray-500 text-sm">近7日強勢</div>
+              <div className="text-gray-900 text-base font-medium">近7日強勢</div>
               <div className="text-xl font-bold text-orange-500">{data.recentStrongDays}</div>
-              <div className="text-xs text-gray-400">天</div>
+              <div className="text-sm text-gray-700">天</div>
             </div>
 
             {/* 資料日期 */}
             <div>
-              <div className="text-gray-500 text-sm">資料日期</div>
-              <div className="text-lg font-medium">{latest.date}</div>
+              <div className="text-gray-900 text-base font-medium">資料日期</div>
+              <div className="text-lg font-medium text-gray-900">{latest.date}</div>
             </div>
           </div>
 
           {/* 三大法人 */}
-          <div className="mt-6 pt-6 border-t border-gray-100">
-            <div className="text-gray-500 text-sm mb-3">三大法人買賣超（張）</div>
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="text-gray-900 text-base font-medium mb-3">三大法人買賣超（張）</div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
               <div>
-                <div className="text-gray-400 text-xs">外資</div>
+                <div className="text-gray-800 text-sm font-medium">外資</div>
                 <div className={`text-lg font-bold ${latest.foreign_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {latest.foreign_buy >= 0 ? '+' : ''}{latest.foreign_buy.toLocaleString()}
                 </div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs">投信</div>
+                <div className="text-gray-800 text-sm font-medium">投信</div>
                 <div className={`text-lg font-bold ${latest.trust_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {latest.trust_buy >= 0 ? '+' : ''}{latest.trust_buy.toLocaleString()}
                 </div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs">自營商</div>
+                <div className="text-gray-800 text-sm font-medium">自營商</div>
                 <div className={`text-lg font-bold ${latest.dealer_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {latest.dealer_buy >= 0 ? '+' : ''}{latest.dealer_buy.toLocaleString()}
                 </div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs">外資持股比例</div>
-                <div className="text-lg font-medium">{latest.foreign_hold_ratio.toFixed(2)}%</div>
+                <div className="text-gray-800 text-sm font-medium">外資持股比例</div>
+                <div className="text-lg font-medium text-gray-900">{latest.foreign_hold_ratio.toFixed(2)}%</div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs">外資尚可投資</div>
-                <div className="text-lg font-medium">{latest.foreign_remain_ratio.toFixed(2)}%</div>
+                <div className="text-gray-800 text-sm font-medium">外資尚可投資</div>
+                <div className="text-lg font-medium text-gray-900">{latest.foreign_remain_ratio.toFixed(2)}%</div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs">外資投資上限</div>
-                <div className="text-lg font-medium">{latest.foreign_limit_ratio.toFixed(2)}%</div>
+                <div className="text-gray-800 text-sm font-medium">外資投資上限</div>
+                <div className="text-lg font-medium text-gray-900">{latest.foreign_limit_ratio.toFixed(2)}%</div>
               </div>
             </div>
           </div>
