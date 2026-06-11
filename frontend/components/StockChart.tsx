@@ -48,7 +48,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
-        fontSize: 14,
+        fontSize: 16,
       },
       width: mainChartRef.current.clientWidth,
       height: mainHeight,
@@ -106,7 +106,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
-        fontSize: 14,
+        fontSize: 16,
       },
       width: volumeChartRef.current.clientWidth,
       height: volumeHeight,
@@ -139,7 +139,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: '#1a1a2e' },
         textColor: '#a0a0a0',
-        fontSize: 14,
+        fontSize: 16,
       },
       width: indicatorChartRef.current.clientWidth,
       height: indicatorHeight,
@@ -248,7 +248,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       {/* 頂部控制列 */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         {/* 時間週期選擇 */}
-        <div className="flex gap-1">
+        <div className="flex gap-2">
           {[
             { key: 'day', label: '日K' },
             { key: 'week', label: '週K' },
@@ -257,10 +257,10 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
             <button
               key={key}
               onClick={() => setTimeFrame(key as TimeFrame)}
-              className={`px-3 py-1 text-base rounded ${
+              className={`px-4 py-2 text-lg font-medium rounded ${
                 timeFrame === key
                   ? 'bg-blue-600 text-white'
-                  : 'bg-[#2a2a3e] text-gray-400 hover:bg-[#3a3a4e]'
+                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
               }`}
             >
               {label}
@@ -269,12 +269,12 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
         </div>
 
         {/* 指標選擇 */}
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400 text-base">指標:</span>
+        <div className="flex items-center gap-3">
+          <span className="text-white text-lg">指標:</span>
           <select
             value={indicator}
             onChange={(e) => setIndicator(e.target.value as Indicator)}
-            className="bg-[#2a2a3e] text-gray-300 text-base rounded px-2 py-1 border border-[#3a3a4e]"
+            className="bg-[#2a2a3e] text-white text-lg font-medium rounded px-3 py-2 border border-[#3a3a4e]"
           >
             <option value="macd">MACD</option>
             <option value="kd">KD</option>
@@ -288,75 +288,75 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       {latestData && (
         <div className="space-y-2 mb-3">
           {/* 第一行：日期、OHLCV */}
-          <div className="flex flex-wrap gap-4 text-base">
-            <span className="text-gray-400">
-              日期: <span className="text-white">{latestData.date}</span>
+          <div className="flex flex-wrap gap-5 text-lg">
+            <span className="text-white">
+              日期: <span className="font-medium">{latestData.date}</span>
             </span>
-            <span className="text-gray-400">
-              開: <span className="text-white">{latestData.open?.toFixed(2)}</span>
+            <span className="text-white">
+              開: <span className="font-medium">{latestData.open?.toFixed(2)}</span>
             </span>
-            <span className="text-gray-400">
-              高: <span className="text-red-400">{latestData.high?.toFixed(2)}</span>
+            <span className="text-white">
+              高: <span className="text-red-400 font-medium">{latestData.high?.toFixed(2)}</span>
             </span>
-            <span className="text-gray-400">
-              低: <span className="text-green-400">{latestData.low?.toFixed(2)}</span>
+            <span className="text-white">
+              低: <span className="text-green-400 font-medium">{latestData.low?.toFixed(2)}</span>
             </span>
-            <span className="text-gray-400">
-              收: <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
+            <span className="text-white">
+              收: <span className={`font-medium ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
                 {latestData.close?.toFixed(2)}
               </span>
             </span>
-            <span className={priceChange >= 0 ? 'text-red-400' : 'text-green-400'}>
+            <span className={`font-medium ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
               {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePct}%)
             </span>
-            <span className="text-gray-400">
-              量: <span className="text-white">{latestData.volume?.toLocaleString()}</span>
+            <span className="text-white">
+              量: <span className="font-medium">{latestData.volume?.toLocaleString()}</span>
             </span>
           </div>
 
           {/* 第二行：MA 數值 */}
-          <div className="flex flex-wrap gap-4 text-sm">
-            <span className="text-yellow-500">
+          <div className="flex flex-wrap gap-5 text-base">
+            <span className="text-yellow-400 font-medium">
               MA5: {currentMA.ma5?.toFixed(2) || '-'}
             </span>
-            <span className="text-blue-500">
+            <span className="text-blue-400 font-medium">
               MA10: {currentMA.ma10?.toFixed(2) || '-'}
             </span>
-            <span className="text-pink-500">
+            <span className="text-pink-400 font-medium">
               MA20: {currentMA.ma20?.toFixed(2) || '-'}
             </span>
-            <span className="text-purple-500">
+            <span className="text-purple-400 font-medium">
               MA60: {currentMA.ma60?.toFixed(2) || '-'}
             </span>
           </div>
 
           {/* 第三行：技術指標數值 */}
-          <div className="flex flex-wrap gap-4 text-sm">
+          <div className="flex flex-wrap gap-5 text-base">
             {indicator === 'macd' && currentMACD && (
               <>
-                <span className="text-blue-400">
+                <span className="text-blue-400 font-medium">
                   DIF: {currentMACD.dif?.toFixed(2) || '-'}
                 </span>
-                <span className="text-orange-400">
+                <span className="text-orange-400 font-medium">
                   MACD: {currentMACD.macd?.toFixed(2) || '-'}
                 </span>
-                <span className={currentMACD.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>
+                <span className={`font-medium ${currentMACD.histogram >= 0 ? 'text-red-400' : 'text-green-400'}`}>
                   柱狀: {currentMACD.histogram?.toFixed(2) || '-'}
                 </span>
               </>
             )}
             {indicator === 'kd' && currentKD && (
               <>
-                <span className="text-blue-400">
+                <span className="text-blue-400 font-medium">
                   K: {currentKD.k?.toFixed(2) || '-'}
                 </span>
-                <span className="text-orange-400">
+                <span className="text-orange-400 font-medium">
                   D: {currentKD.d?.toFixed(2) || '-'}
                 </span>
               </>
             )}
             {indicator === 'rsi' && (
-              <span className="text-purple-400">
+              <span className="text-purple-400 font-medium">
                 RSI: {currentRSI?.toFixed(2) || '-'}
               </span>
             )}
