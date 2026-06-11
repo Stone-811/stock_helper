@@ -64,7 +64,10 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
-│   │   └── daily_stock_YYYYMMDD.csv
+│   │   ├── daily_stock_YYYYMMDD.csv
+│   │   └── archive/                    # 歷史資料存檔
+│   │       ├── stocks_2024.csv         # 2024 年度資料
+│   │       └── stocks_2025.csv         # 2025 年度資料
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │       └── strong_stock_matrix.csv
 │
@@ -75,13 +78,13 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── stock/[id]/page.tsx         # 個股詳情頁
 │   │   └── api/                        # API Routes
 │   │       ├── strong-stocks/route.ts  # 強勢股 API
-│   │       └── stock/[id]/route.ts     # 個股資料 API
+│   │       ├── stock/[id]/route.ts     # 個股資料 API
+│   │       └── stocks/route.ts         # 股票清單 API（分頁）
 │   │
 │   ├── components/                     # React 元件
 │   │   ├── StockCard.tsx               # 股票卡片
-│   │   ├── CandlestickChart.tsx        # K 線圖
-│   │   ├── MacdChart.tsx               # MACD 圖
-│   │   └── VolumeChart.tsx             # 成交量圖
+│   │   ├── StockChart.tsx              # 專業技術分析圖（整合 K 線+指標）
+│   │   └── StockSearch.tsx             # 股票搜尋（自動完成）
 │   │
 │   ├── lib/                            # 共用函式庫
 │   │   └── supabase.ts                 # Supabase client
@@ -112,14 +115,23 @@ Claude Code 處理本專案時的指引說明。
 
 | 檔案 | 職責 |
 |------|------|
-| app/page.tsx | 首頁：強勢股列表、篩選功能 |
-| app/stock/[id]/page.tsx | 個股詳情：K線圖、MACD、法人買賣超 |
+| app/page.tsx | 首頁：強勢股列表、篩選功能、股票搜尋 |
+| app/stock/[id]/page.tsx | 個股詳情：專業圖表、法人買賣超 |
 | api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數） |
-| api/stock/[id]/route.ts | API：取得個股歷史資料 |
-| components/CandlestickChart.tsx | K 線圖（含 MA5/20/60）使用 lightweight-charts |
-| components/MacdChart.tsx | MACD 圖表（DIF、MACD、柱狀圖） |
+| api/stock/[id]/route.ts | API：取得個股完整歷史資料 |
+| api/stocks/route.ts | API：取得所有股票清單（分頁繞過 1000 筆限制） |
+| components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
+| components/StockSearch.tsx | 股票搜尋元件（自動完成、鍵盤導航） |
 | components/StockCard.tsx | 股票資訊卡片元件 |
 | lib/supabase.ts | Supabase client 初始化、TypeScript 介面定義 |
+
+### StockChart 專業圖表功能
+
+- **時間週期切換**：日K / 週K / 月K
+- **技術指標選擇**：MACD / KD / RSI
+- **三圖同步**：K 線主圖、成交量、指標圖
+- **深色主題**：專業交易介面風格
+- **十字游標**：顯示 OHLCV 即時數據
 
 ## 資料庫 Schema
 
@@ -308,6 +320,39 @@ streamlit run streamlit_app/app.py
 4. 個別股票失敗不中斷整體流程
 5. 為新函數撰寫 docstring
 6. Supabase 寫入前需去除重複資料
+
+## Supabase 注意事項
+
+### 預設 1000 筆限制
+
+Supabase 預設每次查詢最多回傳 1000 筆。需要取得更多資料時，使用分頁查詢：
+
+```typescript
+// 分批取得所有資料（每批 1000 筆）
+let allData: any[] = []
+let from = 0
+const batchSize = 1000
+
+while (true) {
+  const { data, error } = await supabase
+    .from('daily_stocks')
+    .select('*')
+    .range(from, from + batchSize - 1)
+
+  if (!data || data.length === 0) break
+  allData.push(...data)
+  if (data.length < batchSize) break
+  from += batchSize
+}
+```
+
+### 資料庫統計（截至目前）
+
+| 項目 | 數值 |
+|------|------|
+| daily_stocks 總筆數 | ~1,250,000 |
+| 資料日期範圍 | 2024-01-02 ~ 今日 |
+| 上市上櫃股票數 | ~2,316 檔 |
 
 ## 技術棧
 

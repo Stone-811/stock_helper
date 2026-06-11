@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import CandlestickChart from '../../../components/CandlestickChart'
-import VolumeChart from '../../../components/VolumeChart'
-import MacdChart from '../../../components/MacdChart'
+import StockChart from '../../../components/StockChart'
+import StockSearch from '../../../components/StockSearch'
 import { DailyStock } from '../../../lib/supabase'
 
 interface StockData {
@@ -27,7 +26,7 @@ export default function StockDetail() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const res = await fetch(`/api/stock/${stockId}?days=365`)
+        const res = await fetch(`/api/stock/${stockId}`)
         if (!res.ok) {
           throw new Error('Stock not found')
         }
@@ -72,13 +71,18 @@ export default function StockDetail() {
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/" className="text-gray-500 hover:text-gray-700">
-            ← 返回
-          </Link>
-          <h1 className="text-xl font-bold text-gray-800">
-            {data.stock_id} {data.stock_name}
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <Link href="/" className="text-gray-500 hover:text-gray-700">
+                ← 返回
+              </Link>
+              <h1 className="text-xl font-bold text-gray-800">
+                {data.stock_id} {data.stock_name}
+              </h1>
+            </div>
+            <StockSearch />
+          </div>
         </div>
       </header>
 
@@ -164,22 +168,9 @@ export default function StockDetail() {
           </div>
         </div>
 
-        {/* K 線圖 */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">K 線圖</h2>
-          <CandlestickChart data={history} height={400} />
-        </div>
-
-        {/* 成交量 */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">成交量</h2>
-          <VolumeChart data={history} height={150} />
-        </div>
-
-        {/* MACD */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">MACD</h2>
-          <MacdChart data={history} height={200} />
+        {/* 技術分析圖表 */}
+        <div className="mb-6">
+          <StockChart data={history} height={550} />
         </div>
       </div>
     </main>

@@ -54,12 +54,16 @@
 
 ### 3. Next.js 互動式分析網站
 - **今日強勢股列表**：卡片式排列，顯示強勢次數
+- **股票搜尋**：自動完成、支援代碼與名稱搜尋、鍵盤導航
 - **篩選功能**：MACD 多空、成交量門檻
-- **技術分析圖表**：
-  - K 線圖 + MA5/MA20/MA60
-  - 成交量柱狀圖
-  - MACD 指標（DIF、Signal、Histogram）
+- **專業技術分析圖表**（仿鉅亨網/Yahoo Finance）：
+  - K 線圖 + MA5/MA20/MA60（深色主題）
+  - 時間週期切換：日K / 週K / 月K
+  - 技術指標選擇：MACD / KD / RSI
+  - 成交量柱狀圖（紅漲綠跌）
+  - 十字游標即時顯示 OHLCV 數據
 - **三大法人買超**：即時顯示法人買賣張數
+- **完整歷史資料**：從 2024 年至今所有交易日資料
 
 ---
 
@@ -154,6 +158,7 @@ python stock_collector/update_strong_matrix.py
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
+│   │   └── archive/                    # 2024/2025 年度資料
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │
 └── frontend/                           # Next.js 前端
@@ -161,11 +166,13 @@ python stock_collector/update_strong_matrix.py
     │   ├── page.tsx                    # 首頁
     │   ├── stock/[id]/page.tsx         # 個股詳情
     │   └── api/                        # API Routes
+    │       ├── strong-stocks/          # 強勢股 API
+    │       ├── stock/[id]/             # 個股資料 API
+    │       └── stocks/                 # 股票清單 API
     ├── components/                     # React 元件
     │   ├── StockCard.tsx               # 股票卡片
-    │   ├── CandlestickChart.tsx        # K 線圖
-    │   ├── MacdChart.tsx               # MACD 圖
-    │   └── VolumeChart.tsx             # 成交量圖
+    │   ├── StockChart.tsx              # 專業技術分析圖
+    │   └── StockSearch.tsx             # 股票搜尋元件
     └── lib/
         └── supabase.ts                 # Supabase client
 ```

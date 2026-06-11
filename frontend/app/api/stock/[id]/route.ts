@@ -6,21 +6,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const { searchParams } = new URL(request.url)
-  const days = parseInt(searchParams.get('days') || '365')
 
   try {
-    // 計算日期範圍
-    const endDate = new Date()
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-
-    // 取得股票歷史資料
+    // 取得股票歷史資料（不限日期，取全部）
     const { data: stockData, error } = await supabase
       .from('daily_stocks')
       .select('*')
       .eq('stock_id', id)
-      .gte('date', startDate.toISOString().split('T')[0])
-      .lte('date', endDate.toISOString().split('T')[0])
       .order('date', { ascending: true })
 
     if (error) throw error
@@ -29,12 +21,11 @@ export async function GET(
       return NextResponse.json({ error: 'Stock not found' }, { status: 404 })
     }
 
-    // 取得強勢股歷史
+    // 取得強勢股歷史（全部）
     const { data: strongHistory } = await supabase
       .from('strong_stock_matrix')
       .select('date, is_strong')
       .eq('stock_id', id)
-      .gte('date', startDate.toISOString().split('T')[0])
       .order('date', { ascending: true })
 
     // 計算近 7 日強勢次數
