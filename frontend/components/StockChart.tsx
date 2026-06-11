@@ -195,10 +195,10 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       }
     })
 
-    // 預設顯示近一年資料（約 250 個交易日），但仍可往前拉
-    const oneYearBars = 250
+    // 預設顯示近三個月資料（約 65 個交易日），但仍可往前拉
+    const threeMonthBars = 65
     const totalBars = chartData.length
-    const from = Math.max(0, totalBars - oneYearBars)
+    const from = Math.max(0, totalBars - threeMonthBars)
     const visibleRange = { from, to: totalBars }
 
     mainChart.timeScale().setVisibleLogicalRange(visibleRange)
