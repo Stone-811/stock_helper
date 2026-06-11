@@ -168,10 +168,11 @@ export default function StockDetail() {
           </div>
         </div>
 
-        {/* 技術分析圖表 */}
-        <div className="mb-6">
-          <StockChart data={history} height={550} />
-        </div>
+      </div>
+
+      {/* 技術分析圖表 - 全幅 */}
+      <div className="w-full px-2 mb-6">
+        <StockChart data={history} height={600} />
       </div>
     </main>
   )
