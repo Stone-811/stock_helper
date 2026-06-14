@@ -79,6 +79,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       borderDownColor: '#22c55e',
       wickUpColor: '#ef4444',
       wickDownColor: '#22c55e',
+      lastValueVisible: false,
     })
 
     const candleData: CandlestickData[] = chartData.map(item => ({
@@ -91,10 +92,10 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
     candleSeries.setData(candleData)
 
     // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1 })
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1 })
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1 })
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false })
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false })
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
 
     ma5.setData(calculateMA(chartData, 5))
     ma10.setData(calculateMA(chartData, 10))
@@ -125,6 +126,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
     const volumeSeries = volumeChart.addHistogramSeries({
       priceFormat: { type: 'volume' },
+      lastValueVisible: false,
     })
 
     const volumeData: HistogramData[] = chartData.map(item => ({
@@ -464,6 +466,7 @@ function drawMACD(chart: IChartApi, data: DailyStock[]) {
   // Histogram
   const histogramSeries = chart.addHistogramSeries({
     priceFormat: { type: 'price', precision: 2 },
+    lastValueVisible: false,
   })
   histogramSeries.setData(macdData.map(d => ({
     time: d.time as string,
@@ -472,21 +475,21 @@ function drawMACD(chart: IChartApi, data: DailyStock[]) {
   })))
 
   // DIF
-  const difSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
+  const difSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
   difSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.dif })))
 
   // MACD
-  const macdSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1 })
+  const macdSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
   macdSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.macd })))
 }
 
 function drawKD(chart: IChartApi, data: DailyStock[]) {
   const kdData = calculateKD(data)
 
-  const kSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
+  const kSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
   kSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.k })))
 
-  const dSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1 })
+  const dSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
   dSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.d })))
 
   // 超買超賣線
@@ -499,7 +502,7 @@ function drawKD(chart: IChartApi, data: DailyStock[]) {
 function drawRSI(chart: IChartApi, data: DailyStock[]) {
   const rsiData = calculateRSI(data)
 
-  const rsiSeries = chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1 })
+  const rsiSeries = chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
   rsiSeries.setData(rsiData)
 
   // 超買超賣線
