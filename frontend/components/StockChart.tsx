@@ -19,12 +19,11 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
   const [indicator, setIndicator] = useState<Indicator>('macd')
-  const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
 
   // 根據時間週期轉換資料
   const chartData = convertToTimeFrame(data, timeFrame)
 
-  // 預先計算所有 MA 和指標數值
+  // 預先計算所有 MA 和指標數值（用於右側價格標籤）
   const maData = {
     ma5: calculateMAValues(chartData, 5),
     ma10: calculateMAValues(chartData, 10),
@@ -79,6 +78,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       borderDownColor: '#22c55e',
       wickUpColor: '#ef4444',
       wickDownColor: '#22c55e',
+      lastValueVisible: false, // 隱藏預設的最後價格標籤
     })
 
     const candleData: CandlestickData[] = chartData.map(item => ({
@@ -91,15 +91,66 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
     candleSeries.setData(candleData)
 
     // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1 })
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1 })
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1 })
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false })
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false })
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
 
     ma5.setData(calculateMA(chartData, 5))
     ma10.setData(calculateMA(chartData, 10))
     ma20.setData(calculateMA(chartData, 20))
     ma60.setData(calculateMA(chartData, 60))
+
+    // 建立右側價格標籤 (Price Lines)
+    const lastIdx = chartData.length - 1
+    const lastClose = chartData[lastIdx]?.close || 0
+
+    // 收盤價標籤
+    let closePriceLine = candleSeries.createPriceLine({
+      price: lastClose,
+      color: chartData[lastIdx]?.close >= chartData[lastIdx]?.open ? '#ef4444' : '#22c55e',
+      lineWidth: 1,
+      lineStyle: 2, // Dashed
+      axisLabelVisible: true,
+      title: '',
+    })
+
+    // MA 價格標籤
+    let ma5PriceLine = ma5.createPriceLine({
+      price: maData.ma5[lastIdx] || 0,
+      color: '#f59e0b',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: '',
+    })
+
+    let ma10PriceLine = ma10.createPriceLine({
+      price: maData.ma10[lastIdx] || 0,
+      color: '#3b82f6',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: '',
+    })
+
+    let ma20PriceLine = ma20.createPriceLine({
+      price: maData.ma20[lastIdx] || 0,
+      color: '#ec4899',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: '',
+    })
+
+    let ma60PriceLine = ma60.createPriceLine({
+      price: maData.ma60[lastIdx] || 0,
+      color: '#8b5cf6',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: '',
+    })
 
     // ========== 成交量圖 ==========
     const volumeChart = createChart(volumeChartRef.current, {
@@ -125,6 +176,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
     const volumeSeries = volumeChart.addHistogramSeries({
       priceFormat: { type: 'volume' },
+      lastValueVisible: false,
     })
 
     const volumeData: HistogramData[] = chartData.map(item => ({
@@ -133,6 +185,16 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       color: item.close >= item.open ? '#ef444480' : '#22c55e80',
     }))
     volumeSeries.setData(volumeData)
+
+    // 成交量價格標籤
+    let volumePriceLine = volumeSeries.createPriceLine({
+      price: chartData[lastIdx]?.volume || 0,
+      color: chartData[lastIdx]?.close >= chartData[lastIdx]?.open ? '#ef4444' : '#22c55e',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: '',
+    })
 
     // ========== 指標圖 ==========
     const indicatorChart = createChart(indicatorChartRef.current, {
@@ -156,13 +218,40 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       },
     })
 
-    // 根據選擇的指標繪製
+    // 根據選擇的指標繪製，並建立價格標籤
+    let indicatorSeries: any = null
+    let indicatorPriceLines: any[] = []
+
     if (indicator === 'macd') {
-      drawMACD(indicatorChart, chartData)
+      const series = drawMACD(indicatorChart, chartData)
+      indicatorSeries = series
+      const lastMacd = macdData[lastIdx]
+      if (lastMacd) {
+        indicatorPriceLines = [
+          series.difSeries.createPriceLine({ price: lastMacd.dif, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          series.macdSeries.createPriceLine({ price: lastMacd.macd, color: '#f97316', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          series.histogramSeries.createPriceLine({ price: lastMacd.histogram, color: lastMacd.histogram >= 0 ? '#ef4444' : '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      }
     } else if (indicator === 'kd') {
-      drawKD(indicatorChart, chartData)
+      const series = drawKD(indicatorChart, chartData)
+      indicatorSeries = series
+      const lastKd = kdData[lastIdx]
+      if (lastKd) {
+        indicatorPriceLines = [
+          series.kSeries.createPriceLine({ price: lastKd.k, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          series.dSeries.createPriceLine({ price: lastKd.d, color: '#f97316', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      }
     } else if (indicator === 'rsi') {
-      drawRSI(indicatorChart, chartData)
+      const series = drawRSI(indicatorChart, chartData)
+      indicatorSeries = series
+      const lastRsi = rsiData[lastIdx]
+      if (lastRsi) {
+        indicatorPriceLines = [
+          series.rsiSeries.createPriceLine({ price: lastRsi, color: '#8b5cf6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      }
     }
 
     // 同步三個圖表的時間軸
@@ -187,11 +276,121 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       }
     })
 
-    // 同步十字線 - 記錄 index 以便查詢所有指標數值
+    // 同步十字線 - 記錄 index 並更新右側價格標籤
+    const updatePriceLabels = (idx: number) => {
+      if (idx < 0 || idx >= chartData.length) return
+
+      const currentData = chartData[idx]
+      const isUp = currentData.close >= currentData.open
+
+      // 更新收盤價標籤
+      candleSeries.removePriceLine(closePriceLine)
+      closePriceLine = candleSeries.createPriceLine({
+        price: currentData.close,
+        color: isUp ? '#ef4444' : '#22c55e',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '',
+      })
+
+      // 更新 MA 標籤
+      if (maData.ma5[idx]) {
+        ma5.removePriceLine(ma5PriceLine)
+        ma5PriceLine = ma5.createPriceLine({
+          price: maData.ma5[idx]!,
+          color: '#f59e0b',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        })
+      }
+
+      if (maData.ma10[idx]) {
+        ma10.removePriceLine(ma10PriceLine)
+        ma10PriceLine = ma10.createPriceLine({
+          price: maData.ma10[idx]!,
+          color: '#3b82f6',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        })
+      }
+
+      if (maData.ma20[idx]) {
+        ma20.removePriceLine(ma20PriceLine)
+        ma20PriceLine = ma20.createPriceLine({
+          price: maData.ma20[idx]!,
+          color: '#ec4899',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        })
+      }
+
+      if (maData.ma60[idx]) {
+        ma60.removePriceLine(ma60PriceLine)
+        ma60PriceLine = ma60.createPriceLine({
+          price: maData.ma60[idx]!,
+          color: '#8b5cf6',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        })
+      }
+
+      // 更新成交量標籤
+      volumeSeries.removePriceLine(volumePriceLine)
+      volumePriceLine = volumeSeries.createPriceLine({
+        price: currentData.volume,
+        color: isUp ? '#ef4444' : '#22c55e',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '',
+      })
+
+      // 更新指標標籤
+      if (indicator === 'macd' && indicatorSeries && macdData[idx]) {
+        const m = macdData[idx]!
+        indicatorPriceLines.forEach((pl, i) => {
+          if (i === 0) indicatorSeries.difSeries.removePriceLine(pl)
+          else if (i === 1) indicatorSeries.macdSeries.removePriceLine(pl)
+          else indicatorSeries.histogramSeries.removePriceLine(pl)
+        })
+        indicatorPriceLines = [
+          indicatorSeries.difSeries.createPriceLine({ price: m.dif, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          indicatorSeries.macdSeries.createPriceLine({ price: m.macd, color: '#f97316', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          indicatorSeries.histogramSeries.createPriceLine({ price: m.histogram, color: m.histogram >= 0 ? '#ef4444' : '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      } else if (indicator === 'kd' && indicatorSeries && kdData[idx]) {
+        const k = kdData[idx]!
+        indicatorPriceLines.forEach((pl, i) => {
+          if (i === 0) indicatorSeries.kSeries.removePriceLine(pl)
+          else indicatorSeries.dSeries.removePriceLine(pl)
+        })
+        indicatorPriceLines = [
+          indicatorSeries.kSeries.createPriceLine({ price: k.k, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+          indicatorSeries.dSeries.createPriceLine({ price: k.d, color: '#f97316', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      } else if (indicator === 'rsi' && indicatorSeries && rsiData[idx]) {
+        indicatorPriceLines.forEach(pl => indicatorSeries.rsiSeries.removePriceLine(pl))
+        indicatorPriceLines = [
+          indicatorSeries.rsiSeries.createPriceLine({ price: rsiData[idx]!, color: '#8b5cf6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' }),
+        ]
+      }
+    }
+
     mainChart.subscribeCrosshairMove(param => {
       if (param.time) {
         const idx = chartData.findIndex(d => d.date === param.time)
-        if (idx !== -1) setCrosshairIndex(idx)
+        if (idx !== -1) {
+          updatePriceLabels(idx)
+        }
       }
     })
 
@@ -223,25 +422,6 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       indicatorChart.remove()
     }
   }, [chartData, indicator, height])
-
-  // 取得當前游標位置的資料
-  const currentIdx = crosshairIndex >= 0 ? crosshairIndex : chartData.length - 1
-  const latestData = chartData[currentIdx]
-  const priceChange = latestData ? latestData.close - latestData.open : 0
-  const priceChangePct = latestData && latestData.open ? ((priceChange / latestData.open) * 100).toFixed(2) : '0'
-
-  // 取得當前 MA 數值
-  const currentMA = {
-    ma5: maData.ma5[currentIdx],
-    ma10: maData.ma10[currentIdx],
-    ma20: maData.ma20[currentIdx],
-    ma60: maData.ma60[currentIdx],
-  }
-
-  // 取得當前指標數值
-  const currentMACD = macdData[currentIdx]
-  const currentKD = kdData[currentIdx]
-  const currentRSI = rsiData[currentIdx]
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
@@ -283,86 +463,6 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
         </div>
 
       </div>
-
-      {/* 價格與指標資訊 - 整合顯示 */}
-      {latestData && (
-        <div className="space-y-2 mb-3">
-          {/* 第一行：日期、OHLCV */}
-          <div className="flex flex-wrap gap-5 text-lg">
-            <span className="text-white">
-              日期: <span className="font-medium">{latestData.date}</span>
-            </span>
-            <span className="text-white">
-              開: <span className="font-medium">{latestData.open?.toFixed(2)}</span>
-            </span>
-            <span className="text-white">
-              高: <span className="text-red-400 font-medium">{latestData.high?.toFixed(2)}</span>
-            </span>
-            <span className="text-white">
-              低: <span className="text-green-400 font-medium">{latestData.low?.toFixed(2)}</span>
-            </span>
-            <span className="text-white">
-              收: <span className={`font-medium ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                {latestData.close?.toFixed(2)}
-              </span>
-            </span>
-            <span className={`font-medium ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePct}%)
-            </span>
-            <span className="text-white">
-              量: <span className="font-medium">{latestData.volume?.toLocaleString()}</span>
-            </span>
-          </div>
-
-          {/* 第二行：MA 數值 */}
-          <div className="flex flex-wrap gap-5 text-base">
-            <span className="text-yellow-400 font-medium">
-              MA5: {currentMA.ma5?.toFixed(2) || '-'}
-            </span>
-            <span className="text-blue-400 font-medium">
-              MA10: {currentMA.ma10?.toFixed(2) || '-'}
-            </span>
-            <span className="text-pink-400 font-medium">
-              MA20: {currentMA.ma20?.toFixed(2) || '-'}
-            </span>
-            <span className="text-purple-400 font-medium">
-              MA60: {currentMA.ma60?.toFixed(2) || '-'}
-            </span>
-          </div>
-
-          {/* 第三行：技術指標數值 */}
-          <div className="flex flex-wrap gap-5 text-base">
-            {indicator === 'macd' && currentMACD && (
-              <>
-                <span className="text-blue-400 font-medium">
-                  DIF: {currentMACD.dif?.toFixed(2) || '-'}
-                </span>
-                <span className="text-orange-400 font-medium">
-                  MACD: {currentMACD.macd?.toFixed(2) || '-'}
-                </span>
-                <span className={`font-medium ${currentMACD.histogram >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                  柱狀: {currentMACD.histogram?.toFixed(2) || '-'}
-                </span>
-              </>
-            )}
-            {indicator === 'kd' && currentKD && (
-              <>
-                <span className="text-blue-400 font-medium">
-                  K: {currentKD.k?.toFixed(2) || '-'}
-                </span>
-                <span className="text-orange-400 font-medium">
-                  D: {currentKD.d?.toFixed(2) || '-'}
-                </span>
-              </>
-            )}
-            {indicator === 'rsi' && (
-              <span className="text-purple-400 font-medium">
-                RSI: {currentRSI?.toFixed(2) || '-'}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* 圖表區域 */}
       <div ref={mainChartRef} />
@@ -518,6 +618,7 @@ function drawMACD(chart: IChartApi, data: DailyStock[]) {
   // Histogram
   const histogramSeries = chart.addHistogramSeries({
     priceFormat: { type: 'price', precision: 2 },
+    lastValueVisible: false,
   })
   histogramSeries.setData(macdData.map(d => ({
     time: d.time as string,
@@ -526,41 +627,47 @@ function drawMACD(chart: IChartApi, data: DailyStock[]) {
   })))
 
   // DIF
-  const difSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
+  const difSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
   difSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.dif })))
 
   // MACD
-  const macdSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1 })
+  const macdSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
   macdSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.macd })))
+
+  return { difSeries, macdSeries, histogramSeries }
 }
 
 function drawKD(chart: IChartApi, data: DailyStock[]) {
   const kdData = calculateKD(data)
 
-  const kSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1 })
+  const kSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
   kSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.k })))
 
-  const dSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1 })
+  const dSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
   dSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.d })))
 
   // 超買超賣線
-  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2 })
-  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2 })
+  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
   overbought.setData(kdData.map(d => ({ time: d.time as string, value: 80 })))
   oversold.setData(kdData.map(d => ({ time: d.time as string, value: 20 })))
+
+  return { kSeries, dSeries }
 }
 
 function drawRSI(chart: IChartApi, data: DailyStock[]) {
   const rsiData = calculateRSI(data)
 
-  const rsiSeries = chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1 })
+  const rsiSeries = chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
   rsiSeries.setData(rsiData)
 
   // 超買超賣線
-  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2 })
-  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2 })
+  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
   overbought.setData(rsiData.map(d => ({ time: d.time as string, value: 70 })))
   oversold.setData(rsiData.map(d => ({ time: d.time as string, value: 30 })))
+
+  return { rsiSeries }
 }
 
 function calculateMACD(data: DailyStock[], fast = 12, slow = 26, signal = 9) {
