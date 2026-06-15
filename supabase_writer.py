@@ -80,6 +80,7 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
                 'low': float(row.get('low', 0)) if pd.notna(row.get('low')) else None,
                 'close': float(row.get('close', 0)) if pd.notna(row.get('close')) else None,
                 'volume': int(row.get('volume', 0)) if pd.notna(row.get('volume')) else 0,
+                'day_trading_volume': int(row.get('day_trading_volume', 0)) if pd.notna(row.get('day_trading_volume')) else 0,
                 'foreign_buy': int(row.get('foreign_buy', 0)) if pd.notna(row.get('foreign_buy')) else 0,
                 'trust_buy': int(row.get('trust_buy', 0)) if pd.notna(row.get('trust_buy')) else 0,
                 'dealer_buy': int(row.get('dealer_buy', 0)) if pd.notna(row.get('dealer_buy')) else 0,
