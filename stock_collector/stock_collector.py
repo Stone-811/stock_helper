@@ -106,14 +106,27 @@ class StockCollector:
             )
             logging.info(f"  取得 {len(shareholding_data)} 筆外資持股資料")
 
-            # 4. 處理法人資料（長格式轉寬格式）
+            # 4. 批次取得全市場當沖資料（1 次 API）
+            logging.info("取得全市場當沖資料...")
+            day_trading_data = self.api.get_data(
+                dataset='TaiwanStockDayTrading',
+                data_id='',
+                start_date=target_date,
+                end_date=target_date
+            )
+            logging.info(f"  取得 {len(day_trading_data)} 筆當沖資料")
+
+            # 5. 處理法人資料（長格式轉寬格式）
             inst_pivot = self._process_institutional_data(inst_data)
 
-            # 5. 處理外資持股資料
+            # 6. 處理外資持股資料
             shareholding_processed = self._process_shareholding_data(shareholding_data)
 
-            # 6. 合併股價、法人與外資持股資料
-            df = self._merge_data(price_data, inst_pivot, shareholding_processed, target_date)
+            # 7. 處理當沖資料
+            day_trading_processed = self._process_day_trading_data(day_trading_data)
+
+            # 8. 合併股價、法人、外資持股與當沖資料
+            df = self._merge_data(price_data, inst_pivot, shareholding_processed, target_date, day_trading_processed)
 
             if len(df) == 0:
                 logging.error("沒有有效資料")
@@ -262,7 +275,21 @@ class StockCollector:
 
         return processed
 
-    def _merge_data(self, price_data, inst_pivot, shareholding_processed, target_date):
+    def _process_day_trading_data(self, day_trading_data):
+        """處理當沖資料"""
+        if len(day_trading_data) == 0:
+            return pd.DataFrame(columns=['stock_id', 'day_trading_volume'])
+
+        # 只保留需要的欄位
+        processed = day_trading_data[['stock_id', 'Volume']].copy()
+
+        # 重新命名並轉換為張數
+        processed = processed.rename(columns={'Volume': 'day_trading_volume'})
+        processed['day_trading_volume'] = (processed['day_trading_volume'] / 1000).astype(int)
+
+        return processed
+
+    def _merge_data(self, price_data, inst_pivot, shareholding_processed, target_date, day_trading_processed=None):
         """合併股價、法人與外資持股資料"""
 
         # 取得股票名稱對照
@@ -320,10 +347,23 @@ class StockCollector:
                 df[col] = 0.0
             df[col] = df[col].fillna(0.0)
 
+        # 合併當沖資料
+        if day_trading_processed is not None and len(day_trading_processed) > 0:
+            df = df.merge(
+                day_trading_processed,
+                on='stock_id',
+                how='left'
+            )
+
+        # 填充當沖欄位的缺失值
+        if 'day_trading_volume' not in df.columns:
+            df['day_trading_volume'] = 0
+        df['day_trading_volume'] = df['day_trading_volume'].fillna(0).astype(int)
+
         # 選擇並排序欄位
         columns = [
             'date', 'stock_id', 'stock_name', 'open', 'high', 'low', 'close',
-            'volume', 'foreign_buy', 'trust_buy', 'dealer_buy',
+            'volume', 'day_trading_volume', 'foreign_buy', 'trust_buy', 'dealer_buy',
             'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'
         ]
         df = df[[c for c in columns if c in df.columns]]

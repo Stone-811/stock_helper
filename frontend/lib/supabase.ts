@@ -15,6 +15,7 @@ export interface DailyStock {
   low: number
   close: number
   volume: number
+  day_trading_volume: number
   foreign_buy: number
   trust_buy: number
   dealer_buy: number

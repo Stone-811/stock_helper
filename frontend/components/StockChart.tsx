@@ -283,6 +283,9 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
                 {chartData[crosshairIndex].close.toFixed(2)}
               </span></span>
               <span>額 <span className="text-gray-300">{formatTradingValue(chartData[crosshairIndex].volume * chartData[crosshairIndex].close * 1000)}</span></span>
+              {chartData[crosshairIndex].day_trading_volume > 0 && (
+                <span>沖 <span className="text-cyan-400">{chartData[crosshairIndex].day_trading_volume.toLocaleString()}張</span></span>
+              )}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
               {maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
@@ -365,6 +368,7 @@ function convertToTimeFrame(data: DailyStock[], timeFrame: TimeFrame): DailyStoc
     low: Math.min(...items.map(i => i.low)),
     close: items[items.length - 1].close,
     volume: items.reduce((sum, i) => sum + i.volume, 0),
+    day_trading_volume: items.reduce((sum, i) => sum + (i.day_trading_volume || 0), 0),
     foreign_buy: items.reduce((sum, i) => sum + i.foreign_buy, 0),
     trust_buy: items.reduce((sum, i) => sum + i.trust_buy, 0),
     dealer_buy: items.reduce((sum, i) => sum + i.dealer_buy, 0),
