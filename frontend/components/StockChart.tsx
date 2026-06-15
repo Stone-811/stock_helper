@@ -273,7 +273,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       <div className="relative">
         {/* 左上角資訊顯示 */}
         {crosshairIndex >= 0 && chartData[crosshairIndex] && (
-          <div className="absolute top-2 left-2 z-10 text-white text-sm font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
+          <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <span>{chartData[crosshairIndex].date}</span>
               <span>開 <span className="text-yellow-400">{chartData[crosshairIndex].open.toFixed(2)}</span></span>
@@ -282,7 +282,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
               <span>收 <span className={chartData[crosshairIndex].close >= chartData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
                 {chartData[crosshairIndex].close.toFixed(2)}
               </span></span>
-              <span>量 <span className="text-gray-300">{(chartData[crosshairIndex].volume / 1000).toFixed(0)}張</span></span>
+              <span>額 <span className="text-gray-300">{formatTradingValue(chartData[crosshairIndex].volume * chartData[crosshairIndex].close * 1000)}</span></span>
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
               {maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
@@ -321,6 +321,16 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 }
 
 // ========== 工具函數 ==========
+
+// 格式化成交金額（億、萬）
+function formatTradingValue(value: number): string {
+  if (value >= 1e8) {
+    return (value / 1e8).toFixed(2) + '億'
+  } else if (value >= 1e4) {
+    return (value / 1e4).toFixed(0) + '萬'
+  }
+  return value.toFixed(0)
+}
 
 function convertToTimeFrame(data: DailyStock[], timeFrame: TimeFrame): DailyStock[] {
   if (timeFrame === 'day') return data

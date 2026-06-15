@@ -52,7 +52,7 @@ class StockCollector:
         except Exception as e:
             logging.error(f"✗ FinMind 登入失敗: {e}")
 
-    def collect_daily_data(self, target_date=None):
+    def collect_daily_data(self, target_date=None, skip_macd=False):
         """
         收集單日全市場股票資料（批次 API）
 
@@ -60,6 +60,8 @@ class StockCollector:
         -----------
         target_date : str
             目標日期 (YYYY-MM-DD)，None 則使用今天
+        skip_macd : bool
+            是否跳過 MACD 計算（加快收集速度）
 
         Returns:
         --------
@@ -122,15 +124,18 @@ class StockCollector:
             filepath = self.output_dir / filename
             df.to_csv(filepath, index=False, encoding='utf-8-sig')
 
-            # 8. 自動計算並加入 MACD 狀態
-            logging.info("計算 MACD 狀態...")
-            from .update_macd import update_daily_file_macd
-            try:
-                update_daily_file_macd(filepath, self.api, force_update=False)
-                logging.info("✓ MACD 狀態已更新")
-            except Exception as e:
-                logging.warning(f"⚠️ MACD 計算失敗: {e}")
-                logging.warning("   檔案已儲存，但 MACD 狀態為空")
+            # 8. 自動計算並加入 MACD 狀態（可跳過）
+            if not skip_macd:
+                logging.info("計算 MACD 狀態...")
+                from .update_macd import update_daily_file_macd
+                try:
+                    update_daily_file_macd(filepath, self.api, force_update=False)
+                    logging.info("✓ MACD 狀態已更新")
+                except Exception as e:
+                    logging.warning(f"⚠️ MACD 計算失敗: {e}")
+                    logging.warning("   檔案已儲存，但 MACD 狀態為空")
+            else:
+                logging.info("⏭️ 跳過 MACD 計算")
 
             # 9. 寫入 Supabase（若已設定）
             if SUPABASE_ENABLED:
@@ -326,7 +331,7 @@ class StockCollector:
         return df
 
 
-def batch_collect(start_date, end_date):
+def batch_collect(start_date, end_date, skip_macd=False):
     """
     批次收集歷史資料
 
@@ -336,6 +341,8 @@ def batch_collect(start_date, end_date):
         開始日期 (YYYY-MM-DD)
     end_date : str
         結束日期 (YYYY-MM-DD)
+    skip_macd : bool
+        是否跳過 MACD 計算
     """
     # 產生交易日列表
     start = datetime.strptime(start_date, '%Y-%m-%d')
@@ -363,7 +370,7 @@ def batch_collect(start_date, end_date):
     for idx, date in enumerate(trading_days, 1):
         logging.info(f"\n[{idx}/{len(trading_days)}] 收集 {date}")
 
-        filepath = collector.collect_daily_data(target_date=date)
+        filepath = collector.collect_daily_data(target_date=date, skip_macd=skip_macd)
 
         if filepath:
             success_count += 1
@@ -413,6 +420,7 @@ def main():
     date_group.add_argument('--start', type=str, help='批次收集開始日期 (YYYY-MM-DD)')
 
     parser.add_argument('--end', type=str, help='批次收集結束日期 (YYYY-MM-DD)，與 --start 搭配使用')
+    parser.add_argument('--skip-macd', action='store_true', help='跳過 MACD 計算（加快收集速度）')
 
     args = parser.parse_args()
 
@@ -425,7 +433,7 @@ def main():
         start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
 
         print(f"\n📊 批次收集過去 {args.days} 天")
-        success, failed = batch_collect(start_date, end_date)
+        success, failed = batch_collect(start_date, end_date, skip_macd=args.skip_macd)
 
         # 更新強勢股矩陣
         if success > 0:
@@ -435,7 +443,7 @@ def main():
 
     elif args.start and args.end:
         # 批次收集
-        success, failed = batch_collect(args.start, args.end)
+        success, failed = batch_collect(args.start, args.end, skip_macd=args.skip_macd)
 
         # 更新強勢股矩陣
         if success > 0:
@@ -450,7 +458,7 @@ def main():
         # 單日收集
         collector = StockCollector()
         target_date = args.date
-        filepath = collector.collect_daily_data(target_date=target_date)
+        filepath = collector.collect_daily_data(target_date=target_date, skip_macd=args.skip_macd)
 
         if filepath:
             print(f"\n✅ 成功！{filepath}")
