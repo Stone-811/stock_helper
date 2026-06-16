@@ -167,25 +167,33 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       drawRSI(indicatorChart, chartData)
     }
 
-    // 同步三個圖表的時間軸
-    mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (range) {
-        volumeChart.timeScale().setVisibleLogicalRange(range)
-        indicatorChart.timeScale().setVisibleLogicalRange(range)
+    // 同步三個圖表的時間軸（使用時間範圍同步，確保日期對齊）
+    let isSyncing = false
+
+    mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        volumeChart.timeScale().setVisibleRange(range)
+        indicatorChart.timeScale().setVisibleRange(range)
+        isSyncing = false
       }
     })
 
-    volumeChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (range) {
-        mainChart.timeScale().setVisibleLogicalRange(range)
-        indicatorChart.timeScale().setVisibleLogicalRange(range)
+    volumeChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        mainChart.timeScale().setVisibleRange(range)
+        indicatorChart.timeScale().setVisibleRange(range)
+        isSyncing = false
       }
     })
 
-    indicatorChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (range) {
-        mainChart.timeScale().setVisibleLogicalRange(range)
-        volumeChart.timeScale().setVisibleLogicalRange(range)
+    indicatorChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        mainChart.timeScale().setVisibleRange(range)
+        volumeChart.timeScale().setVisibleRange(range)
+        isSyncing = false
       }
     })
 
@@ -202,12 +210,16 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
     // 預設顯示近三個月資料（約 65 個交易日），但仍可往前拉
     const threeMonthBars = 65
     const totalBars = chartData.length
-    const from = Math.max(0, totalBars - threeMonthBars)
-    const visibleRange = { from, to: totalBars }
+    const fromIdx = Math.max(0, totalBars - threeMonthBars)
 
-    mainChart.timeScale().setVisibleLogicalRange(visibleRange)
-    volumeChart.timeScale().setVisibleLogicalRange(visibleRange)
-    indicatorChart.timeScale().setVisibleLogicalRange(visibleRange)
+    // 使用時間範圍設定初始顯示區間
+    const fromTime = chartData[fromIdx].date
+    const toTime = chartData[totalBars - 1].date
+    const timeRange = { from: fromTime, to: toTime }
+
+    mainChart.timeScale().setVisibleRange(timeRange)
+    volumeChart.timeScale().setVisibleRange(timeRange)
+    indicatorChart.timeScale().setVisibleRange(timeRange)
 
     // 響應式調整
     const handleResize = () => {
@@ -282,9 +294,14 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
               <span>收 <span className={chartData[crosshairIndex].close >= chartData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
                 {chartData[crosshairIndex].close.toFixed(2)}
               </span></span>
-              <span>額 <span className="text-gray-300">{formatTradingValue(chartData[crosshairIndex].volume * chartData[crosshairIndex].close * 1000)}</span></span>
+              <span>量 <span className="text-gray-300">{chartData[crosshairIndex].volume.toLocaleString()}張</span></span>
               {chartData[crosshairIndex].day_trading_volume > 0 && (
-                <span>沖 <span className="text-cyan-400">{chartData[crosshairIndex].day_trading_volume.toLocaleString()}張</span></span>
+                <span>沖 <span className="text-cyan-400">
+                  {chartData[crosshairIndex].day_trading_volume.toLocaleString()}張
+                  {chartData[crosshairIndex].volume > 0 && (
+                    <span className="text-cyan-300"> ({((chartData[crosshairIndex].day_trading_volume / chartData[crosshairIndex].volume) * 100).toFixed(1)}%)</span>
+                  )}
+                </span></span>
               )}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">

@@ -7,10 +7,25 @@ interface StockCardProps {
   stock: TodayStrongStock
 }
 
+// 格式化成交金額（億、萬）
+function formatTradingValue(value: number): string {
+  if (value >= 1e8) {
+    return (value / 1e8).toFixed(2) + '億'
+  } else if (value >= 1e4) {
+    return (value / 1e4).toFixed(0) + '萬'
+  }
+  return value.toFixed(0)
+}
+
 export default function StockCard({ stock }: StockCardProps) {
   const isPositive = stock.close >= stock.open
   const priceChange = stock.close - stock.open
   const priceChangePct = ((priceChange / stock.open) * 100).toFixed(2)
+
+  // 計算成交額和當沖額（volume 是張數，每張 1000 股）
+  const tradingValue = stock.volume * stock.close * 1000
+  const dayTradingValue = (stock.day_trading_volume || 0) * stock.close * 1000
+  const dayTradingRatio = stock.volume > 0 ? ((stock.day_trading_volume || 0) / stock.volume) * 100 : 0
 
   return (
     <Link href={`/stock/${stock.stock_id}`}>
@@ -40,17 +55,24 @@ export default function StockCard({ stock }: StockCardProps) {
           </span>
         </div>
 
-        {/* 成交量和法人 */}
+        {/* 成交額和當沖額 */}
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
           <div>
-            <span className="text-gray-400">成交量</span>
-            <span className="ml-1 font-medium">{stock.volume.toLocaleString()} 張</span>
+            <span className="text-gray-400">成交額</span>
+            <span className="ml-1 font-medium">{formatTradingValue(tradingValue)}</span>
           </div>
           <div>
-            <span className="text-gray-400">強勢次數</span>
+            <span className="text-gray-400">強勢</span>
             <span className="ml-1 font-medium text-orange-500">{stock.strong_count || 0} 日</span>
           </div>
         </div>
+        {dayTradingValue > 0 && (
+          <div className="mt-1 text-xs text-gray-600">
+            <span className="text-gray-400">當沖額</span>
+            <span className="ml-1 font-medium text-cyan-600">{formatTradingValue(dayTradingValue)}</span>
+            <span className="ml-1 text-cyan-500">({dayTradingRatio.toFixed(1)}%)</span>
+          </div>
+        )}
 
         {/* 三大法人 */}
         <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
