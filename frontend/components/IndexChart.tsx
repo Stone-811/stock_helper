@@ -1,0 +1,570 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { createChart, ColorType, IChartApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
+import { MarketIndex } from '../lib/supabase'
+
+interface IndexChartProps {
+  data: MarketIndex[]
+  height?: number
+}
+
+type TimeFrame = 'day' | 'week' | 'month'
+type Indicator = 'macd' | 'kd' | 'rsi'
+
+export default function IndexChart({ data, height = 500 }: IndexChartProps) {
+  const mainChartRef = useRef<HTMLDivElement>(null)
+  const volumeChartRef = useRef<HTMLDivElement>(null)
+  const indicatorChartRef = useRef<HTMLDivElement>(null)
+
+  const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
+  const [indicator, setIndicator] = useState<Indicator>('macd')
+  const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
+
+  // 根據時間週期轉換資料
+  const chartData = convertToTimeFrame(data, timeFrame)
+
+  // 預先計算所有 MA 和指標數值
+  const maData = {
+    ma5: calculateMAValues(chartData, 5),
+    ma10: calculateMAValues(chartData, 10),
+    ma20: calculateMAValues(chartData, 20),
+    ma60: calculateMAValues(chartData, 60),
+  }
+  const macdData = calculateMACDValues(chartData)
+  const kdData = calculateKDValues(chartData)
+  const rsiData = calculateRSIValues(chartData)
+
+  useEffect(() => {
+    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || chartData.length === 0) return
+
+    const mainHeight = Math.floor(height * 0.55)
+    const volumeHeight = Math.floor(height * 0.15)
+    const indicatorHeight = Math.floor(height * 0.25)
+
+    // 主圖 (K線 + MA)
+    const mainChart = createChart(mainChartRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#1a1a2e' },
+        textColor: '#a0a0a0',
+        fontSize: 16,
+      },
+      width: mainChartRef.current.clientWidth,
+      height: mainHeight,
+      grid: {
+        vertLines: { color: '#2a2a3e' },
+        horzLines: { color: '#2a2a3e' },
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: { color: '#505070', width: 1, style: 2 },
+        horzLine: { color: '#505070', width: 1, style: 2 },
+      },
+      rightPriceScale: { borderColor: '#3a3a4e' },
+      timeScale: { borderColor: '#3a3a4e', timeVisible: true, visible: false },
+    })
+
+    // K 線
+    const candleSeries = mainChart.addCandlestickSeries({
+      upColor: '#ef4444',
+      downColor: '#22c55e',
+      borderUpColor: '#ef4444',
+      borderDownColor: '#22c55e',
+      wickUpColor: '#ef4444',
+      wickDownColor: '#22c55e',
+      lastValueVisible: false,
+    })
+
+    const candleData: CandlestickData[] = chartData.map(item => ({
+      time: item.date as string,
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+    }))
+    candleSeries.setData(candleData)
+
+    // MA 線
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false })
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false })
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
+
+    ma5.setData(calculateMA(chartData, 5))
+    ma10.setData(calculateMA(chartData, 10))
+    ma20.setData(calculateMA(chartData, 20))
+    ma60.setData(calculateMA(chartData, 60))
+
+    // 成交量圖
+    const volumeChart = createChart(volumeChartRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#1a1a2e' },
+        textColor: '#a0a0a0',
+        fontSize: 16,
+      },
+      width: volumeChartRef.current.clientWidth,
+      height: volumeHeight,
+      grid: {
+        vertLines: { color: '#2a2a3e' },
+        horzLines: { color: '#2a2a3e' },
+      },
+      rightPriceScale: { borderColor: '#3a3a4e' },
+      timeScale: { borderColor: '#3a3a4e', visible: false },
+    })
+
+    const volumeSeries = volumeChart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      lastValueVisible: false,
+    })
+
+    const volumeData: HistogramData[] = chartData.map(item => ({
+      time: item.date as string,
+      value: item.volume,
+      color: item.close >= item.open ? '#ef444480' : '#22c55e80',
+    }))
+    volumeSeries.setData(volumeData)
+
+    // 指標圖
+    const indicatorChart = createChart(indicatorChartRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#1a1a2e' },
+        textColor: '#a0a0a0',
+        fontSize: 16,
+      },
+      width: indicatorChartRef.current.clientWidth,
+      height: indicatorHeight,
+      grid: {
+        vertLines: { color: '#2a2a3e' },
+        horzLines: { color: '#2a2a3e' },
+      },
+      rightPriceScale: { borderColor: '#3a3a4e' },
+      timeScale: { borderColor: '#3a3a4e', timeVisible: true },
+    })
+
+    if (indicator === 'macd') {
+      drawMACD(indicatorChart, chartData)
+    } else if (indicator === 'kd') {
+      drawKD(indicatorChart, chartData)
+    } else if (indicator === 'rsi') {
+      drawRSI(indicatorChart, chartData)
+    }
+
+    // 同步時間軸
+    let isSyncing = false
+
+    mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        volumeChart.timeScale().setVisibleRange(range)
+        indicatorChart.timeScale().setVisibleRange(range)
+        isSyncing = false
+      }
+    })
+
+    volumeChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        mainChart.timeScale().setVisibleRange(range)
+        indicatorChart.timeScale().setVisibleRange(range)
+        isSyncing = false
+      }
+    })
+
+    indicatorChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (range && !isSyncing) {
+        isSyncing = true
+        mainChart.timeScale().setVisibleRange(range)
+        volumeChart.timeScale().setVisibleRange(range)
+        isSyncing = false
+      }
+    })
+
+    // 十字線同步
+    mainChart.subscribeCrosshairMove(param => {
+      if (param.time) {
+        const idx = chartData.findIndex(d => d.date === param.time)
+        setCrosshairIndex(idx)
+      } else {
+        setCrosshairIndex(-1)
+      }
+    })
+
+    // 預設顯示近三個月
+    const threeMonthBars = 65
+    const totalBars = chartData.length
+    const fromIdx = Math.max(0, totalBars - threeMonthBars)
+    const fromTime = chartData[fromIdx].date
+    const toTime = chartData[totalBars - 1].date
+    const timeRange = { from: fromTime, to: toTime }
+
+    mainChart.timeScale().setVisibleRange(timeRange)
+    volumeChart.timeScale().setVisibleRange(timeRange)
+    indicatorChart.timeScale().setVisibleRange(timeRange)
+
+    // 響應式
+    const handleResize = () => {
+      if (mainChartRef.current) {
+        mainChart.applyOptions({ width: mainChartRef.current.clientWidth })
+        volumeChart.applyOptions({ width: mainChartRef.current.clientWidth })
+        indicatorChart.applyOptions({ width: mainChartRef.current.clientWidth })
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      mainChart.remove()
+      volumeChart.remove()
+      indicatorChart.remove()
+    }
+  }, [chartData, indicator, height])
+
+  return (
+    <div className="bg-[#1a1a2e] rounded-lg p-4">
+      {/* 控制列 */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex gap-2">
+          {[
+            { key: 'day', label: '日K' },
+            { key: 'week', label: '週K' },
+            { key: 'month', label: '月K' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTimeFrame(key as TimeFrame)}
+              className={`px-4 py-2 text-lg font-medium rounded ${
+                timeFrame === key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-white text-lg">指標:</span>
+          <select
+            value={indicator}
+            onChange={(e) => setIndicator(e.target.value as Indicator)}
+            className="bg-[#2a2a3e] text-white text-lg font-medium rounded px-3 py-2 border border-[#3a3a4e]"
+          >
+            <option value="macd">MACD</option>
+            <option value="kd">KD</option>
+            <option value="rsi">RSI</option>
+          </select>
+        </div>
+      </div>
+
+      {/* 圖表 */}
+      <div className="relative">
+        {crosshairIndex >= 0 && chartData[crosshairIndex] && (
+          <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span>{chartData[crosshairIndex].date}</span>
+              <span>開 <span className="text-yellow-400">{chartData[crosshairIndex].open.toFixed(2)}</span></span>
+              <span>高 <span className="text-red-400">{chartData[crosshairIndex].high.toFixed(2)}</span></span>
+              <span>低 <span className="text-green-400">{chartData[crosshairIndex].low.toFixed(2)}</span></span>
+              <span>收 <span className={chartData[crosshairIndex].close >= chartData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
+                {chartData[crosshairIndex].close.toFixed(2)}
+              </span></span>
+              <span>量 <span className="text-gray-300">{chartData[crosshairIndex].volume.toLocaleString()}</span></span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 mt-1">
+              {maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
+              {maData.ma10[crosshairIndex] && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
+              {maData.ma20[crosshairIndex] && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
+              {maData.ma60[crosshairIndex] && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
+            </div>
+            <div className="flex flex-wrap gap-x-4 mt-1">
+              {indicator === 'macd' && macdData[crosshairIndex] && (
+                <>
+                  <span className="text-blue-400">DIF {macdData[crosshairIndex]!.dif.toFixed(2)}</span>
+                  <span className="text-orange-400">MACD {macdData[crosshairIndex]!.macd.toFixed(2)}</span>
+                  <span className={macdData[crosshairIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>
+                    柱 {macdData[crosshairIndex]!.histogram.toFixed(2)}
+                  </span>
+                </>
+              )}
+              {indicator === 'kd' && kdData[crosshairIndex] && (
+                <>
+                  <span className="text-blue-400">K {kdData[crosshairIndex]!.k.toFixed(2)}</span>
+                  <span className="text-orange-400">D {kdData[crosshairIndex]!.d.toFixed(2)}</span>
+                </>
+              )}
+              {indicator === 'rsi' && rsiData[crosshairIndex] && (
+                <span className="text-purple-400">RSI {rsiData[crosshairIndex]!.toFixed(2)}</span>
+              )}
+            </div>
+          </div>
+        )}
+        <div ref={mainChartRef} />
+      </div>
+      <div ref={volumeChartRef} className="mt-1" />
+      <div ref={indicatorChartRef} className="mt-1" />
+    </div>
+  )
+}
+
+// ========== 工具函數 ==========
+
+function convertToTimeFrame(data: MarketIndex[], timeFrame: TimeFrame): MarketIndex[] {
+  if (timeFrame === 'day') return data
+
+  const grouped: { [key: string]: MarketIndex[] } = {}
+
+  data.forEach(item => {
+    const date = new Date(item.date)
+    let key: string
+
+    if (timeFrame === 'week') {
+      const day = date.getDay()
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1)
+      const monday = new Date(date.setDate(diff))
+      key = monday.toISOString().split('T')[0]
+    } else {
+      key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
+    }
+
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(item)
+  })
+
+  return Object.entries(grouped).map(([date, items]) => ({
+    date,
+    index_id: items[0].index_id,
+    index_name: items[0].index_name,
+    open: items[0].open,
+    high: Math.max(...items.map(i => i.high)),
+    low: Math.min(...items.map(i => i.low)),
+    close: items[items.length - 1].close,
+    volume: items.reduce((sum, i) => sum + i.volume, 0),
+    open_interest: items[items.length - 1].open_interest,
+    settlement_price: items[items.length - 1].settlement_price,
+  })).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+function calculateMA(data: MarketIndex[], period: number): LineData[] {
+  const result: LineData[] = []
+  for (let i = period - 1; i < data.length; i++) {
+    const sum = data.slice(i - period + 1, i + 1).reduce((acc, item) => acc + item.close, 0)
+    result.push({ time: data[i].date as string, value: sum / period })
+  }
+  return result
+}
+
+function calculateMAValues(data: MarketIndex[], period: number): (number | null)[] {
+  const result: (number | null)[] = new Array(data.length).fill(null)
+  for (let i = period - 1; i < data.length; i++) {
+    const sum = data.slice(i - period + 1, i + 1).reduce((acc, item) => acc + item.close, 0)
+    result[i] = sum / period
+  }
+  return result
+}
+
+function calculateMACDValues(data: MarketIndex[], fast = 12, slow = 26, signal = 9): ({ dif: number; macd: number; histogram: number } | null)[] {
+  const result: ({ dif: number; macd: number; histogram: number } | null)[] = new Array(data.length).fill(null)
+  const closes = data.map(d => d.close)
+  const emaFast = calculateEMA(closes, fast)
+  const emaSlow = calculateEMA(closes, slow)
+
+  const dif: number[] = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i < slow - 1) {
+      dif.push(0)
+    } else {
+      dif.push(emaFast[i] - emaSlow[i])
+    }
+  }
+
+  const macdLine = calculateEMA(dif.slice(slow - 1), signal)
+  const fullMacd = new Array(slow - 1).fill(0).concat(macdLine)
+
+  for (let i = slow + signal - 2; i < data.length; i++) {
+    result[i] = {
+      dif: dif[i],
+      macd: fullMacd[i],
+      histogram: dif[i] - fullMacd[i],
+    }
+  }
+  return result
+}
+
+function calculateKDValues(data: MarketIndex[], period = 9): ({ k: number; d: number } | null)[] {
+  const result: ({ k: number; d: number } | null)[] = new Array(data.length).fill(null)
+  let prevK = 50
+  let prevD = 50
+
+  for (let i = period - 1; i < data.length; i++) {
+    const periodData = data.slice(i - period + 1, i + 1)
+    const high = Math.max(...periodData.map(d => d.high))
+    const low = Math.min(...periodData.map(d => d.low))
+    const close = data[i].close
+
+    const rsv = high !== low ? ((close - low) / (high - low)) * 100 : 50
+    const k = (2 / 3) * prevK + (1 / 3) * rsv
+    const d = (2 / 3) * prevD + (1 / 3) * k
+
+    result[i] = { k, d }
+    prevK = k
+    prevD = d
+  }
+  return result
+}
+
+function calculateRSIValues(data: MarketIndex[], period = 14): (number | null)[] {
+  const result: (number | null)[] = new Array(data.length).fill(null)
+  const gains: number[] = []
+  const losses: number[] = []
+
+  for (let i = 1; i < data.length; i++) {
+    const change = data[i].close - data[i - 1].close
+    gains.push(change > 0 ? change : 0)
+    losses.push(change < 0 ? -change : 0)
+
+    if (i >= period) {
+      const avgGain = gains.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const avgLoss = losses.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
+      result[i] = 100 - (100 / (1 + rs))
+    }
+  }
+  return result
+}
+
+function drawMACD(chart: IChartApi, data: MarketIndex[]) {
+  const macdData = calculateMACD(data)
+
+  const histogramSeries = chart.addHistogramSeries({
+    priceFormat: { type: 'price', precision: 2 },
+    lastValueVisible: false,
+  })
+  histogramSeries.setData(macdData.map(d => ({
+    time: d.time as string,
+    value: d.histogram,
+    color: d.histogram >= 0 ? '#ef444480' : '#22c55e80',
+  })))
+
+  const difSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+  difSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.dif })))
+
+  const macdSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
+  macdSeries.setData(macdData.map(d => ({ time: d.time as string, value: d.macd })))
+}
+
+function drawKD(chart: IChartApi, data: MarketIndex[]) {
+  const kdData = calculateKD(data)
+
+  const kSeries = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+  kSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.k })))
+
+  const dSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
+  dSeries.setData(kdData.map(d => ({ time: d.time as string, value: d.d })))
+
+  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  overbought.setData(kdData.map(d => ({ time: d.time as string, value: 80 })))
+  oversold.setData(kdData.map(d => ({ time: d.time as string, value: 20 })))
+}
+
+function drawRSI(chart: IChartApi, data: MarketIndex[]) {
+  const rsiData = calculateRSI(data)
+
+  const rsiSeries = chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
+  rsiSeries.setData(rsiData)
+
+  const overbought = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  const oversold = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2, lastValueVisible: false })
+  overbought.setData(rsiData.map(d => ({ time: d.time as string, value: 70 })))
+  oversold.setData(rsiData.map(d => ({ time: d.time as string, value: 30 })))
+}
+
+function calculateMACD(data: MarketIndex[], fast = 12, slow = 26, signal = 9) {
+  const closes = data.map(d => d.close)
+  const emaFast = calculateEMA(closes, fast)
+  const emaSlow = calculateEMA(closes, slow)
+
+  const dif: number[] = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i < slow - 1) {
+      dif.push(0)
+    } else {
+      dif.push(emaFast[i] - emaSlow[i])
+    }
+  }
+
+  const macdLine = calculateEMA(dif.slice(slow - 1), signal)
+  const fullMacd = new Array(slow - 1).fill(0).concat(macdLine)
+
+  const result = []
+  for (let i = slow + signal - 2; i < data.length; i++) {
+    result.push({
+      time: data[i].date,
+      dif: dif[i],
+      macd: fullMacd[i],
+      histogram: dif[i] - fullMacd[i],
+    })
+  }
+  return result
+}
+
+function calculateKD(data: MarketIndex[], period = 9) {
+  const result = []
+  let prevK = 50
+  let prevD = 50
+
+  for (let i = period - 1; i < data.length; i++) {
+    const periodData = data.slice(i - period + 1, i + 1)
+    const high = Math.max(...periodData.map(d => d.high))
+    const low = Math.min(...periodData.map(d => d.low))
+    const close = data[i].close
+
+    const rsv = high !== low ? ((close - low) / (high - low)) * 100 : 50
+    const k = (2 / 3) * prevK + (1 / 3) * rsv
+    const d = (2 / 3) * prevD + (1 / 3) * k
+
+    result.push({ time: data[i].date, k, d })
+    prevK = k
+    prevD = d
+  }
+  return result
+}
+
+function calculateRSI(data: MarketIndex[], period = 14): LineData[] {
+  const result: LineData[] = []
+  const gains: number[] = []
+  const losses: number[] = []
+
+  for (let i = 1; i < data.length; i++) {
+    const change = data[i].close - data[i - 1].close
+    gains.push(change > 0 ? change : 0)
+    losses.push(change < 0 ? -change : 0)
+
+    if (i >= period) {
+      const avgGain = gains.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const avgLoss = losses.slice(i - period, i).reduce((a, b) => a + b, 0) / period
+      const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
+      const rsi = 100 - (100 / (1 + rs))
+      result.push({ time: data[i].date as string, value: rsi })
+    }
+  }
+  return result
+}
+
+function calculateEMA(data: number[], period: number): number[] {
+  const result: number[] = []
+  const multiplier = 2 / (period + 1)
+
+  let sum = 0
+  for (let i = 0; i < period && i < data.length; i++) {
+    sum += data[i]
+  }
+  result[period - 1] = sum / period
+
+  for (let i = period; i < data.length; i++) {
+    result[i] = (data[i] - result[i - 1]) * multiplier + result[i - 1]
+  }
+  return result
+}

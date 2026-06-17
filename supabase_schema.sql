@@ -108,6 +108,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 8. 市場指數/期貨資料表
+CREATE TABLE IF NOT EXISTS market_index_daily (
+    date DATE NOT NULL,
+    index_id VARCHAR(20) NOT NULL,
+    index_name VARCHAR(50),
+    open NUMERIC(10, 2),
+    high NUMERIC(10, 2),
+    low NUMERIC(10, 2),
+    close NUMERIC(10, 2),
+    volume BIGINT DEFAULT 0,
+    open_interest BIGINT DEFAULT 0,
+    settlement_price NUMERIC(10, 2),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (date, index_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_index_daily_date ON market_index_daily(date DESC);
+CREATE INDEX IF NOT EXISTS idx_market_index_daily_index_id ON market_index_daily(index_id);
+
+ALTER TABLE market_index_daily ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read access on market_index_daily"
+    ON market_index_daily FOR SELECT
+    USING (true);
+
+CREATE POLICY "Allow service role insert on market_index_daily"
+    ON market_index_daily FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "Allow service role update on market_index_daily"
+    ON market_index_daily FOR UPDATE
+    USING (true);
+
 -- 完成！
 COMMENT ON TABLE daily_stocks IS '每日股票資料（股價、成交量、三大法人、外資持股）';
 COMMENT ON TABLE strong_stock_matrix IS '強勢股矩陣（每日強勢股標記）';
+COMMENT ON TABLE market_index_daily IS '市場指數/期貨日K資料';

@@ -168,6 +168,64 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
         raise
 
 
+def write_market_index(df: pd.DataFrame) -> int:
+    """
+    寫入市場指數/期貨資料到 Supabase
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        市場指數資料，需包含以下欄位：
+        date, index_id, index_name, open, high, low, close, volume,
+        open_interest, settlement_price
+
+    Returns:
+    --------
+    int
+        成功寫入的筆數
+    """
+    if df.empty:
+        logging.warning("DataFrame 為空，跳過寫入")
+        return 0
+
+    try:
+        client = get_supabase_client()
+
+        # 去除重複資料
+        df = df.drop_duplicates(subset=['date', 'index_id'], keep='first')
+
+        # 準備資料
+        records = []
+        for _, row in df.iterrows():
+            record = {
+                'date': str(row.get('date', '')),
+                'index_id': str(row.get('index_id', '')),
+                'index_name': str(row.get('index_name', '')),
+                'open': float(row.get('open', 0)) if pd.notna(row.get('open')) else None,
+                'high': float(row.get('high', 0)) if pd.notna(row.get('high')) else None,
+                'low': float(row.get('low', 0)) if pd.notna(row.get('low')) else None,
+                'close': float(row.get('close', 0)) if pd.notna(row.get('close')) else None,
+                'volume': int(row.get('volume', 0)) if pd.notna(row.get('volume')) else 0,
+                'open_interest': int(row.get('open_interest', 0)) if pd.notna(row.get('open_interest')) else 0,
+                'settlement_price': float(row.get('settlement_price', 0)) if pd.notna(row.get('settlement_price')) else None,
+            }
+            records.append(record)
+
+        # 使用 upsert 避免重複寫入錯誤
+        result = client.table('market_index_daily').upsert(
+            records,
+            on_conflict='date,index_id'
+        ).execute()
+
+        count = len(result.data) if result.data else 0
+        logging.info(f"✓ 成功寫入 market_index_daily: {count} 筆")
+        return count
+
+    except Exception as e:
+        logging.error(f"✗ 寫入 market_index_daily 失敗: {e}")
+        raise
+
+
 def test_connection() -> bool:
     """
     測試 Supabase 連線

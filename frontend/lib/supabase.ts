@@ -35,3 +35,16 @@ export interface StrongStock {
 export interface TodayStrongStock extends DailyStock {
   strong_count?: number
 }
+
+export interface MarketIndex {
+  date: string
+  index_id: string
+  index_name: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  open_interest?: number
+  settlement_price?: number
+}
