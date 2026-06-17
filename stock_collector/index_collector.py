@@ -1,6 +1,8 @@
 """
-台指期資料收集器
-使用 FinMind API 收集台指期 (TX) 日K資料
+台股指數資料收集器
+使用 FinMind API 收集：
+1. 加權指數 (TAIEX) 日K資料
+2. 台指期 (TX) 日K資料
 """
 
 import pandas as pd
@@ -22,7 +24,7 @@ logging.basicConfig(
 
 
 class IndexCollector:
-    """台指期資料收集器"""
+    """台股指數資料收集器（加權指數 + 台指期）"""
 
     def __init__(self):
         """初始化收集器"""
@@ -39,6 +41,66 @@ class IndexCollector:
                 logging.warning("⚠️ 未設定 API Token")
         except Exception as e:
             logging.error(f"✗ FinMind 登入失敗: {e}")
+
+    def collect_taiex_daily(self, start_date, end_date):
+        """
+        收集加權指數日K資料
+
+        Parameters:
+        -----------
+        start_date : str
+            開始日期 (YYYY-MM-DD)
+        end_date : str
+            結束日期 (YYYY-MM-DD)
+
+        Returns:
+        --------
+        pd.DataFrame
+            加權指數日K資料
+        """
+        logging.info(f"收集加權指數資料: {start_date} ~ {end_date}")
+
+        try:
+            # 使用 TaiwanStockPrice 取得 TAIEX 資料
+            df = self.api.taiwan_stock_daily(
+                stock_id='TAIEX',
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            if len(df) == 0:
+                logging.warning("無加權指數資料")
+                return pd.DataFrame()
+
+            logging.info(f"  取得 {len(df)} 筆加權指數資料")
+
+            # 重新命名欄位
+            df = df.rename(columns={
+                'max': 'high',
+                'min': 'low',
+                'Trading_Volume': 'volume'
+            })
+
+            # 新增 index_id 和 index_name
+            df['index_id'] = 'TAIEX'
+            df['index_name'] = '加權指數'
+
+            # 加權指數沒有未平倉量和結算價
+            df['open_interest'] = 0
+            df['settlement_price'] = 0
+
+            # 選擇需要的欄位
+            columns = [
+                'date', 'index_id', 'index_name',
+                'open', 'high', 'low', 'close', 'volume',
+                'open_interest', 'settlement_price'
+            ]
+
+            return df[columns]
+
+        except Exception as e:
+            logging.error(f"收集加權指數資料失敗: {e}")
+            return pd.DataFrame()
 
     def collect_futures_daily(self, start_date, end_date):
         """
@@ -111,7 +173,7 @@ class IndexCollector:
 
 def collect_and_save(start_date=None, end_date=None, days=None):
     """
-    收集並儲存台指期資料
+    收集並儲存指數資料（加權指數 + 台指期）
 
     Parameters:
     -----------
@@ -130,11 +192,25 @@ def collect_and_save(start_date=None, end_date=None, days=None):
         start_date = end_date = datetime.now().strftime('%Y-%m-%d')
 
     collector = IndexCollector()
-    df = collector.collect_futures_daily(start_date, end_date)
 
-    if df.empty:
+    # 收集加權指數
+    taiex_df = collector.collect_taiex_daily(start_date, end_date)
+
+    # 收集台指期
+    tx_df = collector.collect_futures_daily(start_date, end_date)
+
+    # 合併資料
+    all_data = []
+    if not taiex_df.empty:
+        all_data.append(taiex_df)
+    if not tx_df.empty:
+        all_data.append(tx_df)
+
+    if not all_data:
         logging.error("無資料可儲存")
         return None
+
+    df = pd.concat(all_data, ignore_index=True)
 
     # 寫入 Supabase
     if SUPABASE_ENABLED:
@@ -154,7 +230,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='台指期資料收集器',
+        description='台股指數資料收集器（加權指數 + 台指期）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 範例：
@@ -189,7 +265,12 @@ def main():
         df = collect_and_save()
 
     if df is not None and not df.empty:
-        print(f"\n✅ 成功收集 {len(df)} 筆台指期資料")
+        # 顯示統計
+        taiex_count = len(df[df['index_id'] == 'TAIEX'])
+        tx_count = len(df[df['index_id'] == 'TX'])
+        print(f"\n✅ 成功收集 {len(df)} 筆指數資料")
+        print(f"   - 加權指數: {taiex_count} 筆")
+        print(f"   - 台指期: {tx_count} 筆")
         print(df.tail())
     else:
         print("\n❌ 收集失敗")
