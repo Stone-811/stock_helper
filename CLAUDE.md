@@ -14,6 +14,7 @@ Claude Code 處理本專案時的指引說明。
 5. 強勢股分析網站（Next.js + Supabase + Sidebar 導航）
 6. 自選股功能（Supabase Auth + Google OAuth）
 7. Docker 容器化部署支援
+8. 基本面分析（Claude API 生成投資研究報告）
 
 ## 系統架構
 
@@ -28,6 +29,7 @@ Claude Code 處理本專案時的指引說明。
 │  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
 │  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
 │  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
+│  │ 📈 分析  │  基本面分析：Claude AI 生成投資研究報告       │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -87,9 +89,12 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── page.tsx                    # 首頁（大盤指數圖表）
 │   │   ├── strong-stocks/page.tsx      # 強勢股列表頁
 │   │   ├── watchlist/page.tsx          # 自選股頁面
+│   │   ├── analysis/page.tsx           # 基本面分析頁
 │   │   ├── stock/[id]/page.tsx         # 個股詳情頁
 │   │   ├── auth/callback/route.ts      # OAuth 回調處理
 │   │   └── api/                        # API Routes
+│   │       ├── analysis/route.ts       # 基本面分析 API（Claude AI）
+│   │       ├── analysis/[id]/route.ts  # 單一報告 API
 │   │       ├── market-index/[id]/route.ts  # 指數資料 API
 │   │       ├── strong-stocks/route.ts  # 強勢股 API
 │   │       ├── stock/[id]/route.ts     # 個股資料 API
@@ -138,8 +143,11 @@ Claude Code 處理本專案時的指引說明。
 | app/page.tsx | 首頁：加權指數 + 台指期技術分析圖 |
 | app/strong-stocks/page.tsx | 強勢股：強勢股列表、篩選功能、股票搜尋 |
 | app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
+| app/analysis/page.tsx | 基本面分析：Claude AI 生成投資研究報告 |
 | app/stock/[id]/page.tsx | 個股詳情：專業圖表、法人買賣超 |
 | app/auth/callback/route.ts | OAuth 回調處理（Google 登入） |
+| api/analysis/route.ts | API：生成基本面分析報告（POST）、列出報告（GET） |
+| api/analysis/[id]/route.ts | API：取得單一分析報告 |
 | api/market-index/[id]/route.ts | API：取得指數歷史資料（TAIEX / TX） |
 | api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數） |
 | api/stock/[id]/route.ts | API：取得個股完整歷史資料 |
@@ -273,6 +281,28 @@ CREATE POLICY "Users can delete own watchlist"
     ON user_watchlist FOR DELETE USING (auth.uid() = user_id);
 ```
 
+### stock_analysis_reports 表（基本面分析報告）
+
+```sql
+CREATE TABLE stock_analysis_reports (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    stock_id VARCHAR(10) NOT NULL,
+    stock_name VARCHAR(50),
+    report_content TEXT NOT NULL,
+    model_used VARCHAR(50) DEFAULT 'claude-sonnet-4-20250514',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS 政策：所有人可查看，登入用戶可新增
+ALTER TABLE stock_analysis_reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view reports"
+    ON stock_analysis_reports FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can create reports"
+    ON stock_analysis_reports FOR INSERT WITH CHECK (auth.uid() = user_id);
+```
+
 ## 處理流程
 
 ### 每日資料收集（批次 API）
@@ -314,6 +344,9 @@ SUPABASE_KEY=your_service_role_key
 # Supabase（Next.js 前端用）
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+
+# Claude API（基本面分析功能）
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ## FinMind API

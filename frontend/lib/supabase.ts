@@ -57,6 +57,16 @@ export interface WatchlistItem {
   added_at: string
 }
 
+export interface StockAnalysisReport {
+  id: number
+  user_id: string
+  stock_id: string
+  stock_name: string
+  report_content: string
+  model_used: string
+  created_at: string
+}
+
 // Auth helpers
 export async function signInWithGoogle() {
   const { data, error } = await supabase.auth.signInWithOAuth({

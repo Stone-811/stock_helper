@@ -169,8 +169,41 @@ CREATE POLICY "Users can delete own watchlist"
     ON user_watchlist FOR DELETE
     USING (auth.uid() = user_id);
 
+-- 10. 股票基本面分析報告表
+CREATE TABLE IF NOT EXISTS stock_analysis_reports (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    stock_id VARCHAR(10) NOT NULL,
+    stock_name VARCHAR(50),
+    report_content TEXT NOT NULL,
+    model_used VARCHAR(50) DEFAULT 'claude-sonnet-4-20250514',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_analysis_user ON stock_analysis_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_stock_analysis_stock ON stock_analysis_reports(stock_id);
+CREATE INDEX IF NOT EXISTS idx_stock_analysis_created ON stock_analysis_reports(created_at DESC);
+
+ALTER TABLE stock_analysis_reports ENABLE ROW LEVEL SECURITY;
+
+-- 所有人可以查看報告
+CREATE POLICY "Anyone can view reports"
+    ON stock_analysis_reports FOR SELECT
+    USING (true);
+
+-- 已登入用戶可以新增報告
+CREATE POLICY "Authenticated users can create reports"
+    ON stock_analysis_reports FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+-- 用戶可以刪除自己的報告
+CREATE POLICY "Users can delete own reports"
+    ON stock_analysis_reports FOR DELETE
+    USING (auth.uid() = user_id);
+
 -- 完成！
 COMMENT ON TABLE daily_stocks IS '每日股票資料（股價、成交量、三大法人、外資持股）';
 COMMENT ON TABLE strong_stock_matrix IS '強勢股矩陣（每日強勢股標記）';
 COMMENT ON TABLE market_index_daily IS '市場指數/期貨日K資料';
 COMMENT ON TABLE user_watchlist IS '用戶自選股清單';
+COMMENT ON TABLE stock_analysis_reports IS '股票基本面分析報告（AI 生成）';

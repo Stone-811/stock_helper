@@ -24,8 +24,13 @@ export default function AuthButton() {
   }, [])
 
   const handleSignIn = async () => {
-    setLoading(true)
-    await signInWithGoogle()
+    // Don't set loading here - OAuth redirects away from page
+    // If user cancels and returns, we don't want to be stuck in loading state
+    const { error } = await signInWithGoogle()
+    // Only reaches here if OAuth failed (no redirect)
+    if (error) {
+      console.error('Sign in error:', error)
+    }
   }
 
   const handleSignOut = async () => {
