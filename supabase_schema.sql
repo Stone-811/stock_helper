@@ -141,7 +141,36 @@ CREATE POLICY "Allow service role update on market_index_daily"
     ON market_index_daily FOR UPDATE
     USING (true);
 
+-- 9. 用戶自選股表（需要 Supabase Auth）
+CREATE TABLE IF NOT EXISTS user_watchlist (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    stock_id VARCHAR(10) NOT NULL,
+    stock_name VARCHAR(50),
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, stock_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_watchlist_user_id ON user_watchlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_watchlist_stock_id ON user_watchlist(stock_id);
+
+ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
+
+-- 用戶只能查看/管理自己的自選股
+CREATE POLICY "Users can view own watchlist"
+    ON user_watchlist FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own watchlist"
+    ON user_watchlist FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own watchlist"
+    ON user_watchlist FOR DELETE
+    USING (auth.uid() = user_id);
+
 -- 完成！
 COMMENT ON TABLE daily_stocks IS '每日股票資料（股價、成交量、三大法人、外資持股）';
 COMMENT ON TABLE strong_stock_matrix IS '強勢股矩陣（每日強勢股標記）';
 COMMENT ON TABLE market_index_daily IS '市場指數/期貨日K資料';
+COMMENT ON TABLE user_watchlist IS '用戶自選股清單';

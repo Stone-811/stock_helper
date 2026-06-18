@@ -7,11 +7,13 @@ Claude Code 處理本專案時的指引說明。
 台灣股票資料收集與篩選工具，使用 FinMind API 抓取全市場上市上櫃股票。
 
 功能：
-1. 每日資料收集（批次 API，僅需 2 次請求）
-2. 批次歷史資料收集
-3. 多條件選股篩選
-4. 強勢股分析網站（Next.js + Supabase）
-5. Docker 容器化部署支援
+1. 大盤指數分析（加權指數 TAIEX + 台指期 TX）
+2. 每日資料收集（批次 API，僅需 2 次請求）
+3. 批次歷史資料收集
+4. 多條件選股篩選
+5. 強勢股分析網站（Next.js + Supabase + Sidebar 導航）
+6. 自選股功能（Supabase Auth + Google OAuth）
+7. Docker 容器化部署支援
 
 ## 系統架構
 
@@ -20,27 +22,34 @@ Claude Code 處理本專案時的指引說明。
 │                         使用者介面                               │
 │                    Next.js 15 + Tailwind CSS                    │
 │                      (Vercel / Docker)                          │
+│                                                                  │
+│  ┌──────────┬──────────────────────────────────────────────┐    │
+│  │ Sidebar  │               主內容區                        │    │
+│  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
+│  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
+│  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
+│  └──────────┴──────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
-│         /api/strong-stocks  │  /api/stock/[id]                  │
+│   /api/market-index/[id]  │  /api/strong-stocks  │  /api/stock  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
-│                   Supabase PostgreSQL                            │
-│         daily_stocks  │  strong_stock_matrix                     │
+│              Supabase PostgreSQL + Auth                          │
+│  market_index_daily │ daily_stocks │ strong_stock_matrix │ user_watchlist │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                       資料收集層                                 │
 │                    Python + FinMind API                          │
-│        stock_collector.py  │  update_strong_matrix.py           │
+│   index_collector.py  │  stock_collector.py  │  update_matrix   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,7 +63,8 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── stock_collector/                    # 資料收集模組
 │   ├── config.py                       # FinMind API 配置
-│   ├── stock_collector.py              # 每日資料收集器
+│   ├── stock_collector.py              # 每日股票資料收集器
+│   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
 │   ├── update_strong_matrix.py         # 強勢股矩陣更新
 │   └── merge_daily_files.py            # 檔案合併工具
 │
@@ -73,21 +83,29 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── frontend/                           # Next.js 前端
 │   ├── app/                            # App Router 頁面
-│   │   ├── layout.tsx                  # 根 Layout
-│   │   ├── page.tsx                    # 首頁（強勢股列表）
+│   │   ├── layout.tsx                  # 根 Layout（含 Sidebar）
+│   │   ├── page.tsx                    # 首頁（大盤指數圖表）
+│   │   ├── strong-stocks/page.tsx      # 強勢股列表頁
+│   │   ├── watchlist/page.tsx          # 自選股頁面
 │   │   ├── stock/[id]/page.tsx         # 個股詳情頁
+│   │   ├── auth/callback/route.ts      # OAuth 回調處理
 │   │   └── api/                        # API Routes
+│   │       ├── market-index/[id]/route.ts  # 指數資料 API
 │   │       ├── strong-stocks/route.ts  # 強勢股 API
 │   │       ├── stock/[id]/route.ts     # 個股資料 API
 │   │       └── stocks/route.ts         # 股票清單 API（分頁）
 │   │
 │   ├── components/                     # React 元件
+│   │   ├── Sidebar.tsx                 # 側邊導航欄（響應式 + AuthButton）
+│   │   ├── AuthButton.tsx              # 登入/登出按鈕（Google OAuth）
+│   │   ├── WatchlistButton.tsx         # 加入/移除自選股按鈕
+│   │   ├── IndexChart.tsx              # 指數技術分析圖（K 線+成交量+指標）
 │   │   ├── StockCard.tsx               # 股票卡片
 │   │   ├── StockChart.tsx              # 專業技術分析圖（整合 K 線+指標）
 │   │   └── StockSearch.tsx             # 股票搜尋（自動完成）
 │   │
 │   ├── lib/                            # 共用函式庫
-│   │   └── supabase.ts                 # Supabase client
+│   │   └── supabase.ts                 # Supabase client + Auth + 型別定義
 │   │
 │   ├── Dockerfile                      # Docker 構建檔
 │   ├── docker-compose.yml              # Docker Compose 配置
@@ -95,7 +113,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── tailwind.config.ts              # Tailwind CSS 配置
 │   └── package.json                    # NPM 依賴
 │
-└── streamlit_app/                      # 舊版 Streamlit 網站
+└── streamlit_app/                      # 舊版 Streamlit 網站（已棄用）
     └── app.py                          # Streamlit 應用
 ```
 
@@ -106,8 +124,9 @@ Claude Code 處理本專案時的指引說明。
 | 檔案 | 職責 |
 |------|------|
 | utils.py | 技術指標計算（MA、MACD）、選股邏輯 |
-| supabase_writer.py | DataFrame 寫入 Supabase（upsert） |
+| supabase_writer.py | DataFrame 寫入 Supabase（upsert）- 含 write_market_index() |
 | stock_collector/stock_collector.py | 批次 API 資料收集、CSV 存檔、Supabase 同步 |
+| stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
 | stock_collector/update_strong_matrix.py | 每日更新強勢股矩陣 |
 | stock_collector/config.py | FinMind API token 配置 |
 
@@ -115,31 +134,54 @@ Claude Code 處理本專案時的指引說明。
 
 | 檔案 | 職責 |
 |------|------|
-| app/page.tsx | 首頁：強勢股列表、篩選功能、股票搜尋 |
+| app/layout.tsx | 根 Layout：整合 Sidebar 導航 |
+| app/page.tsx | 首頁：加權指數 + 台指期技術分析圖 |
+| app/strong-stocks/page.tsx | 強勢股：強勢股列表、篩選功能、股票搜尋 |
+| app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
 | app/stock/[id]/page.tsx | 個股詳情：專業圖表、法人買賣超 |
+| app/auth/callback/route.ts | OAuth 回調處理（Google 登入） |
+| api/market-index/[id]/route.ts | API：取得指數歷史資料（TAIEX / TX） |
 | api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數） |
 | api/stock/[id]/route.ts | API：取得個股完整歷史資料 |
 | api/stocks/route.ts | API：取得所有股票清單（分頁繞過 1000 筆限制） |
-| components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
+| components/Sidebar.tsx | 側邊導航欄（桌面固定、手機漢堡選單）+ AuthButton |
+| components/AuthButton.tsx | Google OAuth 登入/登出按鈕 |
+| components/WatchlistButton.tsx | 加入/移除自選股按鈕 |
+| components/IndexChart.tsx | 指數技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
+| components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + 當沖比 + MACD/KD/RSI） |
 | components/StockSearch.tsx | 股票搜尋元件（自動完成、鍵盤導航） |
 | components/StockCard.tsx | 股票資訊卡片元件 |
-| lib/supabase.ts | Supabase client 初始化、TypeScript 介面定義 |
+| lib/supabase.ts | Supabase client + Auth helpers + 型別定義 |
 
-### StockChart 專業圖表功能
+### StockChart / IndexChart 專業圖表功能
 
 使用 TradingView 開源的 **lightweight-charts** 套件實作專業級技術分析圖表。
 
 **核心功能**：
 - **時間週期切換**：日K / 週K / 月K
 - **技術指標選擇**：MACD / KD / RSI
-- **三圖同步滾動**：K 線主圖、成交量、指標圖
+- **三圖同步滾動**：K 線主圖、成交量、指標圖（使用 TimeRange 同步）
 - **深色主題**：專業交易介面風格（#1a1a2e 背景）
 - **預設顯示三個月**：約 65 個交易日，可向左拖曳查看更早資料
 
 **十字游標即時數據**：
-- **第一行**：日期、開高低收、漲跌幅、成交量
-- **第二行**：MA5、MA10、MA20、MA60 數值
-- **第三行**：當前指標數值（MACD: DIF/MACD/柱狀、KD: K/D、RSI）
+- **第一行**：日期、開高低收、漲跌幅、成交額
+- **第二行**：當沖額、當沖比例（僅 StockChart）
+- **第三行**：MA5、MA10、MA20、MA60 數值
+- **第四行**：當前指標數值（MACD: DIF/MACD/柱狀、KD: K/D、RSI）
+
+**時間軸同步**（重要）：
+```typescript
+// 使用 TimeRange 同步（非 LogicalRange），確保日期對齊
+mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+  if (range && !isSyncing) {
+    isSyncing = true
+    volumeChart.timeScale().setVisibleRange(range)
+    indicatorChart.timeScale().setVisibleRange(range)
+    isSyncing = false
+  }
+})
+```
 
 **UI 規格**：
 - 圖表字體大小：16px
@@ -148,6 +190,25 @@ Claude Code 處理本專案時的指引說明。
 - 圖表高度：600px
 
 ## 資料庫 Schema
+
+### market_index_daily 表（大盤指數）
+
+```sql
+CREATE TABLE market_index_daily (
+    date DATE NOT NULL,
+    index_id VARCHAR(20) NOT NULL,  -- 'TAIEX' / 'TX'
+    index_name VARCHAR(50),          -- '加權指數' / '台指期近月'
+    open NUMERIC(10, 2),
+    high NUMERIC(10, 2),
+    low NUMERIC(10, 2),
+    close NUMERIC(10, 2),
+    volume BIGINT DEFAULT 0,
+    open_interest BIGINT DEFAULT 0,  -- 未平倉量（僅台指期）
+    settlement_price NUMERIC(10, 2), -- 結算價（僅台指期）
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (date, index_id)
+);
+```
 
 ### daily_stocks 表
 
@@ -162,6 +223,7 @@ CREATE TABLE daily_stocks (
     low DECIMAL(10,2),
     close DECIMAL(10,2),
     volume BIGINT,
+    day_trading_volume BIGINT,   -- 當沖成交量（張）
     foreign_buy BIGINT,          -- 外資買賣超（張）
     trust_buy BIGINT,            -- 投信買賣超（張）
     dealer_buy BIGINT,           -- 自營商買賣超（張）
@@ -186,6 +248,29 @@ CREATE TABLE strong_stock_matrix (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(stock_id, date)
 );
+```
+
+### user_watchlist 表（自選股）
+
+```sql
+CREATE TABLE user_watchlist (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    stock_id VARCHAR(10) NOT NULL,
+    stock_name VARCHAR(50),
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, stock_id)
+);
+
+-- RLS 政策：用戶只能管理自己的自選股
+ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own watchlist"
+    ON user_watchlist FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own watchlist"
+    ON user_watchlist FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own watchlist"
+    ON user_watchlist FOR DELETE USING (auth.uid() = user_id);
 ```
 
 ## 處理流程
@@ -233,13 +318,26 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 ## FinMind API
 
-### 批次 API（推薦）
+### 指數資料 API
 
 ```python
 from FinMind.data import DataLoader
 api = DataLoader()
 api.login_by_token(api_token=token)
 
+# 加權指數（TAIEX）- 使用 TaiwanStockPrice
+taiex = api.taiwan_stock_daily(stock_id='TAIEX', start_date=date, end_date=date)
+# 欄位：date, open, max, min, close, Trading_Volume
+
+# 台指期（TX）- 使用 TaiwanFuturesDaily
+tx = api.taiwan_futures_daily(futures_id='TX', start_date=date, end_date=date)
+# 欄位：date, open, max, min, close, volume, open_interest, settlement_price
+# 注意：需過濾 trading_session != 'after_market'，取近月（成交量最大）
+```
+
+### 批次 API（推薦）
+
+```python
 # 全市場股價（1 次 API）
 stock_data = api.taiwan_stock_daily(stock_id='', start_date=date, end_date=date)
 
@@ -292,7 +390,12 @@ docker run -p 3000:3000 stock-helper
 ### Python 資料收集
 
 ```bash
-# 每日收集（批次 API）
+# 指數資料收集（加權指數 + 台指期）
+python -m stock_collector.index_collector              # 今日
+python -m stock_collector.index_collector --days 30    # 過去 30 天
+python -m stock_collector.index_collector --start 2024-01-01 --end 2026-06-16
+
+# 每日股票收集（批次 API）
 python stock_collector/stock_collector.py
 
 # 批次歷史收集（最近 7 天）
@@ -337,6 +440,15 @@ streamlit run streamlit_app/app.py
 
 ## Supabase 注意事項
 
+### Supabase Auth 設定（自選股功能需要）
+
+1. 到 Supabase Dashboard > Authentication > Providers
+2. 啟用 Google Provider
+3. 設定 OAuth credentials（從 Google Cloud Console 取得）
+4. 新增 Redirect URL：`https://your-domain.com/auth/callback`
+
+**費用**：Free Plan 包含 50,000 MAU，個人使用完全免費
+
 ### 預設 1000 筆限制
 
 Supabase 預設每次查詢最多回傳 1000 筆。需要取得更多資料時，使用分頁查詢：
@@ -374,6 +486,7 @@ while (true) {
 |------|------|
 | 資料收集 | Python 3.x, FinMind API |
 | 資料庫 | Supabase (PostgreSQL) |
+| 身份驗證 | Supabase Auth (Google OAuth) |
 | 前端框架 | Next.js 15, React 18 |
 | UI 樣式 | Tailwind CSS |
 | 圖表 | lightweight-charts |

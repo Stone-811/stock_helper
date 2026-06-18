@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
+import AuthButton from './AuthButton'
 
 interface NavItem {
   href: string
@@ -13,6 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/', label: '首頁', icon: '📊' },
   { href: '/strong-stocks', label: '強勢股', icon: '🔥' },
+  { href: '/watchlist', label: '自選股', icon: '⭐' },
 ]
 
 export default function Sidebar() {
@@ -97,6 +99,9 @@ export default function Sidebar() {
             </Link>
           ))}
         </nav>
+
+        {/* 登入區 */}
+        <AuthButton />
 
         {/* 底部資訊 */}
         <div className="p-4 border-t border-[#2a2a3e]">

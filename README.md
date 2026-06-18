@@ -1,6 +1,6 @@
 # 台灣強勢股分析系統
 
-台灣股票資料收集與篩選工具，使用 FinMind API 抓取全市場上市上櫃股票資料，提供強勢股篩選與技術分析功能。
+台灣股票資料收集與篩選工具，使用 FinMind API 抓取全市場上市上櫃股票資料，提供大盤指數分析、強勢股篩選與技術分析功能。
 
 ## 線上版本
 
@@ -11,48 +11,64 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         使用者介面                               │
-│                    Next.js 16 + Tailwind CSS                    │
+│                    Next.js 15 + Tailwind CSS                    │
 │                      (Vercel / Docker)                          │
+│                                                                  │
+│  ┌──────────┬──────────────────────────────────────────────┐    │
+│  │ Sidebar  │               主內容區                        │    │
+│  │          │                                              │    │
+│  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
+│  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
+│  │          │  個股：專業 K 線圖 + MACD/KD/RSI             │    │
+│  └──────────┴──────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
-│         /api/strong-stocks  │  /api/stock/[id]                  │
+│   /api/market-index/[id]  │  /api/strong-stocks  │  /api/stock  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
 │                   Supabase PostgreSQL                            │
-│         daily_stocks  │  strong_stock_matrix                     │
+│    market_index_daily  │  daily_stocks  │  strong_stock_matrix  │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                       資料收集層                                 │
 │                    Python + FinMind API                          │
-│        stock_collector.py  │  update_strong_matrix.py           │
+│   index_collector.py  │  stock_collector.py  │  update_matrix   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 功能特色
 
-### 1. 批次資料收集（高效能）
-- **全市場股價資料**：一次 API 取得所有股票（開高低收、成交量）
+### 1. 大盤指數技術分析（首頁）
+- **加權指數（TAIEX）**：台灣股市大盤走勢
+- **台指期（TX）**：近月期貨，含未平倉量
+- **指數卡片**：即時顯示開高低收、漲跌幅
+- **可切換圖表**：點擊標籤切換加權指數/台指期
+- **完整技術分析**：K 線圖 + 成交量 + MACD/KD/RSI
+
+### 2. 批次資料收集（高效能）
+- **全市場股價資料**：一次 API 取得所有股票（開高低收、成交量、當沖量）
 - **三大法人籌碼**：外資、投信、自營商買賣超資料
 - **外資持股指標**：持股比例、尚可投資比例、投資上限比例
 - **效能優化**：相較逐檔抓取節省 99.95% API 用量
 
-### 2. 強勢股智能篩選
+### 3. 強勢股智能篩選
 篩選同時滿足以下條件的股票：
 - 成交量 > 500 張
 - 當日漲幅 > 3%
 - 收盤價高於開盤價
 - 三大法人合計買超 > 0 張
 
-### 3. Next.js 互動式分析網站
+### 4. Next.js 互動式分析網站
+- **Sidebar 導航**：首頁（大盤指數）、強勢股
 - **今日強勢股列表**：卡片式排列，顯示強勢次數
 - **股票搜尋**：自動完成、支援代碼與名稱搜尋、鍵盤導航
 - **篩選功能**：MACD 多空、成交量門檻
@@ -60,10 +76,11 @@
   - K 線圖 + MA5/MA10/MA20/MA60（深色主題）
   - 時間週期切換：日K / 週K / 月K
   - 技術指標選擇：MACD / KD / RSI
-  - 成交量柱狀圖（紅漲綠跌）
+  - 成交量柱狀圖（紅漲綠跌）+ 當沖比例顯示
   - 預設顯示近三個月資料（可向左拖曳查看更早資料）
+  - 三圖同步滾動（K 線、成交量、指標圖時間軸對齊）
   - 十字游標即時顯示：
-    - OHLCV 數據（開高低收、成交量）
+    - OHLCV 數據（開高低收、成交額、當沖額、當沖比）
     - MA 均線數值（MA5/MA10/MA20/MA60）
     - 技術指標數值（MACD: DIF/MACD/柱狀、KD: K/D、RSI）
   - 全幅寬度、600px 高度、16px 字體
@@ -121,7 +138,20 @@ npm run dev
 
 ## 資料收集
 
-### 每日資料收集
+### 指數資料收集（加權指數 + 台指期）
+
+```bash
+# 收集今日指數資料
+python -m stock_collector.index_collector
+
+# 收集過去 30 天
+python -m stock_collector.index_collector --days 30
+
+# 收集指定範圍
+python -m stock_collector.index_collector --start 2024-01-01 --end 2026-06-16
+```
+
+### 每日股票資料收集
 
 ```bash
 # 收集今日資料（僅需 2 次 API）
@@ -152,7 +182,8 @@ python stock_collector/update_strong_matrix.py
 ├── requirements.txt                    # Python 依賴
 │
 ├── stock_collector/                    # 資料收集模組
-│   ├── stock_collector.py              # 每日資料收集器
+│   ├── stock_collector.py              # 每日股票資料收集器
+│   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
 │   ├── update_strong_matrix.py         # 強勢股矩陣更新
 │   ├── merge_daily_files.py            # 檔案合併工具
 │   └── config.py                       # API 配置
@@ -168,18 +199,23 @@ python stock_collector/update_strong_matrix.py
 │
 └── frontend/                           # Next.js 前端
     ├── app/                            # App Router 頁面
-    │   ├── page.tsx                    # 首頁
+    │   ├── layout.tsx                  # 根 Layout（含 Sidebar）
+    │   ├── page.tsx                    # 首頁（大盤指數圖表）
+    │   ├── strong-stocks/page.tsx      # 強勢股列表
     │   ├── stock/[id]/page.tsx         # 個股詳情
     │   └── api/                        # API Routes
+    │       ├── market-index/[id]/      # 指數資料 API
     │       ├── strong-stocks/          # 強勢股 API
     │       ├── stock/[id]/             # 個股資料 API
     │       └── stocks/                 # 股票清單 API
     ├── components/                     # React 元件
+    │   ├── Sidebar.tsx                 # 側邊導航欄
+    │   ├── IndexChart.tsx              # 指數技術分析圖
     │   ├── StockCard.tsx               # 股票卡片
     │   ├── StockChart.tsx              # 專業技術分析圖
     │   └── StockSearch.tsx             # 股票搜尋元件
     └── lib/
-        └── supabase.ts                 # Supabase client
+        └── supabase.ts                 # Supabase client + 型別定義
 ```
 
 ---
@@ -213,7 +249,7 @@ docker-compose up -d
 |------|------|
 | 資料收集 | Python 3.x, FinMind API |
 | 資料庫 | Supabase (PostgreSQL) |
-| 前端框架 | Next.js 16, React 19 |
+| 前端框架 | Next.js 15, React 19 |
 | UI 樣式 | Tailwind CSS |
 | 圖表 | lightweight-charts |
 | 部署 | Vercel / Docker |
