@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -286,6 +287,60 @@ PE 幾倍？
 \`\`\`
 `
 
+// 使用 Claude API 生成報告
+async function generateWithClaude(userMessage: string): Promise<{ content: string; model: string }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY not configured')
+  }
+
+  const anthropic = new Anthropic({ apiKey })
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8192,
+    messages: [
+      {
+        role: 'user',
+        content: INVESTMENT_RESEARCH_PROMPT + '\n\n---\n\n' + userMessage
+      }
+    ]
+  })
+
+  const content = message.content
+    .filter(block => block.type === 'text')
+    .map(block => (block as { type: 'text'; text: string }).text)
+    .join('\n')
+
+  return { content, model: 'claude-sonnet-4-20250514' }
+}
+
+// 使用 OpenAI GPT 生成報告
+async function generateWithOpenAI(userMessage: string): Promise<{ content: string; model: string }> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY not configured')
+  }
+
+  const openai = new OpenAI({ apiKey })
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    max_tokens: 8192,
+    messages: [
+      {
+        role: 'system',
+        content: INVESTMENT_RESEARCH_PROMPT
+      },
+      {
+        role: 'user',
+        content: userMessage
+      }
+    ]
+  })
+
+  const content = completion.choices[0]?.message?.content || ''
+  return { content, model: 'gpt-4o' }
+}
+
 export async function POST(request: Request) {
   try {
     // 從 request header 取得 auth token
@@ -310,18 +365,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // 檢查是否有 API Key
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'ANTHROPIC_API_KEY not configured' },
-        { status: 500 }
-      )
-    }
-
-    // 初始化 Anthropic client
-    const anthropic = new Anthropic({ apiKey })
-
     // 組合 prompt
     const userMessage = `Deep Dive：${stock_name || stock_id}（股票代碼：${stock_id}）
 
@@ -334,23 +377,24 @@ export async function POST(request: Request) {
 4. 如果找不到資料，請標示「Data Not Publicly Available」
 5. 輸出格式為 Markdown`
 
-    // 呼叫 Claude API
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      messages: [
-        {
-          role: 'user',
-          content: INVESTMENT_RESEARCH_PROMPT + '\n\n---\n\n' + userMessage
-        }
-      ]
-    })
+    // 根據環境變數選擇 AI 提供者（優先使用 OpenAI）
+    let reportContent: string
+    let modelUsed: string
 
-    // 取得報告內容
-    const reportContent = message.content
-      .filter(block => block.type === 'text')
-      .map(block => (block as { type: 'text'; text: string }).text)
-      .join('\n')
+    if (process.env.OPENAI_API_KEY) {
+      const result = await generateWithOpenAI(userMessage)
+      reportContent = result.content
+      modelUsed = result.model
+    } else if (process.env.ANTHROPIC_API_KEY) {
+      const result = await generateWithClaude(userMessage)
+      reportContent = result.content
+      modelUsed = result.model
+    } else {
+      return NextResponse.json(
+        { error: 'No AI API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY' },
+        { status: 500 }
+      )
+    }
 
     // 儲存到 Supabase
     let savedReport = null
@@ -362,7 +406,7 @@ export async function POST(request: Request) {
           stock_id: stock_id,
           stock_name: stock_name || stock_id,
           report_content: reportContent,
-          model_used: 'claude-sonnet-4-20250514'
+          model_used: modelUsed
         })
         .select()
         .single()
@@ -380,7 +424,7 @@ export async function POST(request: Request) {
         stock_id,
         stock_name: stock_name || stock_id,
         content: reportContent,
-        model_used: 'claude-sonnet-4-20250514',
+        model_used: modelUsed,
         saved: !!savedReport,
         id: savedReport?.id
       }
@@ -388,8 +432,9 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Error generating analysis:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Failed to generate analysis'
     return NextResponse.json(
-      { error: 'Failed to generate analysis' },
+      { error: errorMessage },
       { status: 500 }
     )
   }

@@ -14,7 +14,7 @@ Claude Code 處理本專案時的指引說明。
 5. 強勢股分析網站（Next.js + Supabase + Sidebar 導航）
 6. 自選股功能（Supabase Auth + Google OAuth）
 7. Docker 容器化部署支援
-8. 基本面分析（Claude API 生成投資研究報告）
+8. 基本面分析（OpenAI GPT / Claude API 生成投資研究報告）
 
 ## 系統架構
 
@@ -29,7 +29,7 @@ Claude Code 處理本專案時的指引說明。
 │  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
 │  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
 │  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
-│  │ 📈 分析  │  基本面分析：Claude AI 生成投資研究報告       │    │
+│  │ 📈 分析  │  基本面分析：AI 生成投資研究報告              │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -345,8 +345,9 @@ SUPABASE_KEY=your_service_role_key
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
-# Claude API（基本面分析功能）
-ANTHROPIC_API_KEY=sk-ant-...
+# AI API（基本面分析功能，二擇一）
+OPENAI_API_KEY=sk-...          # OpenAI GPT-4o（優先使用）
+# ANTHROPIC_API_KEY=sk-ant-... # Claude Sonnet（備用）
 ```
 
 ## FinMind API
