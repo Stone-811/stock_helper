@@ -19,7 +19,8 @@
 │  │          │                                              │    │
 │  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
 │  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
-│  │          │  個股：專業 K 線圖 + MACD/KD/RSI             │    │
+│  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
+│  │ 📈 分析  │  基本面分析：AI 生成投資研究報告              │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -68,7 +69,7 @@
 - 三大法人合計買超 > 0 張
 
 ### 4. Next.js 互動式分析網站
-- **Sidebar 導航**：首頁（大盤指數）、強勢股
+- **Sidebar 導航**：首頁（大盤指數）、強勢股、自選股、基本面分析
 - **今日強勢股列表**：卡片式排列，顯示強勢次數
 - **股票搜尋**：自動完成、支援代碼與名稱搜尋、鍵盤導航
 - **篩選功能**：MACD 多空、成交量門檻
@@ -138,35 +139,38 @@ npm run dev
 
 ## 資料收集
 
-### 指數資料收集（加權指數 + 台指期）
+### 統一排程器（推薦）
+
+整合所有收集流程，含自動重試、增量更新、資料驗證：
 
 ```bash
-# 收集今日指數資料
-python -m stock_collector.index_collector
+# 今日全部資料（股票 + 指數 + 強勢股矩陣）
+python -m stock_collector.daily_collector
 
-# 收集過去 30 天
-python -m stock_collector.index_collector --days 30
+# 增量更新（只補缺少的日期）
+python -m stock_collector.daily_collector --incremental
 
-# 收集指定範圍
-python -m stock_collector.index_collector --start 2024-01-01 --end 2026-06-16
-```
-
-### 每日股票資料收集
-
-```bash
-# 收集今日資料（僅需 2 次 API）
-python stock_collector/stock_collector.py
-
-# 收集指定日期
-python stock_collector/stock_collector.py --date 2024-12-31
+# 指定日期
+python -m stock_collector.daily_collector --date 2026-06-19
 
 # 批次收集過去 7 天
-python stock_collector/stock_collector.py --days 7
+python -m stock_collector.daily_collector --days 7
+
+# 可選參數：--skip-stock, --skip-index, --skip-matrix
 ```
 
-### 更新強勢股矩陣
+### 個別收集（舊方式）
 
 ```bash
+# 指數資料（加權指數 + 台指期）
+python -m stock_collector.index_collector
+python -m stock_collector.index_collector --days 30
+
+# 每日股票資料（批次 API，僅需 2 次請求）
+python stock_collector/stock_collector.py
+python stock_collector/stock_collector.py --days 7
+
+# 更新強勢股矩陣
 python stock_collector/update_strong_matrix.py
 ```
 
@@ -182,6 +186,7 @@ python stock_collector/update_strong_matrix.py
 ├── requirements.txt                    # Python 依賴
 │
 ├── stock_collector/                    # 資料收集模組
+│   ├── daily_collector.py              # 統一排程器（推薦）
 │   ├── stock_collector.py              # 每日股票資料收集器
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
 │   ├── update_strong_matrix.py         # 強勢股矩陣更新
@@ -194,7 +199,7 @@ python stock_collector/update_strong_matrix.py
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
-│   │   └── archive/                    # 2024/2025 年度資料
+│   │   └── archive/                    # 年度合併存檔（2024/2025/2026）
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │
 └── frontend/                           # Next.js 前端
@@ -202,20 +207,27 @@ python stock_collector/update_strong_matrix.py
     │   ├── layout.tsx                  # 根 Layout（含 Sidebar）
     │   ├── page.tsx                    # 首頁（大盤指數圖表）
     │   ├── strong-stocks/page.tsx      # 強勢股列表
+    │   ├── watchlist/page.tsx          # 自選股（需登入）
+    │   ├── analysis/page.tsx           # 基本面分析
     │   ├── stock/[id]/page.tsx         # 個股詳情
-    │   └── api/                        # API Routes
+    │   ├── actions/stocks.ts           # Server Action（股票搜尋）
+    │   └── api/                        # API Routes（含快取）
+    │       ├── analysis/               # AI 分析報告 API
     │       ├── market-index/[id]/      # 指數資料 API
     │       ├── strong-stocks/          # 強勢股 API
     │       ├── stock/[id]/             # 個股資料 API
     │       └── stocks/                 # 股票清單 API
     ├── components/                     # React 元件
     │   ├── Sidebar.tsx                 # 側邊導航欄
+    │   ├── AuthButton.tsx              # Google OAuth 登入
+    │   ├── WatchlistButton.tsx         # 加入自選股按鈕
+    │   ├── MainContent.tsx             # 主內容區（響應式）
     │   ├── IndexChart.tsx              # 指數技術分析圖
     │   ├── StockCard.tsx               # 股票卡片
     │   ├── StockChart.tsx              # 專業技術分析圖
-    │   └── StockSearch.tsx             # 股票搜尋元件
+    │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action）
     └── lib/
-        └── supabase.ts                 # Supabase client + 型別定義
+        └── supabase.ts                 # Supabase client + Auth
 ```
 
 ---
@@ -247,11 +259,13 @@ docker-compose up -d
 
 | 類別 | 技術 |
 |------|------|
-| 資料收集 | Python 3.x, FinMind API |
+| 資料收集 | Python 3.x, FinMind API, tenacity（重試） |
 | 資料庫 | Supabase (PostgreSQL) |
-| 前端框架 | Next.js 15, React 19 |
+| 身份驗證 | Supabase Auth (Google OAuth) |
+| 前端框架 | Next.js 15, React 18 |
 | UI 樣式 | Tailwind CSS |
 | 圖表 | lightweight-charts |
+| AI 分析 | OpenAI GPT-4o / Claude API |
 | 部署 | Vercel / Docker |
 
 ---

@@ -65,6 +65,7 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── stock_collector/                    # 資料收集模組
 │   ├── config.py                       # FinMind API 配置
+│   ├── daily_collector.py              # 統一排程器（重試、增量更新、驗證）
 │   ├── stock_collector.py              # 每日股票資料收集器
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
 │   ├── update_strong_matrix.py         # 強勢股矩陣更新
@@ -76,10 +77,11 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
-│   │   ├── daily_stock_YYYYMMDD.csv
-│   │   └── archive/                    # 歷史資料存檔
+│   │   ├── daily_stock_YYYYMMDD.csv    # 當週每日檔案（保留最近 7 天）
+│   │   └── archive/                    # 年度合併存檔
 │   │       ├── stocks_2024.csv         # 2024 年度資料
-│   │       └── stocks_2025.csv         # 2025 年度資料
+│   │       ├── stocks_2025.csv         # 2025 年度資料
+│   │       └── stocks_2026.csv         # 2026 年度資料（~19MB）
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │       └── strong_stock_matrix.csv
 │
@@ -92,6 +94,8 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── analysis/page.tsx           # 基本面分析頁
 │   │   ├── stock/[id]/page.tsx         # 個股詳情頁
 │   │   ├── auth/callback/route.ts      # OAuth 回調處理
+│   │   ├── actions/                    # Server Actions
+│   │   │   └── stocks.ts               # 股票搜尋（PostgreSQL ILIKE）
 │   │   └── api/                        # API Routes
 │   │       ├── analysis/route.ts       # 基本面分析 API（Claude AI）
 │   │       ├── analysis/[id]/route.ts  # 單一報告 API
@@ -104,10 +108,11 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── Sidebar.tsx                 # 側邊導航欄（響應式 + AuthButton）
 │   │   ├── AuthButton.tsx              # 登入/登出按鈕（Google OAuth）
 │   │   ├── WatchlistButton.tsx         # 加入/移除自選股按鈕
+│   │   ├── MainContent.tsx             # 主內容區（響應式寬度）
 │   │   ├── IndexChart.tsx              # 指數技術分析圖（K 線+成交量+指標）
 │   │   ├── StockCard.tsx               # 股票卡片
 │   │   ├── StockChart.tsx              # 專業技術分析圖（整合 K 線+指標）
-│   │   └── StockSearch.tsx             # 股票搜尋（自動完成）
+│   │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action + 300ms debounce）
 │   │
 │   ├── lib/                            # 共用函式庫
 │   │   └── supabase.ts                 # Supabase client + Auth + 型別定義
@@ -130,6 +135,7 @@ Claude Code 處理本專案時的指引說明。
 |------|------|
 | utils.py | 技術指標計算（MA、MACD）、選股邏輯 |
 | supabase_writer.py | DataFrame 寫入 Supabase（upsert）- 含 write_market_index() |
+| stock_collector/daily_collector.py | 統一排程器：重試機制、增量更新、資料驗證 |
 | stock_collector/stock_collector.py | 批次 API 資料收集、CSV 存檔、Supabase 同步 |
 | stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
 | stock_collector/update_strong_matrix.py | 每日更新強勢股矩陣 |
@@ -157,8 +163,10 @@ Claude Code 處理本專案時的指引說明。
 | components/WatchlistButton.tsx | 加入/移除自選股按鈕 |
 | components/IndexChart.tsx | 指數技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
 | components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + 當沖比 + MACD/KD/RSI） |
-| components/StockSearch.tsx | 股票搜尋元件（自動完成、鍵盤導航） |
+| components/StockSearchOptimized.tsx | 股票搜尋（Server Action + debounce） |
 | components/StockCard.tsx | 股票資訊卡片元件 |
+| components/MainContent.tsx | 主內容區（響應式寬度調整） |
+| app/actions/stocks.ts | Server Action：股票搜尋（PostgreSQL ILIKE） |
 | lib/supabase.ts | Supabase client + Auth helpers + 型別定義 |
 
 ### StockChart / IndexChart 專業圖表功能
@@ -167,10 +175,10 @@ Claude Code 處理本專案時的指引說明。
 
 **核心功能**：
 - **時間週期切換**：日K / 週K / 月K
+- **日期區間選擇**：3M / 6M / 1Y / 2Y（固定顯示範圍，無動態滑動）
 - **技術指標選擇**：MACD / KD / RSI
-- **三圖同步滾動**：K 線主圖、成交量、指標圖（使用 TimeRange 同步）
+- **MA 均線勾選**：MA5、MA10、MA20、MA60 可獨立開關
 - **深色主題**：專業交易介面風格（#1a1a2e 背景）
-- **預設顯示三個月**：約 65 個交易日，可向左拖曳查看更早資料
 
 **十字游標即時數據**：
 - **第一行**：日期、開高低收、漲跌幅、成交額
@@ -321,6 +329,25 @@ CREATE POLICY "Authenticated users can create reports"
 
 **優勢**：相較逐檔抓取，API 用量從 4000次降至 2次，節省 99.95%
 
+### 統一排程器（daily_collector.py）
+
+整合所有資料收集流程，提供：
+- **自動重試**：使用 tenacity 套件，失敗時指數退避重試（最多 3 次）
+- **增量更新**：自動偵測缺少的日期，只補抓缺失資料
+- **資料驗證**：確保資料筆數 >= 2000、收盤價完整度 >= 95%
+- **日誌記錄**：輸出到 logs/daily_collector_YYYYMMDD.log
+
+```python
+# 重試機制範例
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    retry=retry_if_exception_type(Exception)
+)
+def collect_stocks(self, date=None):
+    # 收集股票資料，失敗自動重試
+```
+
 ### 強勢股篩選條件
 ```
 1. 多頭排列：close > MA5 > MA20 > MA60
@@ -424,6 +451,16 @@ docker run -p 3000:3000 stock-helper
 ### Python 資料收集
 
 ```bash
+# === 統一排程器（推薦）===
+python -m stock_collector.daily_collector                    # 今日（股票+指數+矩陣）
+python -m stock_collector.daily_collector --incremental      # 增量更新（只補缺少的日期）
+python -m stock_collector.daily_collector --date 2026-06-19  # 指定日期
+python -m stock_collector.daily_collector --days 7           # 批次收集過去 7 天
+python -m stock_collector.daily_collector --skip-stock       # 只收集指數+矩陣
+python -m stock_collector.daily_collector --skip-index       # 只收集股票+矩陣
+python -m stock_collector.daily_collector --skip-matrix      # 只收集資料，不更新矩陣
+
+# === 個別收集（舊方式）===
 # 指數資料收集（加權指數 + 台指期）
 python -m stock_collector.index_collector              # 今日
 python -m stock_collector.index_collector --days 30    # 過去 30 天
@@ -462,6 +499,56 @@ npm run build && npm start
 ```bash
 streamlit run streamlit_app/app.py
 ```
+
+## 效能優化
+
+### API Response 快取
+
+API Routes 使用 Cache-Control header 減少重複請求：
+
+```typescript
+// api/stocks/route.ts - 股票清單快取 5 分鐘
+return NextResponse.json({ stocks, count }, {
+  headers: {
+    'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
+  }
+})
+
+// api/strong-stocks/route.ts - 強勢股快取 2 分鐘
+headers: {
+  'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300'
+}
+```
+
+### Server Actions（股票搜尋優化）
+
+使用 Server Action 取代前端載入全部 2300+ 股票：
+
+```typescript
+// app/actions/stocks.ts
+'use server'
+export async function searchStocks(query: string): Promise<StockSearchResult[]> {
+  const { data } = await supabase
+    .from('daily_stocks')
+    .select('stock_id, stock_name')
+    .eq('date', latestDate.date)
+    .or(`stock_id.ilike.%${q}%,stock_name.ilike.%${q}%`)
+    .limit(20)
+  return data || []
+}
+```
+
+**優勢**：
+- 初始載入不需取得全部股票
+- 搜尋時只傳輸符合條件的 20 筆
+- 使用 PostgreSQL ILIKE 在伺服器端搜尋
+
+### 圖表時間軸對齊
+
+**重要**：使用 TimeRange（日期）而非 LogicalRange（索引）同步三圖：
+
+- LogicalRange 問題：MACD 從第 34 根 K 棒開始計算，索引對不上
+- TimeRange 解決：使用實際日期同步，確保三圖顯示相同日期範圍
 
 ## 開發原則
 
@@ -518,12 +605,13 @@ while (true) {
 
 | 類別 | 技術 |
 |------|------|
-| 資料收集 | Python 3.x, FinMind API |
+| 資料收集 | Python 3.x, FinMind API, tenacity（重試） |
 | 資料庫 | Supabase (PostgreSQL) |
 | 身份驗證 | Supabase Auth (Google OAuth) |
 | 前端框架 | Next.js 15, React 18 |
 | UI 樣式 | Tailwind CSS |
 | 圖表 | lightweight-charts |
+| AI 分析 | OpenAI GPT-4o / Claude API |
 | 部署 | Vercel / Docker |
 | 版本控制 | Git, GitHub |
 
