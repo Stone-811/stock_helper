@@ -22,7 +22,7 @@ function IndexCard({ data, showOpenInterest = false }: { data: IndexResponse; sh
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">{data.index_name}</h2>
-          <p className="text-sm text-gray-500">資料日期：{data.latest.date}</p>
+          <p className="text-sm text-gray-800">資料日期：{data.latest.date}</p>
         </div>
         <div className="text-right">
           <div className={`text-3xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
@@ -36,25 +36,25 @@ function IndexCard({ data, showOpenInterest = false }: { data: IndexResponse; sh
 
       <div className={`grid ${showOpenInterest ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'} gap-4 mt-4 pt-4 border-t border-gray-100`}>
         <div>
-          <span className="text-sm text-gray-500">開盤</span>
-          <div className="font-medium">{data.latest.open.toLocaleString()}</div>
+          <span className="text-sm text-gray-800">開盤</span>
+          <div className="font-medium text-gray-900">{data.latest.open.toLocaleString()}</div>
         </div>
         <div>
-          <span className="text-sm text-gray-500">最高</span>
+          <span className="text-sm text-gray-800">最高</span>
           <div className="font-medium text-red-600">{data.latest.high.toLocaleString()}</div>
         </div>
         <div>
-          <span className="text-sm text-gray-500">最低</span>
+          <span className="text-sm text-gray-800">最低</span>
           <div className="font-medium text-green-600">{data.latest.low.toLocaleString()}</div>
         </div>
         <div>
-          <span className="text-sm text-gray-500">成交量</span>
-          <div className="font-medium">{data.latest.volume.toLocaleString()}</div>
+          <span className="text-sm text-gray-800">成交量</span>
+          <div className="font-medium text-gray-900">{data.latest.volume.toLocaleString()}</div>
         </div>
         {showOpenInterest && (
           <div>
-            <span className="text-sm text-gray-500">未平倉量</span>
-            <div className="font-medium">{(data.latest.open_interest || 0).toLocaleString()}</div>
+            <span className="text-sm text-gray-800">未平倉量</span>
+            <div className="font-medium text-gray-900">{(data.latest.open_interest || 0).toLocaleString()}</div>
           </div>
         )}
       </div>
