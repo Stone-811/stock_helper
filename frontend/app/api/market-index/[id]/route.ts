@@ -39,6 +39,11 @@ export async function GET(
       history: indexData,
       change,
       changePercent
+    }, {
+      headers: {
+        // 快取 5 分鐘，背景更新可延長至 10 分鐘
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
+      }
     })
 
   } catch (error) {

@@ -40,6 +40,11 @@ export async function GET() {
     return NextResponse.json({
       stocks: allStocks,
       count: allStocks.length
+    }, {
+      headers: {
+        // 快取 5 分鐘，背景更新可延長至 10 分鐘
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
+      }
     })
 
   } catch (error) {

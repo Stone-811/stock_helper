@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
-import StockSearch from '../../../components/StockSearch'
+import StockSearchOptimized from '../../../components/StockSearchOptimized'
 import { DailyStock } from '../../../lib/supabase'
 
 interface StockData {
@@ -81,7 +81,7 @@ export default function StockDetail() {
                 {data.stock_id} {data.stock_name}
               </h1>
             </div>
-            <StockSearch />
+            <StockSearchOptimized />
           </div>
         </div>
       </header>
