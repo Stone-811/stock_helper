@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { createChart, ColorType, IChartApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
 import { DailyStock } from '../lib/supabase'
 
 interface StockChartProps {
@@ -11,32 +11,62 @@ interface StockChartProps {
 
 type TimeFrame = 'day' | 'week' | 'month'
 type Indicator = 'macd' | 'kd' | 'rsi'
+type DatePeriod = '3M' | '6M' | '1Y' | '2Y'
+
+// 日期週期對應的交易日數
+const periodToDays: Record<DatePeriod, number> = {
+  '3M': 65,
+  '6M': 130,
+  '1Y': 250,
+  '2Y': 500,
+}
 
 export default function StockChart({ data, height = 500 }: StockChartProps) {
   const mainChartRef = useRef<HTMLDivElement>(null)
   const volumeChartRef = useRef<HTMLDivElement>(null)
   const indicatorChartRef = useRef<HTMLDivElement>(null)
 
+  // MA 系列的 refs（用於控制顯示/隱藏，避免重新創建圖表）
+  const ma5SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma10SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
   const [indicator, setIndicator] = useState<Indicator>('macd')
+  const [datePeriod, setDatePeriod] = useState<DatePeriod>('3M')
   const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
 
-  // 根據時間週期轉換資料
-  const chartData = convertToTimeFrame(data, timeFrame)
+  // MA 顯示設定
+  const [showMA5, setShowMA5] = useState(true)
+  const [showMA10, setShowMA10] = useState(true)
+  const [showMA20, setShowMA20] = useState(true)
+  const [showMA60, setShowMA60] = useState(false)
 
-  // 預先計算所有 MA 和指標數值（用於左上角顯示）
-  const maData = {
-    ma5: calculateMAValues(chartData, 5),
-    ma10: calculateMAValues(chartData, 10),
-    ma20: calculateMAValues(chartData, 20),
-    ma60: calculateMAValues(chartData, 60),
-  }
-  const macdData = calculateMACDValues(chartData)
-  const kdData = calculateKDValues(chartData)
-  const rsiData = calculateRSIValues(chartData)
+  // 根據時間週期轉換資料（使用 useMemo 避免重複計算）
+  const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
+
+  // 根據日期週期篩選顯示的資料
+  const displayData = useMemo(() => {
+    const days = periodToDays[datePeriod]
+    const startIdx = Math.max(0, chartData.length - days)
+    return chartData.slice(startIdx)
+  }, [chartData, datePeriod])
+
+  // 預先計算所有 MA 和指標數值（基於顯示資料）
+  const maData = useMemo(() => ({
+    ma5: calculateMAValues(displayData, 5),
+    ma10: calculateMAValues(displayData, 10),
+    ma20: calculateMAValues(displayData, 20),
+    ma60: calculateMAValues(displayData, 60),
+  }), [displayData])
+
+  const macdData = useMemo(() => calculateMACDValues(displayData), [displayData])
+  const kdData = useMemo(() => calculateKDValues(displayData), [displayData])
+  const rsiData = useMemo(() => calculateRSIValues(displayData), [displayData])
 
   useEffect(() => {
-    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || chartData.length === 0) return
+    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || displayData.length === 0) return
 
     // 主圖高度分配
     const mainHeight = Math.floor(height * 0.55)
@@ -67,8 +97,13 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       timeScale: {
         borderColor: '#3a3a4e',
         timeVisible: true,
-        visible: false, // 隱藏主圖時間軸
+        visible: false,
+        rightOffset: 5,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
+      handleScroll: false,
+      handleScale: false,
     })
 
     // K 線
@@ -82,7 +117,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       lastValueVisible: false,
     })
 
-    const candleData: CandlestickData[] = chartData.map(item => ({
+    const candleData: CandlestickData[] = displayData.map(item => ({
       time: item.date as string,
       open: item.open,
       high: item.high,
@@ -91,16 +126,22 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
     }))
     candleSeries.setData(candleData)
 
-    // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false })
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false })
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
+    // MA 線（全部創建，透過 visible 控制顯示）
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false, visible: showMA5 })
+    ma5.setData(calculateMA(displayData, 5))
+    ma5SeriesRef.current = ma5
 
-    ma5.setData(calculateMA(chartData, 5))
-    ma10.setData(calculateMA(chartData, 10))
-    ma20.setData(calculateMA(chartData, 20))
-    ma60.setData(calculateMA(chartData, 60))
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, visible: showMA10 })
+    ma10.setData(calculateMA(displayData, 10))
+    ma10SeriesRef.current = ma10
+
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false, visible: showMA20 })
+    ma20.setData(calculateMA(displayData, 20))
+    ma20SeriesRef.current = ma20
+
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, visible: showMA60 })
+    ma60.setData(calculateMA(displayData, 60))
+    ma60SeriesRef.current = ma60
 
     // ========== 成交量圖 ==========
     const volumeChart = createChart(volumeChartRef.current, {
@@ -121,7 +162,11 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       timeScale: {
         borderColor: '#3a3a4e',
         visible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
+      handleScroll: false,
+      handleScale: false,
     })
 
     const volumeSeries = volumeChart.addHistogramSeries({
@@ -129,7 +174,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       lastValueVisible: false,
     })
 
-    const volumeData: HistogramData[] = chartData.map(item => ({
+    const volumeData: HistogramData[] = displayData.map(item => ({
       time: item.date as string,
       value: item.volume,
       color: item.close >= item.open ? '#ef444480' : '#22c55e80',
@@ -155,71 +200,49 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
       timeScale: {
         borderColor: '#3a3a4e',
         timeVisible: true,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
+      handleScroll: false,
+      handleScale: false,
     })
 
     // 根據選擇的指標繪製
     if (indicator === 'macd') {
-      drawMACD(indicatorChart, chartData)
+      drawMACD(indicatorChart, displayData)
     } else if (indicator === 'kd') {
-      drawKD(indicatorChart, chartData)
+      drawKD(indicatorChart, displayData)
     } else if (indicator === 'rsi') {
-      drawRSI(indicatorChart, chartData)
+      drawRSI(indicatorChart, displayData)
     }
 
-    // 同步三個圖表的時間軸（使用時間範圍同步，確保日期對齊）
-    let isSyncing = false
-
-    mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        volumeChart.timeScale().setVisibleRange(range)
-        indicatorChart.timeScale().setVisibleRange(range)
-        isSyncing = false
+    // 十字線同步（跨圖表）
+    volumeChart.subscribeCrosshairMove(param => {
+      if (param.time) {
+        mainChart.setCrosshairPosition(0, param.time, candleSeries)
       }
     })
 
-    volumeChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        mainChart.timeScale().setVisibleRange(range)
-        indicatorChart.timeScale().setVisibleRange(range)
-        isSyncing = false
-      }
-    })
-
-    indicatorChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        mainChart.timeScale().setVisibleRange(range)
-        volumeChart.timeScale().setVisibleRange(range)
-        isSyncing = false
+    indicatorChart.subscribeCrosshairMove(param => {
+      if (param.time) {
+        mainChart.setCrosshairPosition(0, param.time, candleSeries)
       }
     })
 
     // 同步十字線 - 記錄 index 給左上角資訊顯示
     mainChart.subscribeCrosshairMove(param => {
       if (param.time) {
-        const idx = chartData.findIndex(d => d.date === param.time)
+        const idx = displayData.findIndex(d => d.date === param.time)
         setCrosshairIndex(idx)
       } else {
         setCrosshairIndex(-1)
       }
     })
 
-    // 預設顯示近三個月資料（約 65 個交易日），但仍可往前拉
-    const threeMonthBars = 65
-    const totalBars = chartData.length
-    const fromIdx = Math.max(0, totalBars - threeMonthBars)
-
-    // 使用時間範圍設定初始顯示區間
-    const fromTime = chartData[fromIdx].date
-    const toTime = chartData[totalBars - 1].date
-    const timeRange = { from: fromTime, to: toTime }
-
-    mainChart.timeScale().setVisibleRange(timeRange)
-    volumeChart.timeScale().setVisibleRange(timeRange)
-    indicatorChart.timeScale().setVisibleRange(timeRange)
+    // 顯示全部資料範圍
+    mainChart.timeScale().fitContent()
+    volumeChart.timeScale().fitContent()
+    indicatorChart.timeScale().fitContent()
 
     // 響應式調整
     const handleResize = () => {
@@ -234,16 +257,37 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      ma5SeriesRef.current = null
+      ma10SeriesRef.current = null
+      ma20SeriesRef.current = null
+      ma60SeriesRef.current = null
       mainChart.remove()
       volumeChart.remove()
       indicatorChart.remove()
     }
-  }, [chartData, indicator, height])
+  }, [displayData, indicator, height])
+
+  // 獨立的 useEffect 控制 MA 線顯示/隱藏（避免重繪圖表）
+  useEffect(() => {
+    if (ma5SeriesRef.current) ma5SeriesRef.current.applyOptions({ visible: showMA5 })
+  }, [showMA5])
+
+  useEffect(() => {
+    if (ma10SeriesRef.current) ma10SeriesRef.current.applyOptions({ visible: showMA10 })
+  }, [showMA10])
+
+  useEffect(() => {
+    if (ma20SeriesRef.current) ma20SeriesRef.current.applyOptions({ visible: showMA20 })
+  }, [showMA20])
+
+  useEffect(() => {
+    if (ma60SeriesRef.current) ma60SeriesRef.current.applyOptions({ visible: showMA60 })
+  }, [showMA60])
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
       {/* 頂部控制列 */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-4 mb-4">
         {/* 時間週期選擇 */}
         <div className="flex gap-2">
           {[
@@ -254,7 +298,7 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
             <button
               key={key}
               onClick={() => setTimeFrame(key as TimeFrame)}
-              className={`px-4 py-2 text-lg font-medium rounded ${
+              className={`px-3 py-1.5 text-base font-medium rounded ${
                 timeFrame === key
                   ? 'bg-blue-600 text-white'
                   : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
@@ -265,13 +309,30 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
           ))}
         </div>
 
+        {/* 日期區間 */}
+        <div className="flex gap-2">
+          {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map(period => (
+            <button
+              key={period}
+              onClick={() => setDatePeriod(period)}
+              className={`px-3 py-1.5 text-base font-medium rounded ${
+                datePeriod === period
+                  ? 'bg-green-600 text-white'
+                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
+              }`}
+            >
+              {period}
+            </button>
+          ))}
+        </div>
+
         {/* 指標選擇 */}
-        <div className="flex items-center gap-3">
-          <span className="text-white text-lg">指標:</span>
+        <div className="flex items-center gap-2">
+          <span className="text-white text-base">指標:</span>
           <select
             value={indicator}
             onChange={(e) => setIndicator(e.target.value as Indicator)}
-            className="bg-[#2a2a3e] text-white text-lg font-medium rounded px-3 py-2 border border-[#3a3a4e]"
+            className="bg-[#2a2a3e] text-white text-base font-medium rounded px-2 py-1.5 border border-[#3a3a4e]"
           >
             <option value="macd">MACD</option>
             <option value="kd">KD</option>
@@ -279,36 +340,75 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
           </select>
         </div>
 
+        {/* MA 勾選 */}
+        <div className="flex items-center gap-3 ml-auto">
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA5}
+              onChange={(e) => setShowMA5(e.target.checked)}
+              className="w-4 h-4 accent-amber-500"
+            />
+            <span className="text-amber-400 text-sm">MA5</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA10}
+              onChange={(e) => setShowMA10(e.target.checked)}
+              className="w-4 h-4 accent-blue-500"
+            />
+            <span className="text-blue-400 text-sm">MA10</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA20}
+              onChange={(e) => setShowMA20(e.target.checked)}
+              className="w-4 h-4 accent-pink-500"
+            />
+            <span className="text-pink-400 text-sm">MA20</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA60}
+              onChange={(e) => setShowMA60(e.target.checked)}
+              className="w-4 h-4 accent-purple-500"
+            />
+            <span className="text-purple-400 text-sm">MA60</span>
+          </label>
+        </div>
       </div>
 
       {/* 圖表區域 */}
       <div className="relative">
         {/* 左上角資訊顯示 */}
-        {crosshairIndex >= 0 && chartData[crosshairIndex] && (
+        {crosshairIndex >= 0 && displayData[crosshairIndex] && (
           <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span>{chartData[crosshairIndex].date}</span>
-              <span>開 <span className="text-yellow-400">{chartData[crosshairIndex].open.toFixed(2)}</span></span>
-              <span>高 <span className="text-red-400">{chartData[crosshairIndex].high.toFixed(2)}</span></span>
-              <span>低 <span className="text-green-400">{chartData[crosshairIndex].low.toFixed(2)}</span></span>
-              <span>收 <span className={chartData[crosshairIndex].close >= chartData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
-                {chartData[crosshairIndex].close.toFixed(2)}
+              <span>{displayData[crosshairIndex].date}</span>
+              <span>開 <span className="text-yellow-400">{displayData[crosshairIndex].open.toFixed(2)}</span></span>
+              <span>高 <span className="text-red-400">{displayData[crosshairIndex].high.toFixed(2)}</span></span>
+              <span>低 <span className="text-green-400">{displayData[crosshairIndex].low.toFixed(2)}</span></span>
+              <span>收 <span className={displayData[crosshairIndex].close >= displayData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
+                {displayData[crosshairIndex].close.toFixed(2)}
               </span></span>
-              <span>量 <span className="text-gray-300">{chartData[crosshairIndex].volume.toLocaleString()}張</span></span>
-              {chartData[crosshairIndex].day_trading_volume > 0 && (
+              <span>量 <span className="text-gray-300">{displayData[crosshairIndex].volume.toLocaleString()}張</span></span>
+              {displayData[crosshairIndex].day_trading_volume > 0 && (
                 <span>沖 <span className="text-cyan-400">
-                  {chartData[crosshairIndex].day_trading_volume.toLocaleString()}張
-                  {chartData[crosshairIndex].volume > 0 && (
-                    <span className="text-cyan-300"> ({((chartData[crosshairIndex].day_trading_volume / chartData[crosshairIndex].volume) * 100).toFixed(1)}%)</span>
+                  {displayData[crosshairIndex].day_trading_volume.toLocaleString()}張
+                  {displayData[crosshairIndex].volume > 0 && (
+                    <span className="text-cyan-300"> ({((displayData[crosshairIndex].day_trading_volume / displayData[crosshairIndex].volume) * 100).toFixed(1)}%)</span>
                   )}
                 </span></span>
               )}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
-              {maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma10[crosshairIndex] && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma20[crosshairIndex] && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma60[crosshairIndex] && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA5 && maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA10 && maData.ma10[crosshairIndex] && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA20 && maData.ma20[crosshairIndex] && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA60 && maData.ma60[crosshairIndex] && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
               {indicator === 'macd' && macdData[crosshairIndex] && (
@@ -341,16 +441,6 @@ export default function StockChart({ data, height = 500 }: StockChartProps) {
 }
 
 // ========== 工具函數 ==========
-
-// 格式化成交金額（億、萬）
-function formatTradingValue(value: number): string {
-  if (value >= 1e8) {
-    return (value / 1e8).toFixed(2) + '億'
-  } else if (value >= 1e4) {
-    return (value / 1e4).toFixed(0) + '萬'
-  }
-  return value.toFixed(0)
-}
 
 function convertToTimeFrame(data: DailyStock[], timeFrame: TimeFrame): DailyStock[] {
   if (timeFrame === 'day') return data

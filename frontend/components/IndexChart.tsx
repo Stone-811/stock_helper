@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { createChart, ColorType, IChartApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
 import { MarketIndex } from '../lib/supabase'
 
 interface IndexChartProps {
@@ -11,32 +11,76 @@ interface IndexChartProps {
 
 type TimeFrame = 'day' | 'week' | 'month'
 type Indicator = 'macd' | 'kd' | 'rsi'
+type DatePeriod = '3M' | '6M' | '1Y' | '2Y'
+
+// 日期週期對應的交易日數
+const periodToDays: Record<DatePeriod, number> = {
+  '3M': 65,
+  '6M': 130,
+  '1Y': 250,
+  '2Y': 500,
+}
 
 export default function IndexChart({ data, height = 500 }: IndexChartProps) {
   const mainChartRef = useRef<HTMLDivElement>(null)
   const volumeChartRef = useRef<HTMLDivElement>(null)
   const indicatorChartRef = useRef<HTMLDivElement>(null)
 
+  // MA 系列的 refs（用於控制顯示/隱藏，避免重新創建圖表）
+  const ma5SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma10SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
   const [indicator, setIndicator] = useState<Indicator>('macd')
+  const [datePeriod, setDatePeriod] = useState<DatePeriod>('3M')
   const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
 
-  // 根據時間週期轉換資料
-  const chartData = convertToTimeFrame(data, timeFrame)
+  // MA 顯示設定
+  const [showMA5, setShowMA5] = useState(true)
+  const [showMA10, setShowMA10] = useState(true)
+  const [showMA20, setShowMA20] = useState(true)
+  const [showMA60, setShowMA60] = useState(false)
 
-  // 預先計算所有 MA 和指標數值
-  const maData = {
-    ma5: calculateMAValues(chartData, 5),
-    ma10: calculateMAValues(chartData, 10),
-    ma20: calculateMAValues(chartData, 20),
-    ma60: calculateMAValues(chartData, 60),
+  // 判斷是 TAIEX 還是 TX
+  const indexId = data.length > 0 ? data[0].index_id : 'TAIEX'
+  const isTaiex = indexId === 'TAIEX'
+
+  // 格式化成交量顯示
+  const formatVolume = (vol: number): string => {
+    if (isTaiex) {
+      const yi = vol / 100000000
+      return `${yi.toFixed(2)}億`
+    } else {
+      return `${vol.toLocaleString()}口`
+    }
   }
-  const macdData = calculateMACDValues(chartData)
-  const kdData = calculateKDValues(chartData)
-  const rsiData = calculateRSIValues(chartData)
+
+  // 根據時間週期轉換資料（使用 useMemo 避免重複計算）
+  const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
+
+  // 根據日期週期篩選顯示的資料
+  const displayData = useMemo(() => {
+    const days = periodToDays[datePeriod]
+    const startIdx = Math.max(0, chartData.length - days)
+    return chartData.slice(startIdx)
+  }, [chartData, datePeriod])
+
+  // 預先計算所有 MA 和指標數值（基於顯示資料）
+  const maData = useMemo(() => ({
+    ma5: calculateMAValues(displayData, 5),
+    ma10: calculateMAValues(displayData, 10),
+    ma20: calculateMAValues(displayData, 20),
+    ma60: calculateMAValues(displayData, 60),
+  }), [displayData])
+
+  const macdData = useMemo(() => calculateMACDValues(displayData), [displayData])
+  const kdData = useMemo(() => calculateKDValues(displayData), [displayData])
+  const rsiData = useMemo(() => calculateRSIValues(displayData), [displayData])
 
   useEffect(() => {
-    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || chartData.length === 0) return
+    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || displayData.length === 0) return
 
     const mainHeight = Math.floor(height * 0.55)
     const volumeHeight = Math.floor(height * 0.15)
@@ -61,7 +105,16 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
         horzLine: { color: '#505070', width: 1, style: 2 },
       },
       rightPriceScale: { borderColor: '#3a3a4e' },
-      timeScale: { borderColor: '#3a3a4e', timeVisible: true, visible: false },
+      timeScale: {
+        borderColor: '#3a3a4e',
+        timeVisible: true,
+        visible: false,
+        rightOffset: 5,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      handleScroll: false,
+      handleScale: false,
     })
 
     // K 線
@@ -75,7 +128,7 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
       lastValueVisible: false,
     })
 
-    const candleData: CandlestickData[] = chartData.map(item => ({
+    const candleData: CandlestickData[] = displayData.map(item => ({
       time: item.date as string,
       open: item.open,
       high: item.high,
@@ -84,16 +137,22 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
     }))
     candleSeries.setData(candleData)
 
-    // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false })
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false })
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
+    // MA 線（全部創建，透過 visible 控制顯示）
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false, visible: showMA5 })
+    ma5.setData(calculateMA(displayData, 5))
+    ma5SeriesRef.current = ma5
 
-    ma5.setData(calculateMA(chartData, 5))
-    ma10.setData(calculateMA(chartData, 10))
-    ma20.setData(calculateMA(chartData, 20))
-    ma60.setData(calculateMA(chartData, 60))
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, visible: showMA10 })
+    ma10.setData(calculateMA(displayData, 10))
+    ma10SeriesRef.current = ma10
+
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false, visible: showMA20 })
+    ma20.setData(calculateMA(displayData, 20))
+    ma20SeriesRef.current = ma20
+
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, visible: showMA60 })
+    ma60.setData(calculateMA(displayData, 60))
+    ma60SeriesRef.current = ma60
 
     // 成交量圖
     const volumeChart = createChart(volumeChartRef.current, {
@@ -109,17 +168,26 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
         horzLines: { color: '#2a2a3e' },
       },
       rightPriceScale: { borderColor: '#3a3a4e' },
-      timeScale: { borderColor: '#3a3a4e', visible: false },
+      timeScale: {
+        borderColor: '#3a3a4e',
+        visible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      handleScroll: false,
+      handleScale: false,
     })
 
     const volumeSeries = volumeChart.addHistogramSeries({
-      priceFormat: { type: 'volume' },
+      priceFormat: isTaiex
+        ? { type: 'price', precision: 2 }
+        : { type: 'volume' },
       lastValueVisible: false,
     })
 
-    const volumeData: HistogramData[] = chartData.map(item => ({
+    const volumeData: HistogramData[] = displayData.map(item => ({
       time: item.date as string,
-      value: item.volume,
+      value: isTaiex ? item.volume / 100000000 : item.volume,
       color: item.close >= item.open ? '#ef444480' : '#22c55e80',
     }))
     volumeSeries.setData(volumeData)
@@ -138,68 +206,50 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
         horzLines: { color: '#2a2a3e' },
       },
       rightPriceScale: { borderColor: '#3a3a4e' },
-      timeScale: { borderColor: '#3a3a4e', timeVisible: true },
+      timeScale: {
+        borderColor: '#3a3a4e',
+        timeVisible: true,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      handleScroll: false,
+      handleScale: false,
     })
 
     if (indicator === 'macd') {
-      drawMACD(indicatorChart, chartData)
+      drawMACD(indicatorChart, displayData)
     } else if (indicator === 'kd') {
-      drawKD(indicatorChart, chartData)
+      drawKD(indicatorChart, displayData)
     } else if (indicator === 'rsi') {
-      drawRSI(indicatorChart, chartData)
+      drawRSI(indicatorChart, displayData)
     }
 
-    // 同步時間軸
-    let isSyncing = false
-
-    mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        volumeChart.timeScale().setVisibleRange(range)
-        indicatorChart.timeScale().setVisibleRange(range)
-        isSyncing = false
+    // 十字線同步（跨圖表）
+    volumeChart.subscribeCrosshairMove(param => {
+      if (param.time) {
+        mainChart.setCrosshairPosition(0, param.time, candleSeries)
       }
     })
 
-    volumeChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        mainChart.timeScale().setVisibleRange(range)
-        indicatorChart.timeScale().setVisibleRange(range)
-        isSyncing = false
+    indicatorChart.subscribeCrosshairMove(param => {
+      if (param.time) {
+        mainChart.setCrosshairPosition(0, param.time, candleSeries)
       }
     })
 
-    indicatorChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (range && !isSyncing) {
-        isSyncing = true
-        mainChart.timeScale().setVisibleRange(range)
-        volumeChart.timeScale().setVisibleRange(range)
-        isSyncing = false
-      }
-    })
-
-    // 十字線同步
     mainChart.subscribeCrosshairMove(param => {
       if (param.time) {
-        const idx = chartData.findIndex(d => d.date === param.time)
+        const idx = displayData.findIndex(d => d.date === param.time)
         setCrosshairIndex(idx)
       } else {
         setCrosshairIndex(-1)
       }
     })
 
-    // 預設顯示近三個月
-    const threeMonthBars = 65
-    const totalBars = chartData.length
-    const fromIdx = Math.max(0, totalBars - threeMonthBars)
-    const fromTime = chartData[fromIdx].date
-    const toTime = chartData[totalBars - 1].date
-    const timeRange = { from: fromTime, to: toTime }
-
-    mainChart.timeScale().setVisibleRange(timeRange)
-    volumeChart.timeScale().setVisibleRange(timeRange)
-    indicatorChart.timeScale().setVisibleRange(timeRange)
+    // 顯示全部資料範圍
+    mainChart.timeScale().fitContent()
+    volumeChart.timeScale().fitContent()
+    indicatorChart.timeScale().fitContent()
 
     // 響應式
     const handleResize = () => {
@@ -214,16 +264,38 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      ma5SeriesRef.current = null
+      ma10SeriesRef.current = null
+      ma20SeriesRef.current = null
+      ma60SeriesRef.current = null
       mainChart.remove()
       volumeChart.remove()
       indicatorChart.remove()
     }
-  }, [chartData, indicator, height])
+  }, [displayData, indicator, height, isTaiex])
+
+  // 獨立的 useEffect 控制 MA 線顯示/隱藏（避免重繪圖表）
+  useEffect(() => {
+    if (ma5SeriesRef.current) ma5SeriesRef.current.applyOptions({ visible: showMA5 })
+  }, [showMA5])
+
+  useEffect(() => {
+    if (ma10SeriesRef.current) ma10SeriesRef.current.applyOptions({ visible: showMA10 })
+  }, [showMA10])
+
+  useEffect(() => {
+    if (ma20SeriesRef.current) ma20SeriesRef.current.applyOptions({ visible: showMA20 })
+  }, [showMA20])
+
+  useEffect(() => {
+    if (ma60SeriesRef.current) ma60SeriesRef.current.applyOptions({ visible: showMA60 })
+  }, [showMA60])
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-4">
       {/* 控制列 */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-4 mb-4">
+        {/* 時間週期 */}
         <div className="flex gap-2">
           {[
             { key: 'day', label: '日K' },
@@ -233,7 +305,7 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
             <button
               key={key}
               onClick={() => setTimeFrame(key as TimeFrame)}
-              className={`px-4 py-2 text-lg font-medium rounded ${
+              className={`px-3 py-1.5 text-base font-medium rounded ${
                 timeFrame === key
                   ? 'bg-blue-600 text-white'
                   : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
@@ -244,39 +316,97 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-white text-lg">指標:</span>
+        {/* 日期區間 */}
+        <div className="flex gap-2">
+          {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map(period => (
+            <button
+              key={period}
+              onClick={() => setDatePeriod(period)}
+              className={`px-3 py-1.5 text-base font-medium rounded ${
+                datePeriod === period
+                  ? 'bg-green-600 text-white'
+                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
+              }`}
+            >
+              {period}
+            </button>
+          ))}
+        </div>
+
+        {/* 指標選擇 */}
+        <div className="flex items-center gap-2">
+          <span className="text-white text-base">指標:</span>
           <select
             value={indicator}
             onChange={(e) => setIndicator(e.target.value as Indicator)}
-            className="bg-[#2a2a3e] text-white text-lg font-medium rounded px-3 py-2 border border-[#3a3a4e]"
+            className="bg-[#2a2a3e] text-white text-base font-medium rounded px-2 py-1.5 border border-[#3a3a4e]"
           >
             <option value="macd">MACD</option>
             <option value="kd">KD</option>
             <option value="rsi">RSI</option>
           </select>
         </div>
+
+        {/* MA 勾選 */}
+        <div className="flex items-center gap-3 ml-auto">
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA5}
+              onChange={(e) => setShowMA5(e.target.checked)}
+              className="w-4 h-4 accent-amber-500"
+            />
+            <span className="text-amber-400 text-sm">MA5</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA10}
+              onChange={(e) => setShowMA10(e.target.checked)}
+              className="w-4 h-4 accent-blue-500"
+            />
+            <span className="text-blue-400 text-sm">MA10</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA20}
+              onChange={(e) => setShowMA20(e.target.checked)}
+              className="w-4 h-4 accent-pink-500"
+            />
+            <span className="text-pink-400 text-sm">MA20</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMA60}
+              onChange={(e) => setShowMA60(e.target.checked)}
+              className="w-4 h-4 accent-purple-500"
+            />
+            <span className="text-purple-400 text-sm">MA60</span>
+          </label>
+        </div>
       </div>
 
       {/* 圖表 */}
       <div className="relative">
-        {crosshairIndex >= 0 && chartData[crosshairIndex] && (
+        {crosshairIndex >= 0 && displayData[crosshairIndex] && (
           <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span>{chartData[crosshairIndex].date}</span>
-              <span>開 <span className="text-yellow-400">{chartData[crosshairIndex].open.toFixed(2)}</span></span>
-              <span>高 <span className="text-red-400">{chartData[crosshairIndex].high.toFixed(2)}</span></span>
-              <span>低 <span className="text-green-400">{chartData[crosshairIndex].low.toFixed(2)}</span></span>
-              <span>收 <span className={chartData[crosshairIndex].close >= chartData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
-                {chartData[crosshairIndex].close.toFixed(2)}
+              <span>{displayData[crosshairIndex].date}</span>
+              <span>開 <span className="text-yellow-400">{displayData[crosshairIndex].open.toFixed(2)}</span></span>
+              <span>高 <span className="text-red-400">{displayData[crosshairIndex].high.toFixed(2)}</span></span>
+              <span>低 <span className="text-green-400">{displayData[crosshairIndex].low.toFixed(2)}</span></span>
+              <span>收 <span className={displayData[crosshairIndex].close >= displayData[crosshairIndex].open ? 'text-red-400' : 'text-green-400'}>
+                {displayData[crosshairIndex].close.toFixed(2)}
               </span></span>
-              <span>量 <span className="text-gray-300">{chartData[crosshairIndex].volume.toLocaleString()}</span></span>
+              <span>量 <span className="text-gray-300">{formatVolume(displayData[crosshairIndex].volume)}</span></span>
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
-              {maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma10[crosshairIndex] && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma20[crosshairIndex] && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
-              {maData.ma60[crosshairIndex] && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA5 && maData.ma5[crosshairIndex] && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA10 && maData.ma10[crosshairIndex] && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA20 && maData.ma20[crosshairIndex] && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
+              {showMA60 && maData.ma60[crosshairIndex] && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
               {indicator === 'macd' && macdData[crosshairIndex] && (
