@@ -292,98 +292,101 @@ export default function IndexChart({ data, height = 500 }: IndexChartProps) {
   }, [showMA60])
 
   return (
-    <div className="bg-[#1a1a2e] rounded-lg p-4">
-      {/* 控制列 */}
-      <div className="flex flex-wrap items-center gap-4 mb-4">
-        {/* 時間週期 */}
-        <div className="flex gap-2">
-          {[
-            { key: 'day', label: '日K' },
-            { key: 'week', label: '週K' },
-            { key: 'month', label: '月K' },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setTimeFrame(key as TimeFrame)}
-              className={`px-3 py-1.5 text-base font-medium rounded ${
-                timeFrame === key
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
-              }`}
+    <div className="bg-[#1a1a2e] rounded-lg p-2 md:p-4">
+      {/* 控制列 - 手機版兩行，桌面版一行 */}
+      <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-3 md:mb-4">
+        {/* 第一行：時間週期 + 日期區間 + 指標 */}
+        <div className="flex flex-wrap items-center gap-2 md:gap-4">
+          {/* 時間週期 */}
+          <div className="flex gap-1 md:gap-2">
+            {[
+              { key: 'day', label: '日K' },
+              { key: 'week', label: '週K' },
+              { key: 'month', label: '月K' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setTimeFrame(key as TimeFrame)}
+                className={`px-2 md:px-3 py-1 md:py-1.5 text-sm md:text-base font-medium rounded min-h-[36px] ${
+                  timeFrame === key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* 日期區間 */}
+          <div className="flex gap-1 md:gap-2">
+            {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map(period => (
+              <button
+                key={period}
+                onClick={() => setDatePeriod(period)}
+                className={`px-2 md:px-3 py-1 md:py-1.5 text-sm md:text-base font-medium rounded min-h-[36px] ${
+                  datePeriod === period
+                    ? 'bg-green-600 text-white'
+                    : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
+                }`}
+              >
+                {period}
+              </button>
+            ))}
+          </div>
+
+          {/* 指標選擇 */}
+          <div className="flex items-center gap-1 md:gap-2">
+            <span className="text-white text-sm md:text-base hidden md:inline">指標:</span>
+            <select
+              value={indicator}
+              onChange={(e) => setIndicator(e.target.value as Indicator)}
+              className="bg-[#2a2a3e] text-white text-sm md:text-base font-medium rounded px-2 py-1 md:py-1.5 border border-[#3a3a4e] min-h-[36px]"
             >
-              {label}
-            </button>
-          ))}
+              <option value="macd">MACD</option>
+              <option value="kd">KD</option>
+              <option value="rsi">RSI</option>
+            </select>
+          </div>
         </div>
 
-        {/* 日期區間 */}
-        <div className="flex gap-2">
-          {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map(period => (
-            <button
-              key={period}
-              onClick={() => setDatePeriod(period)}
-              className={`px-3 py-1.5 text-base font-medium rounded ${
-                datePeriod === period
-                  ? 'bg-green-600 text-white'
-                  : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
-              }`}
-            >
-              {period}
-            </button>
-          ))}
-        </div>
-
-        {/* 指標選擇 */}
-        <div className="flex items-center gap-2">
-          <span className="text-white text-base">指標:</span>
-          <select
-            value={indicator}
-            onChange={(e) => setIndicator(e.target.value as Indicator)}
-            className="bg-[#2a2a3e] text-white text-base font-medium rounded px-2 py-1.5 border border-[#3a3a4e]"
-          >
-            <option value="macd">MACD</option>
-            <option value="kd">KD</option>
-            <option value="rsi">RSI</option>
-          </select>
-        </div>
-
-        {/* MA 勾選 */}
-        <div className="flex items-center gap-3 ml-auto">
-          <label className="flex items-center gap-1 cursor-pointer">
+        {/* 第二行（手機）/ 同一行右側（桌面）：MA 勾選 */}
+        <div className="flex items-center gap-2 md:gap-3 md:ml-auto">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[36px]">
             <input
               type="checkbox"
               checked={showMA5}
               onChange={(e) => setShowMA5(e.target.checked)}
               className="w-4 h-4 accent-amber-500"
             />
-            <span className="text-amber-400 text-sm">MA5</span>
+            <span className="text-amber-400 text-xs md:text-sm">MA5</span>
           </label>
-          <label className="flex items-center gap-1 cursor-pointer">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[36px]">
             <input
               type="checkbox"
               checked={showMA10}
               onChange={(e) => setShowMA10(e.target.checked)}
               className="w-4 h-4 accent-blue-500"
             />
-            <span className="text-blue-400 text-sm">MA10</span>
+            <span className="text-blue-400 text-xs md:text-sm">MA10</span>
           </label>
-          <label className="flex items-center gap-1 cursor-pointer">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[36px]">
             <input
               type="checkbox"
               checked={showMA20}
               onChange={(e) => setShowMA20(e.target.checked)}
               className="w-4 h-4 accent-pink-500"
             />
-            <span className="text-pink-400 text-sm">MA20</span>
+            <span className="text-pink-400 text-xs md:text-sm">MA20</span>
           </label>
-          <label className="flex items-center gap-1 cursor-pointer">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[36px]">
             <input
               type="checkbox"
               checked={showMA60}
               onChange={(e) => setShowMA60(e.target.checked)}
               className="w-4 h-4 accent-purple-500"
             />
-            <span className="text-purple-400 text-sm">MA60</span>
+            <span className="text-purple-400 text-xs md:text-sm">MA60</span>
           </label>
         </div>
       </div>

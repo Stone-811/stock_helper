@@ -4,45 +4,64 @@ import { supabase } from '../../../lib/supabase'
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const days = parseInt(searchParams.get('days') || '7')
+  const selectedDate = searchParams.get('date')
 
   try {
-    // 取得最新日期
-    const { data: latestDate } = await supabase
+    // 新架構：strong_stock_matrix 只存強勢股，所以不需要 is_strong 條件
+    // 使用 DISTINCT 在資料庫端取得不重複日期（更高效）
+    const { data: dateData } = await supabase
       .from('strong_stock_matrix')
       .select('date')
       .order('date', { ascending: false })
-      .limit(1)
-      .single()
+      .limit(5000)  // 取最近的記錄
 
-    if (!latestDate) {
-      return NextResponse.json({ stocks: [], latestDate: null })
+    // 在 JS 端去重（Supabase 不支援 DISTINCT）
+    const uniqueDates = [...new Set(dateData?.map(d => d.date) || [])]
+      .sort((a, b) => b.localeCompare(a))
+      .slice(0, 60)
+
+    if (uniqueDates.length === 0) {
+      return NextResponse.json({ stocks: [], latestDate: null, availableDates: [] })
     }
 
-    // 取得今日強勢股
+    // 使用指定日期或最新日期
+    const targetDate = selectedDate && uniqueDates.includes(selectedDate)
+      ? selectedDate
+      : uniqueDates[0]
+
+    // 取得該日強勢股（新架構：存在即強勢，不需要 is_strong 條件）
     const { data: strongStocks, error } = await supabase
       .from('strong_stock_matrix')
       .select('stock_id, stock_name')
-      .eq('date', latestDate.date)
-      .eq('is_strong', true)
+      .eq('date', targetDate)
 
     if (error) throw error
 
     // 取得這些股票的詳細資料
     const stockIds = strongStocks?.map(s => s.stock_id) || []
 
+    if (stockIds.length === 0) {
+      return NextResponse.json({
+        stocks: [],
+        latestDate: targetDate,
+        availableDates: uniqueDates,
+        totalCount: 0
+      })
+    }
+
     const { data: stockDetails } = await supabase
       .from('daily_stocks')
       .select('*')
-      .eq('date', latestDate.date)
+      .eq('date', targetDate)
       .in('stock_id', stockIds)
 
-    // 計算近 N 日強勢次數
+    // 計算近 N 日強勢次數（新架構：存在即強勢）
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const { data: strongCounts } = await supabase
       .from('strong_stock_matrix')
-      .select('stock_id, is_strong, date')
+      .select('stock_id, date')
       .in('stock_id', stockIds)
-      .eq('is_strong', true)
-      .gte('date', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+      .gte('date', startDate)
 
     // 統計每檔股票的強勢次數
     const countMap: Record<string, number> = {}
@@ -61,8 +80,13 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       stocks: result,
-      latestDate: latestDate.date,
+      latestDate: targetDate,
+      availableDates: uniqueDates,
       totalCount: result.length
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300'
+      }
     })
 
   } catch (error) {

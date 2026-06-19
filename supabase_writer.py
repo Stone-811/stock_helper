@@ -109,7 +109,7 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
 
 def write_strong_stock_matrix(df: pd.DataFrame) -> int:
     """
-    寫入強勢股矩陣資料到 Supabase
+    寫入強勢股矩陣資料到 Supabase（新架構：只存強勢股）
 
     Parameters:
     -----------
@@ -133,23 +133,32 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
         # 取得日期欄位（排除 stock_id 和 stock_name）
         date_columns = [col for col in df.columns if col not in ['stock_id', 'stock_name']]
 
-        # 轉換為長格式 (stock_id, stock_name, date, is_strong)
+        # 只收集強勢股記錄（值為 1 的）
         records = []
+        seen = set()  # 用於去重
         for _, row in df.iterrows():
             stock_id = str(row['stock_id'])
             stock_name = str(row['stock_name'])
 
             for date_col in date_columns:
-                is_strong = bool(row[date_col] == 1) if pd.notna(row[date_col]) else False
-                records.append({
-                    'stock_id': stock_id,
-                    'stock_name': stock_name,
-                    'date': date_col,
-                    'is_strong': is_strong
-                })
+                # 只存強勢股（值為 1）
+                if pd.notna(row[date_col]) and row[date_col] == 1:
+                    key = (stock_id, date_col)
+                    if key in seen:
+                        continue  # 跳過重複
+                    seen.add(key)
 
-        # 分批寫入（每批 1000 筆，避免 payload 過大）
-        batch_size = 1000
+                    records.append({
+                        'stock_id': stock_id,
+                        'stock_name': stock_name,
+                        'date': date_col,
+                        'is_strong': True  # 保留欄位相容性，存在即為強勢
+                    })
+
+        logging.info(f"準備寫入 {len(records)} 筆強勢股記錄（只存強勢股）...")
+
+        # 分批寫入（每批 500 筆，避免 payload 過大）
+        batch_size = 500
         total_count = 0
 
         for i in range(0, len(records), batch_size):
@@ -159,6 +168,8 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
                 on_conflict='stock_id,date'
             ).execute()
             total_count += len(result.data) if result.data else 0
+            if (i // batch_size + 1) % 10 == 0:
+                logging.info(f"  已寫入 {total_count} 筆...")
 
         logging.info(f"✓ 成功寫入 strong_stock_matrix: {total_count} 筆")
         return total_count

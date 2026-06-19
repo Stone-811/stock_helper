@@ -144,72 +144,122 @@ export default function WatchlistPage() {
             </Link>
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">股票</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">收盤價</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">漲跌</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">成交量</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {stocks.map((stock) => {
-                  const change = stock.latestData
-                    ? stock.latestData.close - stock.latestData.open
-                    : 0
-                  const changePercent = stock.latestData && stock.latestData.open > 0
-                    ? (change / stock.latestData.open) * 100
-                    : 0
-                  const isPositive = change >= 0
+          <>
+            {/* 手機版：卡片式佈局 */}
+            <div className="md:hidden space-y-3">
+              {stocks.map((stock) => {
+                const change = stock.latestData
+                  ? stock.latestData.close - stock.latestData.open
+                  : 0
+                const changePercent = stock.latestData && stock.latestData.open > 0
+                  ? (change / stock.latestData.open) * 100
+                  : 0
+                const isPositive = change >= 0
 
-                  return (
-                    <tr key={stock.stock_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/stock/${stock.stock_id}`}
-                          className="hover:text-blue-600"
-                        >
-                          <div className="font-medium text-gray-900">{stock.stock_name}</div>
-                          <div className="text-sm text-gray-500">{stock.stock_id}</div>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`font-medium ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
+                return (
+                  <div key={stock.stock_id} className="bg-white rounded-lg shadow-sm p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <Link href={`/stock/${stock.stock_id}`} className="flex-1">
+                        <div className="font-bold text-gray-900">{stock.stock_id}</div>
+                        <div className="text-sm text-gray-500 truncate max-w-[120px]">{stock.stock_name}</div>
+                      </Link>
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
                           {stock.latestData?.close.toFixed(2) || '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={isPositive ? 'text-red-600' : 'text-green-600'}>
+                        </div>
+                        <div className={`text-sm ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
                           {stock.latestData ? (
                             <>
-                              {isPositive ? '+' : ''}{change.toFixed(2)}
-                              <span className="text-sm ml-1">
-                                ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
-                              </span>
+                              {isPositive ? '+' : ''}{changePercent.toFixed(2)}%
                             </>
                           ) : '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-gray-600">
-                        {stock.latestData?.volume.toLocaleString() || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => handleRemove(stock.stock_id)}
-                          className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          移除
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                      <span className="text-sm text-gray-500">
+                        成交量 {stock.latestData?.volume.toLocaleString() || '-'}
+                      </span>
+                      <button
+                        onClick={() => handleRemove(stock.stock_id)}
+                        className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors min-h-[36px]"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* 桌面版：表格佈局 */}
+            <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">股票</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">收盤價</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">漲跌</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">成交量</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {stocks.map((stock) => {
+                    const change = stock.latestData
+                      ? stock.latestData.close - stock.latestData.open
+                      : 0
+                    const changePercent = stock.latestData && stock.latestData.open > 0
+                      ? (change / stock.latestData.open) * 100
+                      : 0
+                    const isPositive = change >= 0
+
+                    return (
+                      <tr key={stock.stock_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/stock/${stock.stock_id}`}
+                            className="hover:text-blue-600"
+                          >
+                            <div className="font-medium text-gray-900">{stock.stock_name}</div>
+                            <div className="text-sm text-gray-500">{stock.stock_id}</div>
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-medium ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
+                            {stock.latestData?.close.toFixed(2) || '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={isPositive ? 'text-red-600' : 'text-green-600'}>
+                            {stock.latestData ? (
+                              <>
+                                {isPositive ? '+' : ''}{change.toFixed(2)}
+                                <span className="text-sm ml-1">
+                                  ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
+                                </span>
+                              </>
+                            ) : '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-600">
+                          {stock.latestData?.volume.toLocaleString() || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => handleRemove(stock.stock_id)}
+                            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            移除
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

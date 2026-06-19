@@ -29,12 +29,12 @@ export default function StockCard({ stock }: StockCardProps) {
 
   return (
     <Link href={`/stock/${stock.stock_id}`}>
-      <div className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200">
+      <div className="bg-white rounded-lg shadow-md p-3 md:p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200">
         {/* 股票代碼和名稱 */}
         <div className="flex justify-between items-start mb-2">
-          <div>
-            <span className="text-lg font-bold text-gray-800">{stock.stock_id}</span>
-            <span className="ml-2 text-sm text-gray-600">{stock.stock_name}</span>
+          <div className="min-w-0 flex-1 mr-2">
+            <span className="text-base md:text-lg font-bold text-gray-800">{stock.stock_id}</span>
+            <span className="ml-1.5 md:ml-2 text-sm text-gray-600 truncate inline-block max-w-[80px] md:max-w-[100px] align-bottom">{stock.stock_name}</span>
           </div>
           <span className={`px-2 py-1 rounded text-xs font-medium ${
             stock.macd_status === '多'
@@ -46,12 +46,12 @@ export default function StockCard({ stock }: StockCardProps) {
         </div>
 
         {/* 價格 */}
-        <div className="mb-3">
-          <span className={`text-2xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
+        <div className="mb-2 md:mb-3">
+          <span className={`text-xl md:text-2xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
             ${stock.close.toFixed(2)}
           </span>
-          <span className={`ml-2 text-sm ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
-            {isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePct}%)
+          <span className={`ml-1.5 md:ml-2 text-xs md:text-sm ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
+            {isPositive ? '+' : ''}{priceChangePct}%
           </span>
         </div>
 
