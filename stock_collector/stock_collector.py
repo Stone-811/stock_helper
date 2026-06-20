@@ -164,8 +164,13 @@ class StockCollector:
                     logging.warning("   CSV 已儲存，但 Supabase 未更新")
 
             # 10. 追加到年度合併檔案
+            year = target_date[:4]
+            archive_file = f"archive/stocks_{year}.csv"
+            daily_file_deleted = False
+
             try:
                 self._append_to_yearly_archive(filepath, target_date)
+                daily_file_deleted = True
             except Exception as e:
                 logging.warning(f"⚠️ 年度檔案追加失敗: {e}")
                 logging.warning("   每日 CSV 已儲存，但未追加到年度檔案")
@@ -175,10 +180,18 @@ class StockCollector:
             logging.info("收集完成！")
             logging.info(f"日期: {target_date}")
             logging.info(f"股票數: {len(df)}")
-            logging.info(f"檔案: {filepath}")
+            if daily_file_deleted:
+                logging.info(f"年度檔案: {archive_file}（已自動追加）")
+                logging.info(f"每日檔案: 已刪除（已整併到年度檔案）")
+            else:
+                logging.info(f"每日檔案: {filepath}")
             logging.info("=" * 70)
 
-            return str(filepath)
+            # 回傳年度檔案路徑（若成功追加）或每日檔案路徑（若追加失敗）
+            if daily_file_deleted:
+                return str(self.output_dir / archive_file)
+            else:
+                return str(filepath)
 
         except Exception as e:
             logging.error(f"收集失敗: {e}")
@@ -401,7 +414,7 @@ class StockCollector:
 
         # 如果年度檔案存在，先讀取並去除今日重複資料（重新收集的情況）
         if archive_filepath.exists():
-            logging.info(f"追加到年度檔案: {archive_filepath}")
+            logging.info(f"追加到年度檔案: {archive_filepath.name}")
 
             # 讀取現有年度資料
             archive_df = pd.read_csv(archive_filepath)
