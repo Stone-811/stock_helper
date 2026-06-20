@@ -85,14 +85,19 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     output_path = base_path / output_dir
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # 讀取所有每日報表
-    all_files = sorted(glob.glob(str(data_path / 'daily_stock_*.csv')))
+    # 讀取年度合併檔案（優先）或每日報表（備用）
+    archive_files = sorted(glob.glob(str(data_path / 'archive' / 'stocks_*.csv')))
+    daily_files = sorted(glob.glob(str(data_path / 'daily_stock_*.csv')))
 
-    if len(all_files) == 0:
-        logging.error(f"找不到每日報表：{data_path}")
+    if archive_files:
+        all_files = archive_files
+        logging.info(f"找到 {len(all_files)} 個年度合併檔案")
+    elif daily_files:
+        all_files = daily_files
+        logging.info(f"找到 {len(all_files)} 個每日報表")
+    else:
+        logging.error(f"找不到資料檔案：{data_path}")
         return None
-
-    logging.info(f"找到 {len(all_files)} 個每日報表")
 
     all_data = []
 
