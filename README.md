@@ -270,6 +270,24 @@ docker-compose up -d
 
 ---
 
+## 最近更新
+
+### 2026-06-20
+
+**前端優化與手機版響應式設計**
+- ✨ **UI 改善**：IndexCard 文字顏色優化（開盤、成交量、未平倉量改用深灰色，提升可讀性）
+- ⚡ **效能提升**：API Routes 加入 Cache-Control headers（market-index 5分鐘、stocks 5分鐘快取）
+- 📱 **響應式設計**：
+  - 自選股頁面：手機版卡片式佈局 / 桌面版表格佈局
+  - 強勢股頁面：優化 grid breakpoints（1/2/3/4 欄位自動調整）
+  - 圖表控制：手機版改為兩行佈局，提升操作體驗
+- 🔐 **認證整合**：Sidebar 整合 Google OAuth 登入按鈕（響應式設計）
+- 🗄️ **資料庫優化**：強勢股矩陣改為精簡架構（僅儲存強勢股，減少 98% 資料量）
+- 🧹 **程式碼清理**：移除舊版圖表元件（CandlestickChart、MacdChart、VolumeChart）
+- 🔍 **搜尋優化**：採用 Server Action + debounce 機制，減少網路傳輸
+
+---
+
 ## 風險聲明
 
 **本工具僅供學習與研究使用，不構成任何投資建議。**

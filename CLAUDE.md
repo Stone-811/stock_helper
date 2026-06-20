@@ -618,3 +618,28 @@ while (true) {
 ## GitHub Repository
 
 https://github.com/Stone-811/stock_helper
+
+## 最近更新
+
+### 2026-06-20
+
+**前端優化**
+- **IndexCard 文字顏色修正**：開盤、成交量、未平倉量數值改用 `text-gray-900`，提升可讀性
+- **API Response 快取**：為 `/api/market-index/[id]` 和 `/api/stocks` 加入 Cache-Control headers
+- **Sidebar 整合**：整合 AuthButton（Google OAuth 登入）+ 手機版響應式設計
+- **元件清理**：移除舊版圖表元件（CandlestickChart、MacdChart、VolumeChart）改用整合的 StockChart
+- **搜尋優化**：移除 StockSearch，改用 StockSearchOptimized（Server Action + debounce）
+
+**手機版響應式設計**
+- **自選股頁面**：手機版卡片式佈局、桌面版表格佈局
+- **強勢股頁面**：調整 grid breakpoints（grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4）
+- **StockCard 元件**：響應式 padding、字體大小、文字截斷
+- **圖表控制**：StockChart / IndexChart 控制按鈕改為兩行佈局（手機版）
+
+**資料架構優化**
+- **強勢股矩陣精簡**：改為僅儲存強勢股（is_strong=true），資料量從 549,180 筆降至 11,557 筆（減少 98%）
+- **API 查詢簡化**：`/api/strong-stocks` 移除 `is_strong` 過濾條件（存在即為強勢股）
+
+**部署同步**
+- 修正本地與 Vercel 版本不同步問題
+- 確保所有前端變更已推送至 GitHub
