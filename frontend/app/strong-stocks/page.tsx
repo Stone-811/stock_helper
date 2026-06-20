@@ -80,13 +80,34 @@ export default function StrongStocksPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* 日期選擇與篩選條件（同一列） */}
+        {/* 日期資訊卡片 */}
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div>
+              <span className="text-sm text-gray-500">當前日期</span>
+              <div className="text-2xl font-bold text-gray-800">{selectedDate}</div>
+            </div>
+            <div className="border-l border-gray-200 pl-4">
+              <span className="text-sm text-gray-500">可選範圍</span>
+              <div className="text-sm text-gray-700">
+                {data?.availableDates && data.availableDates.length > 0 && (
+                  <>
+                    {data.availableDates[data.availableDates.length - 1]} ~ {data.availableDates[0]}
+                    <span className="text-gray-400 ml-2">({data.availableDates.length} 個交易日)</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 日期選擇與篩選條件 */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div className="flex flex-wrap gap-4 items-center justify-between">
             {/* 左側：日期 + 篩選 */}
             <div className="flex flex-wrap gap-4 items-center">
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-sm">日期</span>
+                <span className="text-gray-500 text-sm">切換日期</span>
                 <select
                   value={selectedDate}
                   onChange={(e) => handleDateChange(e.target.value)}

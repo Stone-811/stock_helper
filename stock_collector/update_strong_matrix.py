@@ -8,6 +8,11 @@ import os
 from pathlib import Path
 import glob
 import logging
+from dotenv import load_dotenv
+
+# 載入環境變數
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # Supabase 寫入（若環境變數未設定則跳過）
 SUPABASE_ENABLED = bool(os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_KEY'))

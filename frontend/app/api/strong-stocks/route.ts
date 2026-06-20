@@ -7,18 +7,36 @@ export async function GET(request: Request) {
   const selectedDate = searchParams.get('date')
 
   try {
-    // 新架構：strong_stock_matrix 只存強勢股，所以不需要 is_strong 條件
-    // 使用 DISTINCT 在資料庫端取得不重複日期（更高效）
-    const { data: dateData } = await supabase
-      .from('strong_stock_matrix')
-      .select('date')
-      .order('date', { ascending: false })
-      .limit(5000)  // 取最近的記錄
+    // 分批查詢取得所有不重複日期（繞過 Supabase 1000 筆限制）
+    let allDates: Set<string> = new Set()
+    let offset = 0
+    const batchSize = 1000
 
-    // 在 JS 端去重（Supabase 不支援 DISTINCT）
-    const uniqueDates = [...new Set(dateData?.map(d => d.date) || [])]
+    // 最多查詢 60 批（可覆蓋所有 833 個交易日）
+    for (let i = 0; i < 60; i++) {
+      const { data: batch } = await supabase
+        .from('strong_stock_matrix')
+        .select('date')
+        .order('date', { ascending: false })
+        .range(offset, offset + batchSize - 1)
+
+      if (!batch || batch.length === 0) break
+
+      batch.forEach(item => allDates.add(item.date))
+
+      // 如果這批不足 1000 筆，表示已經取完所有資料
+      if (batch.length < batchSize) break
+
+      offset += batchSize
+
+      // 如果已經取得足夠的日期（例如 800 個），可以提前結束
+      if (allDates.size >= 800) break
+    }
+
+    // 排序並取前 365 個日期（約 1 年的交易日）
+    const uniqueDates = Array.from(allDates)
       .sort((a, b) => b.localeCompare(a))
-      .slice(0, 60)
+      .slice(0, 365)
 
     if (uniqueDates.length === 0) {
       return NextResponse.json({ stocks: [], latestDate: null, availableDates: [] })
