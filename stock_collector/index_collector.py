@@ -138,9 +138,20 @@ class IndexCollector:
             if 'trading_session' in df.columns:
                 df = df[df['trading_session'] != 'after_market']
 
-            # 只保留近月合約 (成交量最大的)
-            df = df.sort_values(['date', 'volume'], ascending=[True, False])
-            df = df.drop_duplicates(subset=['date'], keep='first')
+            # 過濾出單一月份合約 (排除價差合約如 202606/202607)
+            if 'contract_date' in df.columns:
+                df = df[~df['contract_date'].astype(str).str.contains('/')]
+
+            # 只保留近月合約 (最近到期且有成交量的)
+            # 按日期和合約月份排序，取最近的月份
+            if 'contract_date' in df.columns:
+                df = df[df['volume'] > 0]  # 過濾無成交量的
+                df = df.sort_values(['date', 'contract_date'], ascending=[True, True])
+                df = df.drop_duplicates(subset=['date'], keep='first')
+            else:
+                # 若無 contract_date，退回使用成交量排序
+                df = df.sort_values(['date', 'volume'], ascending=[True, False])
+                df = df.drop_duplicates(subset=['date'], keep='first')
 
             # 重新命名欄位
             df = df.rename(columns={

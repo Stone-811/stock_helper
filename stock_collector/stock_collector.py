@@ -163,6 +163,13 @@ class StockCollector:
                     logging.warning(f"⚠️ Supabase 寫入失敗: {e}")
                     logging.warning("   CSV 已儲存，但 Supabase 未更新")
 
+            # 10. 追加到年度合併檔案
+            try:
+                self._append_to_yearly_archive(filepath, target_date)
+            except Exception as e:
+                logging.warning(f"⚠️ 年度檔案追加失敗: {e}")
+                logging.warning("   每日 CSV 已儲存，但未追加到年度檔案")
+
             # 統計
             logging.info("=" * 70)
             logging.info("收集完成！")
@@ -369,6 +376,64 @@ class StockCollector:
         df = df[[c for c in columns if c in df.columns]]
 
         return df
+
+    def _append_to_yearly_archive(self, daily_filepath, target_date):
+        """
+        將每日資料追加到年度合併檔案
+
+        Parameters:
+        -----------
+        daily_filepath : Path
+            每日 CSV 檔案路徑
+        target_date : str
+            目標日期 (YYYY-MM-DD)
+        """
+        # 取得年份
+        year = target_date[:4]
+
+        # 年度檔案路徑
+        archive_dir = self.output_dir / 'archive'
+        archive_dir.mkdir(exist_ok=True)
+        archive_filepath = archive_dir / f'stocks_{year}.csv'
+
+        # 讀取每日資料
+        daily_df = pd.read_csv(daily_filepath)
+
+        # 如果年度檔案存在，先讀取並去除今日重複資料（重新收集的情況）
+        if archive_filepath.exists():
+            logging.info(f"追加到年度檔案: {archive_filepath}")
+
+            # 讀取現有年度資料
+            archive_df = pd.read_csv(archive_filepath)
+
+            # 移除相同日期的舊資料（避免重複）
+            archive_df = archive_df[archive_df['date'] != target_date]
+
+            # 合併新舊資料
+            combined_df = pd.concat([archive_df, daily_df], ignore_index=True)
+
+            # 按日期和股票代碼排序
+            combined_df = combined_df.sort_values(['date', 'stock_id']).reset_index(drop=True)
+
+            # 去除重複（以防萬一）
+            combined_df = combined_df.drop_duplicates(subset=['date', 'stock_id'], keep='last')
+
+        else:
+            logging.info(f"建立新年度檔案: {archive_filepath}")
+            combined_df = daily_df
+
+        # 寫入年度檔案（覆蓋）
+        combined_df.to_csv(archive_filepath, index=False, encoding='utf-8-sig')
+
+        logging.info(f"✓ 已追加到 {archive_filepath.name}（共 {len(combined_df)} 筆）")
+
+        # 刪除每日檔案（已整併到年度檔案）
+        try:
+            Path(daily_filepath).unlink()
+            logging.info(f"🗑️ 已刪除每日檔案: {Path(daily_filepath).name}")
+        except Exception as e:
+            logging.warning(f"⚠️ 刪除每日檔案失敗: {e}")
+            logging.warning(f"   請手動刪除: {daily_filepath}")
 
 
 def batch_collect(start_date, end_date, skip_macd=False):
