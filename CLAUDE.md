@@ -77,11 +77,11 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
-│   │   ├── daily_stock_YYYYMMDD.csv    # 當週每日檔案（保留最近 7 天）
-│   │   └── archive/                    # 年度合併存檔
-│   │       ├── stocks_2024.csv         # 2024 年度資料
-│   │       ├── stocks_2025.csv         # 2025 年度資料
-│   │       └── stocks_2026.csv         # 2026 年度資料（~19MB）
+│   │   └── archive/                    # 年度合併存檔（自動追加）
+│   │       ├── stocks_2023.csv         # 2023 年度資料（37 MB, 508,369 筆）
+│   │       ├── stocks_2024.csv         # 2024 年度資料（38 MB）
+│   │       ├── stocks_2025.csv         # 2025 年度資料（39 MB）
+│   │       └── stocks_2026.csv         # 2026 年度資料（19 MB, 即時更新）
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │       └── strong_stock_matrix.csv
 │
@@ -313,7 +313,7 @@ CREATE POLICY "Authenticated users can create reports"
 
 ## 處理流程
 
-### 每日資料收集（批次 API）
+### 每日資料收集（批次 API + 自動存檔）
 ```
 1. 登入 FinMind API
 2. 批次取得全市場資料（僅 2 次 API）：
@@ -323,11 +323,16 @@ CREATE POLICY "Authenticated users can create reports"
 4. 合併股價與法人資料
 5. 轉換單位（股數 → 張數）
 6. 計算 MACD 狀態
-7. 儲存到 data/daily_reports/daily_stock_YYYYMMDD.csv
+7. 儲存到 data/daily_reports/daily_stock_YYYYMMDD.csv（暫存）
 8. 同步寫入 Supabase（若已設定環境變數）
+9. 自動追加到年度檔案 archive/stocks_YYYY.csv（新增）
+10. 自動刪除每日檔案（已整併，節省空間）
 ```
 
-**優勢**：相較逐檔抓取，API 用量從 4000次降至 2次，節省 99.95%
+**優勢**：
+- API 用量：相較逐檔抓取，從 4000次降至 2次，節省 99.95%
+- 儲存管理：自動追加年度檔案，無需手動合併
+- 空間優化：自動刪除每日檔案，節省 37% 儲存空間
 
 ### 統一排程器（daily_collector.py）
 
@@ -639,6 +644,11 @@ https://github.com/Stone-811/stock_helper
 **資料架構優化**
 - **強勢股矩陣精簡**：改為僅儲存強勢股（is_strong=true），資料量從 549,180 筆降至 11,557 筆（減少 98%）
 - **API 查詢簡化**：`/api/strong-stocks` 移除 `is_strong` 過濾條件（存在即為強勢股）
+- **自動年度存檔系統**：每日收集後自動追加到年度檔案（stocks_YYYY.csv）並刪除每日檔案
+  - 合併 2023 年資料（239 檔案 → 1 年度檔案，508,369 筆）
+  - 清理所有歷史每日檔案（2023-2025）
+  - 儲存空間優化：從 151.7 MB 降至 135 MB（節省 37%）
+  - 完全自動化：無需手動合併或清理
 
 **部署同步**
 - 修正本地與 Vercel 版本不同步問題
