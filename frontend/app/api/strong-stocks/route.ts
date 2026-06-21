@@ -7,13 +7,13 @@ export async function GET(request: Request) {
   const selectedDate = searchParams.get('date')
 
   try {
-    // 分批查詢取得所有不重複日期（繞過 Supabase 1000 筆限制）
+    // 分批查詢取得最近 20 個交易日（繞過 Supabase 1000 筆限制）
     let allDates: Set<string> = new Set()
     let offset = 0
     const batchSize = 1000
 
-    // 最多查詢 60 批（可覆蓋所有 833 個交易日）
-    for (let i = 0; i < 60; i++) {
+    // 最多查詢 5 批（足以取得 20 個交易日）
+    for (let i = 0; i < 5; i++) {
       const { data: batch } = await supabase
         .from('strong_stock_matrix')
         .select('date')
@@ -29,14 +29,14 @@ export async function GET(request: Request) {
 
       offset += batchSize
 
-      // 如果已經取得足夠的日期（例如 800 個），可以提前結束
-      if (allDates.size >= 800) break
+      // 如果已經取得 20 個日期，提前結束
+      if (allDates.size >= 20) break
     }
 
-    // 排序並取前 365 個日期（約 1 年的交易日）
+    // 排序並取前 20 個日期
     const uniqueDates = Array.from(allDates)
       .sort((a, b) => b.localeCompare(a))
-      .slice(0, 365)
+      .slice(0, 20)
 
     if (uniqueDates.length === 0) {
       return NextResponse.json({ stocks: [], latestDate: null, availableDates: [] })
