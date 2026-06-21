@@ -93,21 +93,46 @@ export default function Sidebar() {
           ${isCollapsed ? 'md:w-20' : 'w-64'}
         `}
       >
-        {/* Logo/標題 */}
-        <div className={`p-4 border-b border-[#2a2a3e] ${isCollapsed ? 'md:px-2' : 'p-6'}`}>
-          {isCollapsed ? (
-            <h1 className="hidden md:block text-white text-2xl font-bold text-center">📊</h1>
-          ) : (
-            <>
-              <h1 className="text-white text-xl font-bold">台股分析系統</h1>
-              <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
-            </>
-          )}
-          {/* 手機版始終顯示完整標題 */}
+        {/* Logo/標題 + 縮排按鈕 */}
+        <div className={`border-b border-[#2a2a3e] ${isCollapsed ? 'md:p-2' : 'p-6'} relative`}>
+          {/* 桌面版 */}
+          <div className="hidden md:block">
+            {isCollapsed ? (
+              <h1 className="text-white text-2xl font-bold text-center">📊</h1>
+            ) : (
+              <>
+                <h1 className="text-white text-xl font-bold">台股分析系統</h1>
+                <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
+              </>
+            )}
+          </div>
+
+          {/* 手機版 */}
           <div className="md:hidden">
             <h1 className="text-white text-xl font-bold">台股分析系統</h1>
             <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
           </div>
+
+          {/* 桌面版縮排按鈕（移到標題區右上角） */}
+          <button
+            onClick={toggleCollapse}
+            className="hidden md:block absolute top-4 right-4 p-2 text-gray-400 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors"
+            title={isCollapsed ? '展開側邊欄' : '收合側邊欄'}
+          >
+            <svg
+              className={`w-4 h-4 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+              />
+            </svg>
+          </button>
         </div>
 
         {/* 導航列表 */}
@@ -136,37 +161,22 @@ export default function Sidebar() {
         </nav>
 
         {/* 登入區 */}
-        <div className={isCollapsed ? 'md:hidden' : ''}>
-          <AuthButton />
-        </div>
-
-        {/* 縮放按鈕（桌面版） */}
-        <button
-          onClick={toggleCollapse}
-          className="hidden md:flex items-center justify-center p-3 border-t border-[#2a2a3e] text-gray-400 hover:text-white hover:bg-[#2a2a3e] transition-colors"
-          title={isCollapsed ? '展開側邊欄' : '收合側邊欄'}
-        >
-          <svg
-            className={`w-5 h-5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-            />
-          </svg>
-        </button>
+        <AuthButton isCollapsed={isCollapsed} />
 
         {/* 底部資訊 */}
-        <div className={`p-4 border-t border-[#2a2a3e] ${isCollapsed ? 'md:hidden' : ''}`}>
-          <p className="text-gray-500 text-xs text-center">
-            資料來源：FinMind
-          </p>
-        </div>
+        {isCollapsed ? (
+          <div className="hidden md:block p-2 border-t border-[#2a2a3e]">
+            <p className="text-gray-500 text-xs text-center" title="資料來源：FinMind">
+              📈
+            </p>
+          </div>
+        ) : (
+          <div className="p-4 border-t border-[#2a2a3e]">
+            <p className="text-gray-500 text-xs text-center">
+              資料來源：FinMind
+            </p>
+          </div>
+        )}
       </aside>
 
       {/* 手機版遮罩 */}
