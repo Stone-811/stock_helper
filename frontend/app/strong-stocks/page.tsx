@@ -19,7 +19,13 @@ export default function StrongStocksPage() {
   const [filter, setFilter] = useState({
     macd: 'all',
     minVolume: 0,
+    industry: 'all',
   })
+
+  // 取得所有產業類別
+  const industries = data?.stocks
+    ? Array.from(new Set(data.stocks.map(s => s.industry).filter(Boolean))).sort()
+    : []
 
   // 載入資料
   const fetchData = async (date?: string) => {
@@ -55,6 +61,7 @@ export default function StrongStocksPage() {
   const filteredStocks = data?.stocks.filter(stock => {
     if (filter.macd !== 'all' && stock.macd_status !== filter.macd) return false
     if (filter.minVolume > 0 && stock.volume < filter.minVolume) return false
+    if (filter.industry !== 'all' && stock.industry !== filter.industry) return false
     return true
   }) || []
 
@@ -145,6 +152,23 @@ export default function StrongStocksPage() {
                   <option value="10000">1萬張+</option>
                 </select>
               </div>
+              {industries.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 text-sm">產業</span>
+                  <select
+                    value={filter.industry}
+                    onChange={(e) => setFilter({ ...filter, industry: e.target.value })}
+                    className="border rounded px-2 py-1.5 text-sm max-w-[150px]"
+                  >
+                    <option value="all">全部產業</option>
+                    {industries.map((ind) => (
+                      <option key={ind} value={ind}>
+                        {ind}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
             {/* 右側：統計 */}
             <div className="flex items-center gap-4 text-sm">

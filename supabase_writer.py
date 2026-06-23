@@ -87,7 +87,8 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
                 'foreign_hold_ratio': float(row.get('foreign_hold_ratio', 0)) if pd.notna(row.get('foreign_hold_ratio')) else 0,
                 'foreign_remain_ratio': float(row.get('foreign_remain_ratio', 0)) if pd.notna(row.get('foreign_remain_ratio')) else 0,
                 'foreign_limit_ratio': float(row.get('foreign_limit_ratio', 0)) if pd.notna(row.get('foreign_limit_ratio')) else 0,
-                'macd_status': str(row.get('macd_status', '-')) if pd.notna(row.get('macd_status')) else '-'
+                'macd_status': str(row.get('macd_status', '-')) if pd.notna(row.get('macd_status')) else '-',
+                'industry': str(row.get('industry', '')) if pd.notna(row.get('industry')) else ''
             }
             records.append(record)
 

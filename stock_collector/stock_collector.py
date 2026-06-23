@@ -312,12 +312,19 @@ class StockCollector:
     def _merge_data(self, price_data, inst_pivot, shareholding_processed, target_date, day_trading_processed=None):
         """合併股價、法人與外資持股資料"""
 
-        # 取得股票名稱對照
+        # 取得股票名稱與產業對照
         try:
             stock_info = self.api.taiwan_stock_info()
-            stock_info = stock_info[['stock_id', 'stock_name']].drop_duplicates()
+            # 只保留需要的欄位（包含產業）
+            cols_to_keep = ['stock_id', 'stock_name']
+            if 'industry_category' in stock_info.columns:
+                cols_to_keep.append('industry_category')
+            stock_info = stock_info[cols_to_keep].drop_duplicates()
+            # 重新命名產業欄位
+            if 'industry_category' in stock_info.columns:
+                stock_info = stock_info.rename(columns={'industry_category': 'industry'})
         except:
-            stock_info = pd.DataFrame(columns=['stock_id', 'stock_name'])
+            stock_info = pd.DataFrame(columns=['stock_id', 'stock_name', 'industry'])
 
         # 篩選目標日期的股價
         df = price_data[price_data['date'] == target_date].copy()
@@ -335,9 +342,12 @@ class StockCollector:
         # 轉換成交量為張數
         df['volume'] = (df['volume'] / 1000).astype(int)
 
-        # 合併股票名稱
+        # 合併股票名稱與產業
         df = df.merge(stock_info, on='stock_id', how='left')
         df['stock_name'] = df['stock_name'].fillna('')
+        if 'industry' not in df.columns:
+            df['industry'] = ''
+        df['industry'] = df['industry'].fillna('')
 
         # 合併法人資料
         if len(inst_pivot) > 0:

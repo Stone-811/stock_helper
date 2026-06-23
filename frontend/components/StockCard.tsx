@@ -36,13 +36,20 @@ export default function StockCard({ stock }: StockCardProps) {
             <span className="text-base md:text-lg font-bold text-gray-800">{stock.stock_id}</span>
             <span className="ml-1.5 md:ml-2 text-sm text-gray-600 truncate inline-block max-w-[80px] md:max-w-[100px] align-bottom">{stock.stock_name}</span>
           </div>
-          <span className={`px-2 py-1 rounded text-xs font-medium ${
-            stock.macd_status === '多'
-              ? 'bg-red-100 text-red-600'
-              : 'bg-green-100 text-green-600'
-          }`}>
-            MACD {stock.macd_status}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`px-2 py-1 rounded text-xs font-medium ${
+              stock.macd_status === '多'
+                ? 'bg-red-100 text-red-600'
+                : 'bg-green-100 text-green-600'
+            }`}>
+              MACD {stock.macd_status}
+            </span>
+            {stock.industry && (
+              <span className="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600 truncate max-w-[100px]">
+                {stock.industry}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 價格 */}

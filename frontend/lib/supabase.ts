@@ -23,6 +23,7 @@ export interface DailyStock {
   foreign_remain_ratio: number
   foreign_limit_ratio: number
   macd_status: string
+  industry?: string
 }
 
 export interface StrongStock {
