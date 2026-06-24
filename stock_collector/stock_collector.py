@@ -392,7 +392,7 @@ class StockCollector:
 
         # 選擇並排序欄位
         columns = [
-            'date', 'stock_id', 'stock_name', 'open', 'high', 'low', 'close',
+            'date', 'stock_id', 'stock_name', 'industry', 'open', 'high', 'low', 'close',
             'volume', 'day_trading_volume', 'foreign_buy', 'trust_buy', 'dealer_buy',
             'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'
         ]
