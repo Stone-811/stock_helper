@@ -42,6 +42,9 @@ jobs:
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > frontend/service-account.json
 
+      - name: Create logs directory
+        run: mkdir -p logs
+
       - name: Run daily collector
         env:
           FINMIND_API_TOKEN: ${{ secrets.FINMIND_API_TOKEN }}
