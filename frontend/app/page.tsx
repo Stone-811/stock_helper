@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import IndexChart from '../components/IndexChart'
-import { MarketIndex } from '../lib/supabase'
+import { MarketIndex } from '../lib/firebase'
 
 interface IndexResponse {
   index_id: string

@@ -1,0 +1,69 @@
+name: Daily Stock Collection
+
+on:
+  schedule:
+    # 台灣時間 18:30 (UTC 10:30)，每個交易日收盤後執行
+    # 分鐘 小時 日 月 星期（1-5 = 週一到週五）
+    - cron: '30 10 * * 1-5'
+
+  # 允許手動觸發
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '指定日期 (YYYY-MM-DD)，留空則為今日'
+        required: false
+        type: string
+      skip_stock:
+        description: '跳過股票資料收集'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup Firebase credentials
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > frontend/service-account.json
+
+      - name: Run daily collector
+        env:
+          FINMIND_API_TOKEN: ${{ secrets.FINMIND_API_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            python -m stock_collector.daily_collector --date ${{ inputs.date }}
+          elif [ "${{ inputs.skip_stock }}" = "true" ]; then
+            python -m stock_collector.daily_collector --skip-stock
+          else
+            python -m stock_collector.daily_collector
+          fi
+
+      - name: Cleanup credentials
+        if: always()
+        run: |
+          rm -f service-account.json
+          rm -f frontend/service-account.json
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collector-logs
+          path: logs/
+          retention-days: 7

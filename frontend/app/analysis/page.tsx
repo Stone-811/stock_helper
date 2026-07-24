@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '../../lib/supabase'
-import type { StockAnalysisReport } from '../../lib/supabase'
+import { auth, onAuthChange, type StockAnalysisReport } from '../../lib/firebase'
 import ReactMarkdown from 'react-markdown'
+import { User } from 'firebase/auth'
 
 interface Stock {
   stock_id: string
@@ -21,15 +21,16 @@ export default function AnalysisPage() {
   const [report, setReport] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [recentReports, setRecentReports] = useState<StockAnalysisReport[]>([])
-  const [user, setUser] = useState<{ id: string } | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // 載入用戶資訊
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    const unsubscribe = onAuthChange((user) => {
       setUser(user)
     })
+    return () => unsubscribe()
   }, [])
 
   // 載入所有股票清單
@@ -143,15 +144,15 @@ export default function AnalysisPage() {
     setReport(null)
 
     try {
-      // 取得 auth token
-      const { data: { session } } = await supabase.auth.getSession()
+      // 取得 Firebase auth token
+      const token = user ? await user.getIdToken() : null
 
       const res = await fetch('/api/analysis', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(session?.access_token && {
-            'Authorization': `Bearer ${session.access_token}`
+          ...(token && {
+            'Authorization': `Bearer ${token}`
           })
         },
         body: JSON.stringify({
@@ -181,7 +182,7 @@ export default function AnalysisPage() {
   }
 
   // 載入歷史報告
-  const loadReport = async (reportId: number) => {
+  const loadReport = async (reportId: string) => {
     try {
       const res = await fetch(`/api/analysis/${reportId}`)
       const data = await res.json()
@@ -289,10 +290,10 @@ export default function AnalysisPage() {
           <div className="bg-gray-800 rounded-lg p-6 mb-6">
             <h2 className="text-lg font-semibold mb-4">最近分析報告</h2>
             <div className="space-y-2">
-              {recentReports.map((r) => (
+              {recentReports.filter(r => r.id).map((r) => (
                 <button
                   key={r.id}
-                  onClick={() => loadReport(r.id)}
+                  onClick={() => loadReport(r.id!)}
                   className="w-full text-left px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
                 >
                   <div className="flex items-center justify-between">

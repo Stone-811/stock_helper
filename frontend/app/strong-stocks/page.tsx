@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import StockCard from '../../components/StockCard'
 import StockSearchOptimized from '../../components/StockSearchOptimized'
-import { TodayStrongStock } from '../../lib/supabase'
+import { StrongStock as TodayStrongStock } from '../../lib/firebase'
 
 interface StrongStocksResponse {
   stocks: TodayStrongStock[]

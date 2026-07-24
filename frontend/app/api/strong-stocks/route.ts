@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../lib/supabase'
+import {
+  getAvailableDates,
+  getStrongStocksByDate,
+  getStocksByDate,
+  getStrongCountForStocks
+} from '../../../lib/firebase-admin'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -7,36 +12,8 @@ export async function GET(request: Request) {
   const selectedDate = searchParams.get('date')
 
   try {
-    // 分批查詢取得最近 20 個交易日（繞過 Supabase 1000 筆限制）
-    let allDates: Set<string> = new Set()
-    let offset = 0
-    const batchSize = 1000
-
-    // 最多查詢 5 批（足以取得 20 個交易日）
-    for (let i = 0; i < 5; i++) {
-      const { data: batch } = await supabase
-        .from('strong_stock_matrix')
-        .select('date')
-        .order('date', { ascending: false })
-        .range(offset, offset + batchSize - 1)
-
-      if (!batch || batch.length === 0) break
-
-      batch.forEach(item => allDates.add(item.date))
-
-      // 如果這批不足 1000 筆，表示已經取完所有資料
-      if (batch.length < batchSize) break
-
-      offset += batchSize
-
-      // 如果已經取得 20 個日期，提前結束
-      if (allDates.size >= 20) break
-    }
-
-    // 排序並取前 20 個日期
-    const uniqueDates = Array.from(allDates)
-      .sort((a, b) => b.localeCompare(a))
-      .slice(0, 20)
+    // 從 Firestore 取得可用日期列表
+    const uniqueDates = await getAvailableDates(20)
 
     if (uniqueDates.length === 0) {
       return NextResponse.json({ stocks: [], latestDate: null, availableDates: [] })
@@ -47,16 +24,10 @@ export async function GET(request: Request) {
       ? selectedDate
       : uniqueDates[0]
 
-    // 取得該日強勢股（新架構：存在即強勢，不需要 is_strong 條件）
-    const { data: strongStocks, error } = await supabase
-      .from('strong_stock_matrix')
-      .select('stock_id, stock_name')
-      .eq('date', targetDate)
+    // 從聚合集合取得該日強勢股
+    const strongStocks = await getStrongStocksByDate(targetDate)
 
-    if (error) throw error
-
-    // 取得這些股票的詳細資料
-    const stockIds = strongStocks?.map(s => s.stock_id) || []
+    const stockIds = strongStocks.map((s: { stock_id: string }) => s.stock_id)
 
     if (stockIds.length === 0) {
       return NextResponse.json({
@@ -67,34 +38,28 @@ export async function GET(request: Request) {
       })
     }
 
-    const { data: stockDetails } = await supabase
-      .from('daily_stocks')
-      .select('*')
-      .eq('date', targetDate)
-      .in('stock_id', stockIds)
+    // 使用優化函數取得該日所有股票詳細資料
+    const allStocksOnDate = await getStocksByDate(targetDate)
 
-    // 計算近 N 日強勢次數（新架構：存在即強勢）
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    const { data: strongCounts } = await supabase
-      .from('strong_stock_matrix')
-      .select('stock_id, date')
-      .in('stock_id', stockIds)
-      .gte('date', startDate)
+    // 過濾出強勢股的詳細資料
+    const stockDetailsMap = new Map<string, Record<string, unknown>>(
+      allStocksOnDate.map((s: { stock_id: string }) => [s.stock_id, s])
+    )
+    const stockDetails = stockIds
+      .map((id: string) => stockDetailsMap.get(id))
+      .filter((s): s is Record<string, unknown> => s !== undefined)
 
-    // 統計每檔股票的強勢次數
-    const countMap: Record<string, number> = {}
-    strongCounts?.forEach(item => {
-      countMap[item.stock_id] = (countMap[item.stock_id] || 0) + 1
-    })
+    // 使用優化函數計算近 N 日強勢次數
+    const countMap = await getStrongCountForStocks(stockIds, days)
 
     // 合併資料
-    const result = stockDetails?.map(stock => ({
+    const result = stockDetails.map((stock) => ({
       ...stock,
-      strong_count: countMap[stock.stock_id] || 0
-    })) || []
+      strong_count: countMap[stock.stock_id as string] || 0
+    }))
 
     // 按強勢次數排序
-    result.sort((a, b) => b.strong_count - a.strong_count)
+    result.sort((a: { strong_count: number }, b: { strong_count: number }) => b.strong_count - a.strong_count)
 
     return NextResponse.json({
       stocks: result,

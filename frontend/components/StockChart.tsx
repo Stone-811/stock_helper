@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts'
-import { DailyStock } from '../lib/supabase'
+import { DailyStock } from '../lib/firebase'
 
 interface StockChartProps {
   data: DailyStock[]

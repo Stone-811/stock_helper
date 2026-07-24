@@ -12,8 +12,12 @@ import os
 from pathlib import Path
 from . import config
 
-# Supabase 寫入（若環境變數未設定則跳過）
-SUPABASE_ENABLED = bool(os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_KEY'))
+# Firebase 寫入（檢查 service-account.json 是否存在）
+FIREBASE_ENABLED = (
+    (Path(__file__).parent.parent / 'frontend' / 'service-account.json').exists() or
+    (Path(__file__).parent.parent / 'service-account.json').exists() or
+    bool(os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY'))
+)
 
 # 設定日誌
 log_dir = Path(__file__).parent / 'logs'
@@ -150,18 +154,18 @@ class StockCollector:
             else:
                 logging.info("⏭️ 跳過 MACD 計算")
 
-            # 9. 寫入 Supabase（若已設定）
-            if SUPABASE_ENABLED:
-                logging.info("寫入 Supabase...")
+            # 9. 寫入 Firestore（若已設定）
+            if FIREBASE_ENABLED:
+                logging.info("寫入 Firestore...")
                 try:
-                    from supabase_writer import write_daily_stocks
+                    from firebase_writer import write_daily_stocks
                     # 重新讀取 CSV（包含 MACD 狀態）
                     df_with_macd = pd.read_csv(filepath)
                     write_daily_stocks(df_with_macd)
-                    logging.info("✓ Supabase 寫入完成")
+                    logging.info("✓ Firestore 寫入完成")
                 except Exception as e:
-                    logging.warning(f"⚠️ Supabase 寫入失敗: {e}")
-                    logging.warning("   CSV 已儲存，但 Supabase 未更新")
+                    logging.warning(f"⚠️ Firestore 寫入失敗: {e}")
+                    logging.warning("   CSV 已儲存，但 Firestore 未更新")
 
             # 10. 追加到年度合併檔案
             year = target_date[:4]

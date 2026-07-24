@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../lib/supabase'
+import { getMarketIndex } from '../../../../lib/firebase-admin'
 
 export async function GET(
   request: Request,
@@ -8,14 +8,8 @@ export async function GET(
   const { id } = await params
 
   try {
-    // 取得指數歷史資料
-    const { data: indexData, error } = await supabase
-      .from('market_index_daily')
-      .select('*')
-      .eq('index_id', id)
-      .order('date', { ascending: true })
-
-    if (error) throw error
+    // 從 Firestore 取得指數歷史資料
+    const indexData = await getMarketIndex(id)
 
     if (!indexData || indexData.length === 0) {
       return NextResponse.json({ error: 'Index not found' }, { status: 404 })

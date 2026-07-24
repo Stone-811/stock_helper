@@ -11,8 +11,8 @@ Claude Code 處理本專案時的指引說明。
 2. 每日資料收集（批次 API，僅需 2 次請求）
 3. 批次歷史資料收集
 4. 多條件選股篩選
-5. 強勢股分析網站（Next.js + Supabase + Sidebar 導航）
-6. 自選股功能（Supabase Auth + Google OAuth）
+5. 強勢股分析網站（Next.js + Firebase + Sidebar 導航）
+6. 自選股功能（Firebase Auth + Google OAuth）
 7. Docker 容器化部署支援
 8. 基本面分析（OpenAI GPT / Claude API 生成投資研究報告）
 
@@ -22,7 +22,7 @@ Claude Code 處理本專案時的指引說明。
 ┌─────────────────────────────────────────────────────────────────┐
 │                         使用者介面                               │
 │                    Next.js 15 + Tailwind CSS                    │
-│                      (Vercel / Docker)                          │
+│                   (Firebase Hosting / Docker)                   │
 │                                                                  │
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
@@ -43,8 +43,8 @@ Claude Code 處理本專案時的指引說明。
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
-│              Supabase PostgreSQL + Auth                          │
-│  market_index_daily │ daily_stocks │ strong_stock_matrix │ user_watchlist │
+│                  Firebase Firestore + Auth                       │
+│  daily_data/{date}/chunks │ strong_stocks │ market_index │ user_watchlists │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
@@ -71,8 +71,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── update_strong_matrix.py         # 強勢股矩陣更新
 │   └── merge_daily_files.py            # 檔案合併工具
 │
-├── supabase_writer.py                  # Supabase 資料寫入模組
-├── supabase_schema.sql                 # 資料庫 Schema
+├── firebase_writer.py                  # Firebase Firestore 資料寫入模組（優化版）
 ├── utils.py                            # 技術指標計算
 │
 ├── data/                               # 本地資料存放
@@ -93,9 +92,8 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── watchlist/page.tsx          # 自選股頁面
 │   │   ├── analysis/page.tsx           # 基本面分析頁
 │   │   ├── stock/[id]/page.tsx         # 個股詳情頁
-│   │   ├── auth/callback/route.ts      # OAuth 回調處理
 │   │   ├── actions/                    # Server Actions
-│   │   │   └── stocks.ts               # 股票搜尋（PostgreSQL ILIKE）
+│   │   │   └── stocks.ts               # 股票搜尋（Firestore）
 │   │   └── api/                        # API Routes
 │   │       ├── analysis/route.ts       # 基本面分析 API（Claude AI）
 │   │       ├── analysis/[id]/route.ts  # 單一報告 API
@@ -115,7 +113,8 @@ Claude Code 處理本專案時的指引說明。
 │   │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action + 300ms debounce）
 │   │
 │   ├── lib/                            # 共用函式庫
-│   │   └── supabase.ts                 # Supabase client + Auth + 型別定義
+│   │   ├── firebase.ts                 # Firebase Client SDK + Auth + 型別定義
+│   │   └── firebase-admin.ts           # Firebase Admin SDK（Server-side）
 │   │
 │   ├── Dockerfile                      # Docker 構建檔
 │   ├── docker-compose.yml              # Docker Compose 配置
@@ -134,9 +133,9 @@ Claude Code 處理本專案時的指引說明。
 | 檔案 | 職責 |
 |------|------|
 | utils.py | 技術指標計算（MA、MACD）、選股邏輯 |
-| supabase_writer.py | DataFrame 寫入 Supabase（upsert）- 含 write_market_index() |
+| firebase_writer.py | DataFrame 寫入 Firestore（分片優化）- 每日寫入從 2300+ 次降至 ~10 次 |
 | stock_collector/daily_collector.py | 統一排程器：重試機制、增量更新、資料驗證 |
-| stock_collector/stock_collector.py | 批次 API 資料收集、CSV 存檔、Supabase 同步 |
+| stock_collector/stock_collector.py | 批次 API 資料收集、CSV 存檔、Firestore 同步 |
 | stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
 | stock_collector/update_strong_matrix.py | 每日更新強勢股矩陣 |
 | stock_collector/config.py | FinMind API token 配置 |
@@ -151,7 +150,6 @@ Claude Code 處理本專案時的指引說明。
 | app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
 | app/analysis/page.tsx | 基本面分析：Claude AI 生成投資研究報告 |
 | app/stock/[id]/page.tsx | 個股詳情：專業圖表、法人買賣超 |
-| app/auth/callback/route.ts | OAuth 回調處理（Google 登入） |
 | api/analysis/route.ts | API：生成基本面分析報告（POST）、列出報告（GET） |
 | api/analysis/[id]/route.ts | API：取得單一分析報告 |
 | api/market-index/[id]/route.ts | API：取得指數歷史資料（TAIEX / TX） |
@@ -166,8 +164,9 @@ Claude Code 處理本專案時的指引說明。
 | components/StockSearchOptimized.tsx | 股票搜尋（Server Action + debounce） |
 | components/StockCard.tsx | 股票資訊卡片元件 |
 | components/MainContent.tsx | 主內容區（響應式寬度調整） |
-| app/actions/stocks.ts | Server Action：股票搜尋（PostgreSQL ILIKE） |
-| lib/supabase.ts | Supabase client + Auth helpers + 型別定義 |
+| app/actions/stocks.ts | Server Action：股票搜尋（Firestore） |
+| lib/firebase.ts | Firebase Client SDK + Auth + 型別定義 |
+| lib/firebase-admin.ts | Firebase Admin SDK（伺服器端查詢） |
 
 ### StockChart / IndexChart 專業圖表功能
 
@@ -205,111 +204,111 @@ mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
 - 全幅寬度顯示（跳脫 max-w-7xl 容器）
 - 圖表高度：600px
 
-## 資料庫 Schema
+## Firestore 集合結構（優化版）
 
-### market_index_daily 表（大盤指數）
+### daily_data/{date} - 每日股票資料（分片）
 
-```sql
-CREATE TABLE market_index_daily (
-    date DATE NOT NULL,
-    index_id VARCHAR(20) NOT NULL,  -- 'TAIEX' / 'TX'
-    index_name VARCHAR(50),          -- '加權指數' / '台指期近月'
-    open NUMERIC(10, 2),
-    high NUMERIC(10, 2),
-    low NUMERIC(10, 2),
-    close NUMERIC(10, 2),
-    volume BIGINT DEFAULT 0,
-    open_interest BIGINT DEFAULT 0,  -- 未平倉量（僅台指期）
-    settlement_price NUMERIC(10, 2), -- 結算價（僅台指期）
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (date, index_id)
-);
+```
+daily_data/
+├── 2026-07-24                          # 每日摘要文件
+│   ├── date: "2026-07-24"
+│   ├── stock_count: 2316
+│   ├── chunk_count: 5
+│   └── updated_at: Timestamp
+│
+└── 2026-07-24/chunks/                  # 子集合：分片
+    ├── chunk_0                         # 每片 500 筆股票
+    │   ├── chunk_index: 0
+    │   ├── count: 500
+    │   └── stocks: [{ stock_id, stock_name, open, high, low, close, volume, ... }]
+    ├── chunk_1
+    ├── chunk_2
+    ├── chunk_3
+    └── chunk_4
 ```
 
-### daily_stocks 表
+**優勢**：寫入次數從 ~2,300 次降至 ~6 次（1 摘要 + 5 分片）
 
-```sql
-CREATE TABLE daily_stocks (
-    id BIGSERIAL PRIMARY KEY,
-    date DATE NOT NULL,
-    stock_id VARCHAR(10) NOT NULL,
-    stock_name VARCHAR(50),
-    open DECIMAL(10,2),
-    high DECIMAL(10,2),
-    low DECIMAL(10,2),
-    close DECIMAL(10,2),
-    volume BIGINT,
-    day_trading_volume BIGINT,   -- 當沖成交量（張）
-    foreign_buy BIGINT,          -- 外資買賣超（張）
-    trust_buy BIGINT,            -- 投信買賣超（張）
-    dealer_buy BIGINT,           -- 自營商買賣超（張）
-    foreign_hold_ratio DECIMAL(5,2),   -- 外資持股比例
-    foreign_remain_ratio DECIMAL(5,2), -- 外資可投資剩餘比例
-    foreign_limit_ratio DECIMAL(5,2),  -- 外資投資上限比例
-    macd_status VARCHAR(20),     -- MACD 狀態：黃金交叉/死亡交叉/-
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(date, stock_id)
-);
+### strong_stocks/{date} - 每日強勢股
+
+```
+strong_stocks/
+├── 2026-07-24
+│   ├── date: "2026-07-24"
+│   ├── count: 58
+│   ├── stocks: [{ stock_id: "2330", stock_name: "台積電" }, ...]
+│   └── updated_at: Timestamp
 ```
 
-### strong_stock_matrix 表
+**優勢**：單一文件聚合，寫入從 ~100 次降至 1 次
 
-```sql
-CREATE TABLE strong_stock_matrix (
-    id BIGSERIAL PRIMARY KEY,
-    stock_id VARCHAR(10) NOT NULL,
-    stock_name VARCHAR(50),
-    date DATE NOT NULL,
-    is_strong BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(stock_id, date)
-);
+### market_index/{index_id} - 指數資料（聚合歷史）
+
+```
+market_index/
+├── TAIEX
+│   ├── index_id: "TAIEX"
+│   ├── index_name: "加權指數"
+│   ├── latest_date: "2026-07-24"
+│   ├── record_count: 550
+│   ├── history: [{ date, open, high, low, close, volume }, ...]
+│   └── updated_at: Timestamp
+│
+└── TX
+    ├── index_id: "TX"
+    ├── index_name: "台指期近月"
+    └── history: [{ date, open, high, low, close, volume, open_interest, settlement_price }, ...]
 ```
 
-### user_watchlist 表（自選股）
+**優勢**：單一文件包含完整歷史，讀取從 500+ 次降至 1 次
 
-```sql
-CREATE TABLE user_watchlist (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    stock_id VARCHAR(10) NOT NULL,
-    stock_name VARCHAR(50),
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, stock_id)
-);
+### user_watchlists/{userId}/stocks/{stock_id} - 自選股
 
--- RLS 政策：用戶只能管理自己的自選股
-ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view own watchlist"
-    ON user_watchlist FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own watchlist"
-    ON user_watchlist FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can delete own watchlist"
-    ON user_watchlist FOR DELETE USING (auth.uid() = user_id);
+```
+user_watchlists/
+└── {userId}
+    └── stocks/
+        ├── 2330
+        │   ├── stock_id: "2330"
+        │   ├── stock_name: "台積電"
+        │   └── added_at: Timestamp
+        └── 2454
 ```
 
-### stock_analysis_reports 表（基本面分析報告）
+### stock_analysis_reports/{reportId} - 分析報告
 
-```sql
-CREATE TABLE stock_analysis_reports (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    stock_id VARCHAR(10) NOT NULL,
-    stock_name VARCHAR(50),
-    report_content TEXT NOT NULL,
-    model_used VARCHAR(50) DEFAULT 'claude-sonnet-4-20250514',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- RLS 政策：所有人可查看，登入用戶可新增
-ALTER TABLE stock_analysis_reports ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Anyone can view reports"
-    ON stock_analysis_reports FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can create reports"
-    ON stock_analysis_reports FOR INSERT WITH CHECK (auth.uid() = user_id);
 ```
+stock_analysis_reports/
+└── {reportId}
+    ├── user_id: "..."
+    ├── stock_id: "2330"
+    ├── stock_name: "台積電"
+    ├── report_content: "..."
+    ├── model_used: "claude-sonnet-4-20250514"
+    └── created_at: Timestamp
+```
+
+### metadata - 系統元資料
+
+```
+metadata/
+├── latest_date
+│   ├── date: "2026-07-24"
+│   └── updated_at: Timestamp
+│
+└── available_dates
+    ├── dates: ["2026-07-24", "2026-07-23", ...]  # 最近 100 天
+    └── updated_at: Timestamp
+```
+
+### 寫入次數優化對比
+
+| 項目 | 優化前 | 優化後 | 節省 |
+|------|--------|--------|------|
+| 每日股票 | ~2,300 | ~6 | 99.7% |
+| 強勢股 | ~100 | 1 | 99% |
+| 指數 | 2 | 2 | - |
+| **每日總計** | ~2,402 | **~9** | **99.6%** |
 
 ## 處理流程
 
@@ -324,7 +323,7 @@ CREATE POLICY "Authenticated users can create reports"
 5. 轉換單位（股數 → 張數）
 6. 計算 MACD 狀態
 7. 儲存到 data/daily_reports/daily_stock_YYYYMMDD.csv（暫存）
-8. 同步寫入 Supabase（若已設定環境變數）
+8. 同步寫入 Firestore（分片優化，僅 ~6 次寫入）
 9. 自動追加到年度檔案 archive/stocks_YYYY.csv（新增）
 10. 自動刪除每日檔案（已整併，節省空間）
 ```
@@ -369,13 +368,15 @@ def collect_stocks(self, date=None):
 # FinMind API
 FINMIND_TOKEN=your_finmind_token
 
-# Supabase（Python 後端用）
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your_service_role_key
+# Firebase（Python 後端用 - 擇一）
+# 方式一：service-account.json 檔案（放在 frontend/ 或專案根目錄）
+# 方式二：環境變數（生產環境）
+FIREBASE_SERVICE_ACCOUNT_KEY='{"type":"service_account","project_id":"..."}'
 
-# Supabase（Next.js 前端用）
-NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+# Firebase（Next.js 前端用）
+NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyBVxC5LJayAWEdQCBCZdt2-t8KD8ZwDgWM
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=stock-analysis-b5602.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=stock-analysis-b5602
 
 # AI API（基本面分析功能，二擇一）
 OPENAI_API_KEY=sk-...          # OpenAI GPT-4o（優先使用）
@@ -427,13 +428,35 @@ institutional = api.taiwan_stock_institutional_investors(stock_id='2330', start_
 
 ## 部署方式
 
-### 方式一：Vercel（推薦）
+### 方式一：Firebase Hosting（推薦）
 
-1. 將程式碼推送到 GitHub
-2. 在 Vercel Dashboard 匯入專案
-3. 設定 Root Directory 為 `frontend`
-4. 設定環境變數
-5. 部署
+```bash
+cd frontend
+
+# 安裝 Firebase CLI
+npm install -g firebase-tools
+
+# 登入 Firebase
+firebase login
+
+# 初始化專案（已完成，設定在 firebase.json）
+# firebase init hosting
+
+# 建置並部署
+npm run build
+firebase deploy --only hosting
+```
+
+**firebase.json 設定**：
+```json
+{
+  "hosting": {
+    "public": "out",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
+}
+```
 
 ### 方式二：Docker
 
@@ -445,8 +468,8 @@ docker-compose up -d
 
 # 或手動構建
 docker build -t stock-helper \
-  --build-arg NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co \
-  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key .
+  --build-arg NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key \
+  --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=stock-analysis-b5602 .
 
 docker run -p 3000:3000 stock-helper
 ```
@@ -480,8 +503,8 @@ python stock_collector/stock_collector.py --days 7
 # 更新強勢股矩陣
 python stock_collector/update_strong_matrix.py
 
-# 測試 Supabase 連線
-python supabase_writer.py
+# 測試 Firebase 連線
+python firebase_writer.py
 ```
 
 ### Next.js 前端開發
@@ -532,21 +555,23 @@ headers: {
 ```typescript
 // app/actions/stocks.ts
 'use server'
+import { getLatestDate, getStocksByDate } from '../../lib/firebase-admin'
+
 export async function searchStocks(query: string): Promise<StockSearchResult[]> {
-  const { data } = await supabase
-    .from('daily_stocks')
-    .select('stock_id, stock_name')
-    .eq('date', latestDate.date)
-    .or(`stock_id.ilike.%${q}%,stock_name.ilike.%${q}%`)
-    .limit(20)
-  return data || []
+  const latestDate = await getLatestDate()
+  const stocks = await getStocksByDate(latestDate)
+
+  // 在伺服器端篩選
+  return stocks
+    .filter(s => s.stock_id.includes(q) || s.stock_name.includes(q))
+    .slice(0, 20)
 }
 ```
 
 **優勢**：
 - 初始載入不需取得全部股票
 - 搜尋時只傳輸符合條件的 20 筆
-- 使用 PostgreSQL ILIKE 在伺服器端搜尋
+- 在伺服器端進行篩選，減少前端負擔
 
 ### 圖表時間軸對齊
 
@@ -562,62 +587,57 @@ export async function searchStocks(query: string): Promise<StockSearchResult[]> 
 3. 優先使用批次 API（降低 API 用量）
 4. 個別股票失敗不中斷整體流程
 5. 為新函數撰寫 docstring
-6. Supabase 寫入前需去除重複資料
+6. Firestore 寫入使用分片優化（500 筆/片）
 
-## Supabase 注意事項
+## Firebase 注意事項
 
-### Supabase Auth 設定（自選股功能需要）
+### Firebase Auth 設定（自選股功能需要）
 
-1. 到 Supabase Dashboard > Authentication > Providers
+1. 到 Firebase Console > Authentication > Sign-in method
 2. 啟用 Google Provider
-3. 設定 OAuth credentials（從 Google Cloud Console 取得）
-4. 新增 Redirect URL：`https://your-domain.com/auth/callback`
+3. 設定授權網域（localhost、your-domain.com）
+4. 設定 OAuth 同意畫面（Google Cloud Console）
 
-**費用**：Free Plan 包含 50,000 MAU，個人使用完全免費
+**費用**：Spark Plan（免費）包含：
+- 50K 讀取/天
+- 20K 寫入/天
+- 1 GB 儲存空間
 
-### 預設 1000 筆限制
+### Firestore 1MB 文件大小限制
 
-Supabase 預設每次查詢最多回傳 1000 筆。需要取得更多資料時，使用分頁查詢：
+Firestore 單一文件最大 1MB。每日股票資料（~2,300 筆）超過此限制，因此使用分片策略：
 
-```typescript
-// 分批取得所有資料（每批 1000 筆）
-let allData: any[] = []
-let from = 0
-const batchSize = 1000
+```python
+# firebase_writer.py - 分片寫入
+CHUNK_SIZE = 500  # 每片 500 筆股票
 
-while (true) {
-  const { data, error } = await supabase
-    .from('daily_stocks')
-    .select('*')
-    .range(from, from + batchSize - 1)
+chunks = [stocks_data[i:i+CHUNK_SIZE] for i in range(0, len(stocks_data), CHUNK_SIZE)]
 
-  if (!data || data.length === 0) break
-  allData.push(...data)
-  if (data.length < batchSize) break
-  from += batchSize
-}
+for i, chunk in enumerate(chunks):
+    chunk_ref = db.collection('daily_data').document(date).collection('chunks').document(f'chunk_{i}')
+    batch.set(chunk_ref, {'stocks': chunk, 'count': len(chunk)})
 ```
 
 ### 資料庫統計（截至目前）
 
 | 項目 | 數值 |
 |------|------|
-| daily_stocks 總筆數 | ~1,250,000 |
-| 資料日期範圍 | 2024-01-02 ~ 今日 |
+| 資料日期範圍 | 2023-01-03 ~ 今日 |
 | 上市上櫃股票數 | ~2,316 檔 |
+| 每日寫入次數 | ~9 次（優化後） |
 
 ## 技術棧
 
 | 類別 | 技術 |
 |------|------|
 | 資料收集 | Python 3.x, FinMind API, tenacity（重試） |
-| 資料庫 | Supabase (PostgreSQL) |
-| 身份驗證 | Supabase Auth (Google OAuth) |
-| 前端框架 | Next.js 15, React 18 |
+| 資料庫 | Firebase Firestore（分片優化） |
+| 身份驗證 | Firebase Auth (Google OAuth) |
+| 前端框架 | Next.js 15, React 19 |
 | UI 樣式 | Tailwind CSS |
 | 圖表 | lightweight-charts |
 | AI 分析 | OpenAI GPT-4o / Claude API |
-| 部署 | Vercel / Docker |
+| 部署 | Firebase Hosting / Docker |
 | 版本控制 | Git, GitHub |
 
 ## GitHub Repository
@@ -625,6 +645,34 @@ while (true) {
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-07-24
+
+**Firebase 遷移完成**
+
+將整個專案從 Supabase 遷移至 Firebase，實現更低的寫入成本和更簡單的部署。
+
+**後端變更**
+- 移除 `supabase_writer.py`，新增 `firebase_writer.py`
+- 實作分片寫入策略：每日股票分成 500 筆/片，大幅減少寫入次數
+- 每日寫入次數從 ~2,400 次降至 ~9 次（節省 99.6%）
+
+**前端變更**
+- 移除 `lib/supabase.ts`，使用 `lib/firebase.ts` + `lib/firebase-admin.ts`
+- 移除 `app/auth/callback/route.ts`（Firebase 使用 Popup 登入，不需 callback）
+- 更新所有 API Routes 使用 Firebase Admin SDK
+- 更新 Server Actions 使用 Firestore 查詢
+
+**Firestore 集合結構**
+- `daily_data/{date}/chunks/chunk_{n}` - 分片儲存每日股票
+- `strong_stocks/{date}` - 聚合每日強勢股
+- `market_index/{TAIEX|TX}` - 聚合指數歷史
+- `user_watchlists/{userId}/stocks/{stockId}` - 自選股
+- `stock_analysis_reports/{reportId}` - 分析報告
+
+**依賴更新**
+- 移除 `@supabase/supabase-js`
+- 新增 `firebase` 和 `firebase-admin`
 
 ### 2026-06-21
 
@@ -688,6 +736,3 @@ https://github.com/Stone-811/stock_helper
   - 改善 `update_strong_matrix.py`：支援年度檔案讀取（向後相容每日檔案）
   - 改善日誌輸出：清楚顯示檔案狀態（已刪除/保留）
 
-**部署同步**
-- 修正本地與 Vercel 版本不同步問題
-- 確保所有前端變更已推送至 GitHub

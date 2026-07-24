@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../lib/supabase'
+import { getStockHistory, getStockStrongHistory } from '../../../../lib/firebase-admin'
 
 export async function GET(
   request: Request,
@@ -8,32 +8,22 @@ export async function GET(
   const { id } = await params
 
   try {
-    // 取得股票歷史資料（不限日期，取全部）
-    const { data: stockData, error } = await supabase
-      .from('daily_stocks')
-      .select('*')
-      .eq('stock_id', id)
-      .order('date', { ascending: true })
-
-    if (error) throw error
+    // 從 Firestore 取得股票歷史資料（支援新舊架構）
+    const stockData = await getStockHistory(id)
 
     if (!stockData || stockData.length === 0) {
       return NextResponse.json({ error: 'Stock not found' }, { status: 404 })
     }
 
-    // 取得強勢股歷史（全部）
-    const { data: strongHistory } = await supabase
-      .from('strong_stock_matrix')
-      .select('date, is_strong')
-      .eq('stock_id', id)
-      .order('date', { ascending: true })
+    // 使用優化函數取得強勢股歷史
+    const strongHistory = await getStockStrongHistory(id)
 
     // 計算近 7 日強勢次數
-    const recentStrongDays = strongHistory?.filter(item => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const recentStrongDays = strongHistory.filter(item => {
       const itemDate = new Date(item.date)
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-      return itemDate >= sevenDaysAgo && item.is_strong
-    }).length || 0
+      return itemDate >= sevenDaysAgo
+    }).length
 
     const latestData = stockData[stockData.length - 1]
 
@@ -42,7 +32,7 @@ export async function GET(
       stock_name: latestData.stock_name,
       latest: latestData,
       history: stockData,
-      strongHistory: strongHistory || [],
+      strongHistory,
       recentStrongDays
     })
 

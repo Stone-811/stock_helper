@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
 import StockSearchOptimized from '../../../components/StockSearchOptimized'
-import { DailyStock } from '../../../lib/supabase'
+import { DailyStock } from '../../../lib/firebase'
 
 interface StockData {
   stock_id: string

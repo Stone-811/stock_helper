@@ -1,7 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase, addToWatchlist, removeFromWatchlist, isInWatchlist, signInWithGoogle } from '../lib/supabase'
+import {
+  auth,
+  addToWatchlist,
+  removeFromWatchlist,
+  isInWatchlist,
+  signInWithGoogle,
+  onAuthChange
+} from '../lib/firebase'
 
 interface WatchlistButtonProps {
   stockId: string
@@ -15,32 +22,20 @@ export default function WatchlistButton({ stockId, stockName, className = '' }: 
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   useEffect(() => {
-    // Check auth and watchlist status
-    const checkStatus = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setIsAuthenticated(!!session)
+    // 監聽認證狀態變化
+    const unsubscribe = onAuthChange(async (user) => {
+      setIsAuthenticated(!!user)
 
-      if (session) {
-        const result = await isInWatchlist(stockId)
-        setInWatchlist(result)
-      }
-      setLoading(false)
-    }
-
-    checkStatus()
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setIsAuthenticated(!!session)
-      if (session) {
+      if (user) {
         const result = await isInWatchlist(stockId)
         setInWatchlist(result)
       } else {
         setInWatchlist(false)
       }
+      setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => unsubscribe()
   }, [stockId])
 
   const handleClick = async () => {
@@ -50,14 +45,19 @@ export default function WatchlistButton({ stockId, stockName, className = '' }: 
     }
 
     setLoading(true)
-    if (inWatchlist) {
-      const { error } = await removeFromWatchlist(stockId)
-      if (!error) setInWatchlist(false)
-    } else {
-      const { error } = await addToWatchlist(stockId, stockName)
-      if (!error) setInWatchlist(true)
+    try {
+      if (inWatchlist) {
+        const success = await removeFromWatchlist(stockId)
+        if (success) setInWatchlist(false)
+      } else {
+        const success = await addToWatchlist(stockId, stockName)
+        if (success) setInWatchlist(true)
+      }
+    } catch (error) {
+      console.error('Watchlist operation failed:', error)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   if (loading) {

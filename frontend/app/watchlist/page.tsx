@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { supabase, getWatchlist, removeFromWatchlist, WatchlistItem, DailyStock, signInWithGoogle } from '../../lib/supabase'
+import {
+  auth,
+  getWatchlist,
+  removeFromWatchlist,
+  signInWithGoogle,
+  onAuthChange,
+  WatchlistItem,
+  DailyStock
+} from '../../lib/firebase'
 
 interface WatchlistStock extends WatchlistItem {
   latestData?: DailyStock
@@ -14,11 +22,7 @@ export default function WatchlistPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const fetchWatchlist = async () => {
-    const { data, error } = await getWatchlist()
-    if (error || !data) {
-      setStocks([])
-      return
-    }
+    const data = await getWatchlist()
 
     // Fetch latest data for each stock
     const stocksWithData = await Promise.all(
@@ -27,7 +31,7 @@ export default function WatchlistPage() {
           const res = await fetch(`/api/stock/${item.stock_id}`)
           if (res.ok) {
             const stockData = await res.json()
-            const latestData = stockData.data?.[stockData.data.length - 1]
+            const latestData = stockData.history?.[stockData.history.length - 1]
             return { ...item, latestData }
           }
         } catch {
@@ -41,33 +45,25 @@ export default function WatchlistPage() {
   }
 
   useEffect(() => {
-    const checkAuthAndFetch = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setIsAuthenticated(!!session)
+    const unsubscribe = onAuthChange(async (user) => {
+      setIsAuthenticated(!!user)
 
-      if (session) {
-        await fetchWatchlist()
-      }
-      setLoading(false)
-    }
-
-    checkAuthAndFetch()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setIsAuthenticated(!!session)
-      if (session) {
+      if (user) {
         await fetchWatchlist()
       } else {
         setStocks([])
       }
+      setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => unsubscribe()
   }, [])
 
   const handleRemove = async (stockId: string) => {
-    await removeFromWatchlist(stockId)
-    setStocks(stocks.filter(s => s.stock_id !== stockId))
+    const success = await removeFromWatchlist(stockId)
+    if (success) {
+      setStocks(stocks.filter(s => s.stock_id !== stockId))
+    }
   }
 
   if (loading) {

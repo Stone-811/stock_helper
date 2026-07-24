@@ -14,8 +14,12 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Supabase 寫入（若環境變數未設定則跳過）
-SUPABASE_ENABLED = bool(os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_KEY'))
+# Firebase 寫入（檢查 service-account.json 是否存在）
+FIREBASE_ENABLED = (
+    (Path(__file__).parent.parent / 'frontend' / 'service-account.json').exists() or
+    (Path(__file__).parent.parent / 'service-account.json').exists() or
+    bool(os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY'))
+)
 
 # 設定日誌
 logging.basicConfig(
@@ -146,18 +150,18 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     filepath = output_path / output_filename
     pivot.to_csv(filepath, index=False, encoding='utf-8-sig')
 
-    # 寫入 Supabase（若已設定）
-    if SUPABASE_ENABLED:
-        logging.info("寫入 Supabase...")
+    # 寫入 Firestore（若已設定）
+    if FIREBASE_ENABLED:
+        logging.info("寫入 Firestore...")
         try:
             import sys
             sys.path.insert(0, str(base_path))
-            from supabase_writer import write_strong_stock_matrix
+            from firebase_writer import write_strong_stock_matrix
             write_strong_stock_matrix(pivot)
-            logging.info("✓ Supabase 寫入完成")
+            logging.info("✓ Firestore 寫入完成")
         except Exception as e:
-            logging.warning(f"⚠️ Supabase 寫入失敗: {e}")
-            logging.warning("   CSV 已儲存，但 Supabase 未更新")
+            logging.warning(f"⚠️ Firestore 寫入失敗: {e}")
+            logging.warning("   CSV 已儲存，但 Firestore 未更新")
 
     # 統計
     date_cols = [c for c in pivot.columns if c not in ['stock_id', 'stock_name']]

@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { User } from '@supabase/supabase-js'
-import { supabase, signInWithGoogle, signOut } from '../lib/supabase'
+import { User } from 'firebase/auth'
+import { auth, signInWithGoogle, signOut, onAuthChange } from '../lib/firebase'
 
 interface AuthButtonProps {
   isCollapsed?: boolean
@@ -13,34 +13,35 @@ export default function AuthButton({ isCollapsed = false }: AuthButtonProps) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+    // 監聽認證狀態變化
+    const unsubscribe = onAuthChange((currentUser) => {
+      setUser(currentUser)
       setLoading(false)
     })
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
-
-    return () => subscription.unsubscribe()
+    return () => unsubscribe()
   }, [])
 
   const handleSignIn = async () => {
-    // Don't set loading here - OAuth redirects away from page
-    // If user cancels and returns, we don't want to be stuck in loading state
-    const { error } = await signInWithGoogle()
-    // Only reaches here if OAuth failed (no redirect)
-    if (error) {
+    setLoading(true)
+    try {
+      await signInWithGoogle()
+    } catch (error) {
       console.error('Sign in error:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
   const handleSignOut = async () => {
     setLoading(true)
-    await signOut()
-    setLoading(false)
+    try {
+      await signOut()
+    } catch (error) {
+      console.error('Sign out error:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (loading) {
@@ -62,18 +63,18 @@ export default function AuthButton({ isCollapsed = false }: AuthButtonProps) {
         <div className="flex justify-center p-2 border-t border-gray-700">
           <button
             onClick={handleSignOut}
-            title={`登出 (${user.user_metadata?.full_name || user.email})`}
+            title={`登出 (${user.displayName || user.email})`}
             className="relative group"
           >
-            {user.user_metadata?.avatar_url ? (
+            {user.photoURL ? (
               <img
-                src={user.user_metadata.avatar_url}
+                src={user.photoURL}
                 alt="avatar"
                 className="w-10 h-10 rounded-full ring-2 ring-transparent group-hover:ring-blue-500 transition-all"
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold ring-2 ring-transparent group-hover:ring-blue-500 transition-all">
-                {(user.user_metadata?.full_name || user.email || '?')[0].toUpperCase()}
+                {(user.displayName || user.email || '?')[0].toUpperCase()}
               </div>
             )}
             {/* 懸停提示點 */}
@@ -87,19 +88,19 @@ export default function AuthButton({ isCollapsed = false }: AuthButtonProps) {
     return (
       <div className="px-4 py-2 border-t border-gray-700">
         <div className="flex items-center gap-2 mb-2">
-          {user.user_metadata?.avatar_url ? (
+          {user.photoURL ? (
             <img
-              src={user.user_metadata.avatar_url}
+              src={user.photoURL}
               alt="avatar"
               className="w-8 h-8 rounded-full"
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              {(user.user_metadata?.full_name || user.email || '?')[0].toUpperCase()}
+              {(user.displayName || user.email || '?')[0].toUpperCase()}
             </div>
           )}
           <span className="text-sm text-gray-300 truncate">
-            {user.user_metadata?.full_name || user.email}
+            {user.displayName || user.email}
           </span>
         </div>
         <button

@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { verifyIdToken, saveAnalysisReport, getAnalysisReports } from '../../../lib/firebase-admin'
 
 const INVESTMENT_RESEARCH_PROMPT = `# Investment Research Prompt v3.1
 
@@ -343,16 +339,16 @@ async function generateWithOpenAI(userMessage: string): Promise<{ content: strin
 
 export async function POST(request: Request) {
   try {
-    // 從 request header 取得 auth token
+    // 從 request header 取得 Firebase auth token
     const authHeader = request.headers.get('authorization')
 
-    // 驗證用戶身份
+    // 驗證用戶身份（使用 Firebase Admin SDK）
     let userId: string | null = null
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '')
-      const { data: { user }, error } = await supabase.auth.getUser(token)
-      if (!error && user) {
-        userId = user.id
+      const decodedToken = await verifyIdToken(token)
+      if (decodedToken) {
+        userId = decodedToken.uid
       }
     }
 
@@ -396,25 +392,19 @@ export async function POST(request: Request) {
       )
     }
 
-    // 儲存到 Supabase
-    let savedReport = null
+    // 儲存到 Firestore
+    let savedReportId = null
     if (userId) {
-      const { data, error } = await supabase
-        .from('stock_analysis_reports')
-        .insert({
-          user_id: userId,
-          stock_id: stock_id,
-          stock_name: stock_name || stock_id,
-          report_content: reportContent,
-          model_used: modelUsed
-        })
-        .select()
-        .single()
+      savedReportId = await saveAnalysisReport({
+        user_id: userId,
+        stock_id: stock_id,
+        stock_name: stock_name || stock_id,
+        report_content: reportContent,
+        model_used: modelUsed
+      })
 
-      if (error) {
-        console.error('Error saving report:', error)
-      } else {
-        savedReport = data
+      if (!savedReportId) {
+        console.error('Failed to save report to Firestore')
       }
     }
 
@@ -425,8 +415,8 @@ export async function POST(request: Request) {
         stock_name: stock_name || stock_id,
         content: reportContent,
         model_used: modelUsed,
-        saved: !!savedReport,
-        id: savedReport?.id
+        saved: !!savedReportId,
+        id: savedReportId
       }
     })
 
@@ -443,24 +433,13 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const stockId = searchParams.get('stock_id')
+    const stockId = searchParams.get('stock_id') || undefined
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    let query = supabase
-      .from('stock_analysis_reports')
-      .select('id, stock_id, stock_name, model_used, created_at')
-      .order('created_at', { ascending: false })
-      .limit(limit)
+    // 從 Firestore 取得報告列表
+    const reports = await getAnalysisReports(stockId, limit)
 
-    if (stockId) {
-      query = query.eq('stock_id', stockId)
-    }
-
-    const { data, error } = await query
-
-    if (error) throw error
-
-    return NextResponse.json({ reports: data })
+    return NextResponse.json({ reports })
 
   } catch (error) {
     console.error('Error fetching reports:', error)

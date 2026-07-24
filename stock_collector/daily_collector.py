@@ -49,15 +49,23 @@ class DailyCollector:
         }
 
     def get_latest_date_from_db(self, table='daily_stocks'):
-        """從 Supabase 取得最新資料日期"""
+        """從 Firestore 取得最新資料日期"""
         try:
-            from supabase_writer import get_supabase_client
-            supabase = get_supabase_client()
+            from firebase_writer import get_firestore_client
+            db = get_firestore_client()
 
-            result = supabase.table(table).select('date').order('date', desc=True).limit(1).execute()
+            # 從 metadata 集合取得最新日期
+            if table == 'daily_stocks':
+                metadata_ref = db.collection('metadata').document('latest_date')
+                doc = metadata_ref.get()
+                if doc.exists:
+                    return doc.to_dict().get('date')
+            elif table == 'market_index_daily':
+                # 查詢最新指數日期
+                docs = db.collection('market_index_daily').order_by('date', direction='DESCENDING').limit(1).get()
+                for doc in docs:
+                    return doc.to_dict().get('date')
 
-            if result.data:
-                return result.data[0]['date']
             return None
         except Exception as e:
             logging.warning(f"無法從資料庫取得最新日期: {e}")
@@ -103,16 +111,16 @@ class DailyCollector:
     def collect_stocks(self, date=None):
         """收集股票資料（含重試機制）"""
         from stock_collector.stock_collector import StockCollector
+        import pandas as pd
 
         collector = StockCollector()
 
-        if date:
-            df = collector.collect_daily(date)
-        else:
-            df = collector.collect_daily()
+        # 修正：使用正確的方法名稱 collect_daily_data
+        filepath = collector.collect_daily_data(target_date=date, skip_macd=True)
 
-        if df is not None and not df.empty:
-            # 驗證資料
+        if filepath:
+            # 讀取 CSV 檔案進行驗證
+            df = pd.read_csv(filepath)
             if self.validate_stock_data(df):
                 self.results['stock']['success'] = True
                 self.results['stock']['count'] = len(df)

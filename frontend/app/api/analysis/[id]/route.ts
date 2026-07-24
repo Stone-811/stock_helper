@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseKey)
+import { getAnalysisReport } from '../../../../lib/firebase-admin'
 
 export async function GET(
   request: Request,
@@ -12,23 +8,17 @@ export async function GET(
   try {
     const { id } = await params
 
-    const { data, error } = await supabase
-      .from('stock_analysis_reports')
-      .select('*')
-      .eq('id', id)
-      .single()
+    // 從 Firestore 取得報告
+    const report = await getAnalysisReport(id)
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Report not found' },
-          { status: 404 }
-        )
-      }
-      throw error
+    if (!report) {
+      return NextResponse.json(
+        { error: 'Report not found' },
+        { status: 404 }
+      )
     }
 
-    return NextResponse.json({ report: data })
+    return NextResponse.json({ report })
 
   } catch (error) {
     console.error('Error fetching report:', error)

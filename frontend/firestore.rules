@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============ 公開讀取的市場資料 ============
+
+    // 每日股票資料
+    match /daily_stocks/{docId} {
+      allow read: if true;
+      allow write: if false;  // 只能透過 Admin SDK 寫入
+    }
+
+    // 聚合：每日所有股票
+    match /stocks_by_date/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 強勢股矩陣
+    match /strong_stock_matrix/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 聚合：每日強勢股
+    match /strong_stocks_by_date/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 指數資料
+    match /market_index_daily/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 系統元資料
+    match /metadata/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ 需要登入的用戶資料 ============
+
+    // 用戶自選股（只能存取自己的）
+    match /user_watchlists/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /stocks/{stockId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ============ 分析報告 ============
+
+    // 公開讀取，登入用戶可新增/刪除自己的報告
+    match /stock_analysis_reports/{reportId} {
+      // 所有人可讀取
+      allow read: if true;
+
+      // 登入用戶可新增（user_id 必須是自己）
+      allow create: if request.auth != null
+                    && request.resource.data.user_id == request.auth.uid;
+
+      // 只能刪除自己的報告
+      allow delete: if request.auth != null
+                    && resource.data.user_id == request.auth.uid;
+
+      // 不允許更新
+      allow update: if false;
+    }
+  }
+}

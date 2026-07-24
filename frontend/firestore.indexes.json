@@ -1,0 +1,51 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "daily_stocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "stock_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "daily_stocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "stock_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strong_stock_matrix",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "market_index_daily",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "index_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "stock_analysis_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "stock_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "stock_analysis_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

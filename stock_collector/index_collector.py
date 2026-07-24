@@ -13,8 +13,12 @@ import os
 from pathlib import Path
 from . import config
 
-# Supabase 寫入
-SUPABASE_ENABLED = bool(os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_KEY'))
+# Firebase 寫入（檢查 service-account.json 是否存在）
+FIREBASE_ENABLED = (
+    (Path(__file__).parent.parent / 'frontend' / 'service-account.json').exists() or
+    (Path(__file__).parent.parent / 'service-account.json').exists() or
+    bool(os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY'))
+)
 
 # 設定日誌
 logging.basicConfig(
@@ -223,15 +227,15 @@ def collect_and_save(start_date=None, end_date=None, days=None):
 
     df = pd.concat(all_data, ignore_index=True)
 
-    # 寫入 Supabase
-    if SUPABASE_ENABLED:
+    # 寫入 Firestore
+    if FIREBASE_ENABLED:
         import sys
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from supabase_writer import write_market_index
+        from firebase_writer import write_market_index
         count = write_market_index(df)
-        logging.info(f"已寫入 Supabase: {count} 筆")
+        logging.info(f"已寫入 Firestore: {count} 筆")
     else:
-        logging.warning("未設定 Supabase，跳過資料庫寫入")
+        logging.warning("未設定 Firebase，跳過資料庫寫入")
 
     return df
 

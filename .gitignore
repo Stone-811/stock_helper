@@ -29,6 +29,11 @@ env/
 # 環境變數（重要：包含 API 金鑰/密碼）
 .env
 .env.local
+frontend/.env.local
+
+# Firebase 憑證（重要：絕對不要上傳）
+service-account.json
+frontend/service-account.json
 
 # IDE
 .vscode/
@@ -44,10 +49,9 @@ env/
 *.log
 logs/
 
-# Data (optional - 可依需求調整)
-# stock_collector/data/
-# stock_collector/data/daily_reports/
-# stock_collector/data/screening/
+# Data（大型 CSV 檔案不上傳）
+data/daily_reports/archive/*.csv
+data/strong_stock_matrix/*.csv
 
 # Streamlit
 .streamlit/secrets.toml
