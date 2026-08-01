@@ -5,13 +5,31 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
 import StockSearchOptimized from '../../../components/StockSearchOptimized'
-import { DailyStock } from '../../../lib/firebase'
+import { Candle } from '../../../lib/indicators'
+
+interface LatestInfo {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  stock_name: string
+  macd_status: string
+  foreign_buy: number
+  trust_buy: number
+  dealer_buy: number
+  foreign_hold_ratio: number
+  foreign_remain_ratio: number
+  foreign_limit_ratio: number
+  day_trading_volume?: number
+}
 
 interface StockData {
   stock_id: string
   stock_name: string
-  latest: DailyStock
-  history: DailyStock[]
+  latest: LatestInfo
+  history: Candle[]
   recentStrongDays: number
 }
 

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getStockHistory, getStockStrongHistory } from '../../../../lib/firebase-admin'
+import { getLatestDate, getStocksByDate, getStockStrongHistory } from '../../../../lib/firebase-admin'
+import { fetchStockKline } from '../../../../lib/finmind'
+import { calculateMACDValues } from '../../../../lib/indicators'
 
 export async function GET(
   request: Request,
@@ -8,34 +10,55 @@ export async function GET(
   const { id } = await params
 
   try {
-    // 從 Firestore 取得股票歷史資料（支援新舊架構）
-    const stockData = await getStockHistory(id)
+    // K 線歷史改用 FinMind（單一股票查詢，完整且快，取代掃全市場的 getStockHistory）
+    // 取約 2.5 年，足夠 2Y 圖 + 指標暖身
+    const start = new Date(Date.now() - 900 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const history = await fetchStockKline(id, start)
 
-    if (!stockData || stockData.length === 0) {
+    if (!history.length) {
       return NextResponse.json({ error: 'Stock not found' }, { status: 404 })
     }
 
-    // 使用優化函數取得強勢股歷史
-    const strongHistory = await getStockStrongHistory(id)
+    // 最新法人資訊：從 Firestore 當日資料取（1 天，快），不再掃全歷史
+    const latestDate = await getLatestDate()
+    const dayStocks = latestDate ? await getStocksByDate(latestDate) : []
+    const fsLatest = dayStocks.find((s: { stock_id: string }) => s.stock_id === id) as
+      | Record<string, unknown>
+      | undefined
 
-    // 計算近 7 日強勢次數
+    // MACD 狀態：用 FinMind K 線自算（解決生產環境 macd_status 空白）
+    const macdVals = calculateMACDValues(history)
+    const lastMacd = macdVals[macdVals.length - 1]
+    const macd_status = lastMacd ? (lastMacd.histogram >= 0 ? '多' : '空') : ''
+
+    const klineLast = history[history.length - 1]
+    const latest = {
+      ...klineLast,
+      stock_name: (fsLatest?.stock_name as string) || id,
+      macd_status,
+      foreign_buy: (fsLatest?.foreign_buy as number) ?? 0,
+      trust_buy: (fsLatest?.trust_buy as number) ?? 0,
+      dealer_buy: (fsLatest?.dealer_buy as number) ?? 0,
+      foreign_hold_ratio: (fsLatest?.foreign_hold_ratio as number) ?? 0,
+      foreign_remain_ratio: (fsLatest?.foreign_remain_ratio as number) ?? 0,
+      foreign_limit_ratio: (fsLatest?.foreign_limit_ratio as number) ?? 0,
+      day_trading_volume: (fsLatest?.day_trading_volume as number) ?? 0,
+    }
+
+    // 近 7 日強勢次數（只掃近 10 個交易日）
+    const strongHistory = await getStockStrongHistory(id, 10)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    const recentStrongDays = strongHistory.filter(item => {
-      const itemDate = new Date(item.date)
-      return itemDate >= sevenDaysAgo
-    }).length
-
-    const latestData = stockData[stockData.length - 1]
+    const recentStrongDays = strongHistory.filter(
+      (item) => new Date(item.date) >= sevenDaysAgo
+    ).length
 
     return NextResponse.json({
       stock_id: id,
-      stock_name: latestData.stock_name,
-      latest: latestData,
-      history: stockData,
-      strongHistory,
-      recentStrongDays
+      stock_name: latest.stock_name,
+      latest,
+      history,
+      recentStrongDays,
     })
-
   } catch (error) {
     console.error('Error fetching stock data:', error)
     return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 })

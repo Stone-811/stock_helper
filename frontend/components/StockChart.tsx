@@ -1,10 +1,10 @@
 'use client'
 
 import CandleChart from './CandleChart'
-import { DailyStock } from '../lib/firebase'
+import { Candle } from '../lib/indicators'
 
 interface StockChartProps {
-  data: DailyStock[]
+  data: (Candle & { day_trading_volume?: number })[]
   height?: number
 }
 

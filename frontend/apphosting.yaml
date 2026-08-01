@@ -50,3 +50,7 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  # ===== FinMind API token（機密，透過 Secret Manager 注入，僅 runtime）=====
+  - variable: FINMIND_API_TOKEN
+    secret: FINMIND_API_TOKEN
