@@ -37,6 +37,9 @@ yarn-error.log*
 service-account.json
 *-firebase-adminsdk-*.json
 
+# Firebase deploy cache
+.firebase/
+
 # vercel
 .vercel
 

@@ -215,13 +215,3 @@ export interface MarketIndex {
   open_interest?: number
   settlement_price?: number
 }
-
-export interface StockAnalysisReport {
-  id?: string
-  user_id: string
-  stock_id: string
-  stock_name: string
-  report_content: string
-  model_used: string
-  created_at: Date
-}

@@ -1,0 +1,52 @@
+# Firebase App Hosting 設定
+# 文件：https://firebase.google.com/docs/app-hosting/configure
+#
+# 部署型態：Next.js 16 SSR + API Routes（需要 Node.js runtime）
+# 註：NEXT_PUBLIC_* 為前端公開設定（會 inline 進瀏覽器 bundle），放明文即可；
+#     Firestore 憑證不放這裡——App Hosting 在同專案下用 ADC 自動連線
+#     （見 lib/firebase-admin.ts 的預設憑證 fallback）。
+
+runConfig:
+  minInstances: 0      # 低流量時關閉，省成本（代價：冷啟動約 2-5 秒）
+  maxInstances: 10
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  # ===== Firebase 前端公開設定（build 時 inline 進瀏覽器 bundle）=====
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyBVxC5LJayAWEdQCBCZdt2-t8KD8ZwDgWM"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "stock-analysis-b5602.firebaseapp.com"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "stock-analysis-b5602"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "stock-analysis-b5602.firebasestorage.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "378586078979"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:378586078979:web:a7a1a719d67c00df249336"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: "G-WCF4TNHGJ2"
+    availability:
+      - BUILD
+      - RUNTIME

@@ -51,23 +51,5 @@ service cloud.firestore {
       }
     }
 
-    // ============ 分析報告 ============
-
-    // 公開讀取，登入用戶可新增/刪除自己的報告
-    match /stock_analysis_reports/{reportId} {
-      // 所有人可讀取
-      allow read: if true;
-
-      // 登入用戶可新增（user_id 必須是自己）
-      allow create: if request.auth != null
-                    && request.resource.data.user_id == request.auth.uid;
-
-      // 只能刪除自己的報告
-      allow delete: if request.auth != null
-                    && resource.data.user_id == request.auth.uid;
-
-      // 不允許更新
-      allow update: if false;
-    }
   }
 }
