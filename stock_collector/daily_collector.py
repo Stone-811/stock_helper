@@ -121,6 +121,13 @@ class DailyCollector:
         if filepath:
             # 讀取 CSV 檔案進行驗證
             df = pd.read_csv(filepath)
+            # C2: filepath 可能是年度檔（含多日），驗證只針對「當日切片」，
+            # 否則 len>=2000 恆真、防呆完全失效（就算今天只抓到 10 檔或全 0 也會通過）
+            target = date or datetime.now().strftime('%Y-%m-%d')
+            if 'date' in df.columns:
+                day_df = df[df['date'].astype(str) == target]
+                if len(day_df) > 0:
+                    df = day_df
             if self.validate_stock_data(df):
                 self.results['stock']['success'] = True
                 self.results['stock']['count'] = len(df)

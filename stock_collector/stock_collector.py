@@ -155,6 +155,7 @@ class StockCollector:
                 logging.info("⏭️ 跳過 MACD 計算")
 
             # 9. 寫入 Firestore（若已設定）
+            firestore_ok = None
             if FIREBASE_ENABLED:
                 logging.info("寫入 Firestore...")
                 try:
@@ -162,10 +163,13 @@ class StockCollector:
                     # 重新讀取 CSV（包含 MACD 狀態）
                     df_with_macd = pd.read_csv(filepath)
                     write_daily_stocks(df_with_macd)
+                    firestore_ok = True
                     logging.info("✓ Firestore 寫入完成")
                 except Exception as e:
-                    logging.warning(f"⚠️ Firestore 寫入失敗: {e}")
-                    logging.warning("   CSV 已儲存，但 Firestore 未更新")
+                    firestore_ok = False
+                    # C4: 升為 error，不再靜默當成功
+                    logging.error(f"❌ Firestore 寫入失敗: {e}")
+                    logging.error("   CSV 已儲存，但 Firestore 未更新，前台將看不到此日資料")
 
             # 10. 追加到年度合併檔案
             year = target_date[:4]
@@ -190,6 +194,8 @@ class StockCollector:
             else:
                 logging.info(f"每日檔案: {filepath}")
             logging.info("=" * 70)
+            if firestore_ok is False:
+                logging.error("⚠️ 本次 Firestore 未成功寫入，此日前台資料不完整，需重跑補寫")
 
             # 回傳年度檔案路徑（若成功追加）或每日檔案路徑（若追加失敗）
             if daily_file_deleted:

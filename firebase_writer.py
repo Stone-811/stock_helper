@@ -160,12 +160,15 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
             'count': len(chunk)
         })
 
-    # 3. 更新 metadata
-    metadata_ref = db.collection('metadata').document('latest_date')
-    batch.set(metadata_ref, {
-        'date': date,
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
+    # 3. 更新 metadata：只在 date >= 現有 latest_date 時更新，避免補舊資料時 latest_date 倒退（C3）
+    current = db.collection('metadata').document('latest_date').get()
+    current_date = current.to_dict().get('date') if current.exists else None
+    if current_date is None or date >= current_date:
+        metadata_ref = db.collection('metadata').document('latest_date')
+        batch.set(metadata_ref, {
+            'date': date,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
 
     # 提交批次
     batch.commit()
@@ -351,25 +354,21 @@ def write_market_index(df: pd.DataFrame) -> int:
             existing_history = doc.to_dict().get('history', [])
             existing_dates = {h['date'] for h in existing_history}
 
-        # 新增新資料
-        new_records = []
+        # 以 date 為 key upsert：同日覆蓋，讓盤中先存的不完整指數值事後可被修正（C6）
+        merged = {h['date']: h for h in existing_history}
         for _, row in index_df.iterrows():
             date = str(row['date'])
-            if date not in existing_dates:
-                new_records.append({
-                    'date': date,
-                    'open': float(row.get('open', 0)),
-                    'high': float(row.get('high', 0)),
-                    'low': float(row.get('low', 0)),
-                    'close': float(row.get('close', 0)),
-                    'volume': int(row.get('volume', 0)),
-                    'open_interest': int(row.get('open_interest', 0)),
-                    'settlement_price': float(row.get('settlement_price', 0))
-                })
-
-        # 合併並排序
-        all_history = existing_history + new_records
-        all_history.sort(key=lambda x: x['date'])
+            merged[date] = {
+                'date': date,
+                'open': float(row.get('open', 0)),
+                'high': float(row.get('high', 0)),
+                'low': float(row.get('low', 0)),
+                'close': float(row.get('close', 0)),
+                'volume': int(row.get('volume', 0)),
+                'open_interest': int(row.get('open_interest', 0)),
+                'settlement_price': float(row.get('settlement_price', 0))
+            }
+        all_history = sorted(merged.values(), key=lambda x: x['date'])
 
         # 寫入
         doc_ref.set({
@@ -381,7 +380,7 @@ def write_market_index(df: pd.DataFrame) -> int:
             'updated_at': firestore.SERVER_TIMESTAMP
         })
 
-        logging.info(f"  {index_id}: 新增 {len(new_records)} 筆，總計 {len(all_history)} 筆")
+        logging.info(f"  {index_id}: 寫入/更新 {len(index_df)} 筆，總計 {len(all_history)} 筆")
 
     logging.info(f"✓ 成功寫入 market_index: {len(df['index_id'].unique())} 個指數")
     return len(df)
