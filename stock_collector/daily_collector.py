@@ -190,6 +190,16 @@ class DailyCollector:
             logging.warning(f"  - 有收盤價比例: {df['close'].notna().sum() / len(df) * 100:.1f}%")
             return False
 
+        # C1: 輔助資料集若整批為 0，多半是收集時尚未發布（如外資持股盤後較晚），
+        # 不視為失敗（會事後補），但明確警示，避免「未發布」被當「真的是 0」而靜默略過
+        for col, label in [
+            ('foreign_hold_ratio', '外資持股比例'),
+            ('foreign_buy', '三大法人買賣超'),
+            ('day_trading_volume', '當沖量'),
+        ]:
+            if col in df.columns and (df[col].fillna(0) == 0).all():
+                logging.warning(f"⚠️ {label}（{col}）整批為 0，可能尚未發布，建議稍後重跑補寫")
+
         logging.info(f"資料驗證通過: {len(df)} 筆")
         return True
 
