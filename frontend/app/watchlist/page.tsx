@@ -8,12 +8,19 @@ import {
   removeFromWatchlist,
   signInWithGoogle,
   onAuthChange,
-  WatchlistItem,
-  DailyStock
+  WatchlistItem
 } from '../../lib/firebase'
 
+interface Quote {
+  stock_id: string
+  stock_name: string
+  open: number
+  close: number
+  volume: number
+}
+
 interface WatchlistStock extends WatchlistItem {
-  latestData?: DailyStock
+  latestData?: Quote
 }
 
 export default function WatchlistPage() {
@@ -23,25 +30,20 @@ export default function WatchlistPage() {
 
   const fetchWatchlist = async () => {
     const data = await getWatchlist()
+    if (data.length === 0) {
+      setStocks([])
+      return
+    }
 
-    // Fetch latest data for each stock
-    const stocksWithData = await Promise.all(
-      data.map(async (item) => {
-        try {
-          const res = await fetch(`/api/stock/${item.stock_id}`)
-          if (res.ok) {
-            const stockData = await res.json()
-            const latestData = stockData.history?.[stockData.history.length - 1]
-            return { ...item, latestData }
-          }
-        } catch {
-          // ignore
-        }
-        return item
-      })
-    )
-
-    setStocks(stocksWithData)
+    // 一次批次取多股報價（取代逐股呼叫 /api/stock，消除 N+1）
+    try {
+      const ids = data.map((d) => d.stock_id).join(',')
+      const res = await fetch(`/api/quotes?ids=${ids}`)
+      const { quotes } = await res.json()
+      setStocks(data.map((item) => ({ ...item, latestData: quotes[item.stock_id] })))
+    } catch {
+      setStocks(data)
+    }
   }
 
   useEffect(() => {

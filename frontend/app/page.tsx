@@ -119,12 +119,9 @@ export default function Home() {
         </header>
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-            <div className="text-gray-500 mb-4">{error || '尚無指數資料'}</div>
+            <div className="text-gray-500 mb-4">{error || '資料更新中'}</div>
             <div className="text-sm text-gray-400">
-              <p>請執行以下指令收集指數資料：</p>
-              <code className="block mt-2 p-2 bg-gray-100 rounded">
-                python3 -m stock_collector.index_collector --days 365
-              </code>
+              <p>指數資料正在準備，請稍候片刻後重新整理。</p>
             </div>
           </div>
         </div>
