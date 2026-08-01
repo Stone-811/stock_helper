@@ -136,6 +136,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       wickUpColor: '#ef4444',
       wickDownColor: '#22c55e',
       lastValueVisible: false,
+      priceLineVisible: false,
     })
     const candleData: CandlestickData[] = displayData.map(item => ({
       time: item.date,
@@ -147,30 +148,30 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     candleSeries.setData(candleData)
 
     // 布林通道（先加，讓 K 線畫在上層）
-    const bbUpper = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, visible: showBB, crosshairMarkerVisible: false })
+    const bbUpper = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
     bbUpper.setData(bbandLine(displayData, bbData, 'upper'))
     bbUpperRef.current = bbUpper
-    const bbMiddle = mainChart.addLineSeries({ color: '#a78bfa', lineWidth: 1, lineStyle: 2, lastValueVisible: false, visible: showBB, crosshairMarkerVisible: false })
+    const bbMiddle = mainChart.addLineSeries({ color: '#a78bfa', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
     bbMiddle.setData(bbandLine(displayData, bbData, 'middle'))
     bbMiddleRef.current = bbMiddle
-    const bbLower = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, visible: showBB, crosshairMarkerVisible: false })
+    const bbLower = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
     bbLower.setData(bbandLine(displayData, bbData, 'lower'))
     bbLowerRef.current = bbLower
 
     // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false, visible: showMA5 })
+    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA5 })
     ma5.setData(toLineData(displayData, maData.ma5))
     ma5SeriesRef.current = ma5
 
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, visible: showMA10 })
+    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA10 })
     ma10.setData(toLineData(displayData, maData.ma10))
     ma10SeriesRef.current = ma10
 
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false, visible: showMA20 })
+    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA20 })
     ma20.setData(toLineData(displayData, maData.ma20))
     ma20SeriesRef.current = ma20
 
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, visible: showMA60 })
+    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA60 })
     ma60.setData(toLineData(displayData, maData.ma60))
     ma60SeriesRef.current = ma60
 
@@ -209,24 +210,24 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     })
 
     if (indicator === 'macd') {
-      const hist = indicatorChart.addHistogramSeries({ priceFormat: { type: 'price', precision: 2 }, lastValueVisible: false })
+      const hist = indicatorChart.addHistogramSeries({ priceFormat: { type: 'price', precision: 2 }, lastValueVisible: false, priceLineVisible: false })
       hist.setData(displayData.map((d, i) => ({
         time: d.date,
         value: macdData[i]?.histogram ?? 0,
         color: (macdData[i]?.histogram ?? 0) >= 0 ? '#ef444480' : '#22c55e80',
       })).filter((_, i) => macdData[i]))
-      const dif = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+      const dif = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       dif.setData(toLineData(displayData, macdData.map(m => m?.dif ?? null)))
-      const macd = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
+      const macd = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       macd.setData(toLineData(displayData, macdData.map(m => m?.macd ?? null)))
     } else if (indicator === 'kd') {
-      const kLine = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false })
+      const kLine = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       kLine.setData(toLineData(displayData, kdData.map(v => v?.k ?? null)))
-      const dLine = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false })
+      const dLine = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       dLine.setData(toLineData(displayData, kdData.map(v => v?.d ?? null)))
       addBandLines(indicatorChart, displayData, 80, 20)
     } else if (indicator === 'rsi') {
-      const rsiLine = indicatorChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false })
+      const rsiLine = indicatorChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       rsiLine.setData(toLineData(displayData, rsiData))
       addBandLines(indicatorChart, displayData, 70, 30)
     }
