@@ -13,9 +13,10 @@ export async function generateMetadata(
   }
   const l = data.latest
   const trend = l.macd_status === '多' ? '多頭' : '空頭'
+  const inst = l.foreign_buy === null ? '' : `，外資 ${l.foreign_buy >= 0 ? '+' : ''}${l.foreign_buy} 張`
   return {
     title: `${id} ${data.stock_name} 技術分析 K線圖 | 選股小幫手`,
-    description: `${data.stock_name}(${id}) 最新收盤 ${l.close}，MACD ${trend}，外資 ${l.foreign_buy >= 0 ? '+' : ''}${l.foreign_buy} 張；提供 K 線、均線、布林通道、MACD/KD/RSI 技術分析。`,
+    description: `${data.stock_name}(${id}) 最新收盤 ${l.close}，MACD ${trend}${inst}；提供 K 線、均線、布林通道、MACD/KD/RSI 技術分析。`,
     alternates: { canonical: `/stock/${id}` },
     openGraph: {
       title: `${id} ${data.stock_name} 技術分析`,

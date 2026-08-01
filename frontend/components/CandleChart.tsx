@@ -67,10 +67,15 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   // 依時間週期轉換資料
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
 
-  // 顯示區間的起點
+  // 顯示區間的起點：用「日曆天門檻」而非固定 bar 數，
+  // 否則週K（1 bar=1 週）、月K（1 bar=1 月）會與交易日數單位不符，導致區間鈕失準。
   const startIdx = useMemo(() => {
-    const days = periodToDays[datePeriod]
-    return Math.max(0, chartData.length - days)
+    if (chartData.length === 0) return 0
+    const calendarDays: Record<DatePeriod, number> = { '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
+    const lastMs = new Date(chartData[chartData.length - 1].date).getTime()
+    const cutoff = new Date(lastMs - calendarDays[datePeriod] * 86400000).toISOString().slice(0, 10)
+    const idx = chartData.findIndex((d) => d.date >= cutoff)
+    return idx < 0 ? 0 : idx
   }, [chartData, datePeriod])
 
   const displayData = useMemo(() => chartData.slice(startIdx), [chartData, startIdx])

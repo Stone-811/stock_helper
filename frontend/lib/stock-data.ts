@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import { getLatestDate, getStocksByDate, getStockStrongHistory } from './firebase-admin'
+import { getStocksByDate, getStockStrongHistory } from './firebase-admin'
 import { fetchStockKline } from './finmind'
 import { calculateMACDValues, Candle } from './indicators'
 
@@ -12,13 +12,14 @@ export interface StockLatest {
   volume: number
   stock_name: string
   macd_status: string
-  foreign_buy: number
-  trust_buy: number
-  dealer_buy: number
-  foreign_hold_ratio: number
-  foreign_remain_ratio: number
-  foreign_limit_ratio: number
-  day_trading_volume: number
+  institutionalDate: string | null // 法人資料日期（可能與 K 線日不同；null = 當日無資料）
+  foreign_buy: number | null
+  trust_buy: number | null
+  dealer_buy: number | null
+  foreign_hold_ratio: number | null
+  foreign_remain_ratio: number | null
+  foreign_limit_ratio: number | null
+  day_trading_volume: number | null
 }
 
 export interface StockDetailData {
@@ -34,24 +35,27 @@ export interface StockDetailData {
  * 用 React cache() 包裝：同一 request 內 generateMetadata 與頁面共用結果，不重複查詢。
  */
 export const getStockData = cache(async (id: string): Promise<StockDetailData | null> => {
-  // 約 2.5 年，足夠 2Y 圖 + 指標暖身
-  const start = new Date(Date.now() - 900 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // 抓 5 年：2Y 圖 + 指標暖身，且月K 的 MACD（需 ≥34 個月）與長均線才有足夠資料
+  const start = new Date(Date.now() - 1825 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const history = await fetchStockKline(id, start)
   if (!history.length) return null
 
-  // 最新法人資訊：Firestore 當日資料（1 天，快）
-  const latestDate = await getLatestDate()
-  const dayStocks = latestDate ? await getStocksByDate(latestDate) : []
+  const klineLast = history[history.length - 1]
+
+  // B1: 法人資訊抓「與 K 線最後一根同一天」的 Firestore 資料，避免收盤價與法人分屬不同日
+  const dayStocks = await getStocksByDate(klineLast.date)
   const fsLatest = dayStocks.find((s: { stock_id: string }) => s.stock_id === id) as
     | Record<string, unknown>
     | undefined
+  // B2: 區分「0」與「無資料」——當日 Firestore 查無這檔時，法人欄位回 null（前端顯示「—」）
+  const hasInst = !!fsLatest
+  const num = (v: unknown): number | null => (hasInst ? ((v as number) ?? 0) : null)
 
   // MACD 狀態用 K 線自算
   const macdVals = calculateMACDValues(history)
   const lastMacd = macdVals[macdVals.length - 1]
   const macd_status = lastMacd ? (lastMacd.histogram >= 0 ? '多' : '空') : ''
 
-  const klineLast = history[history.length - 1]
   const latest: StockLatest = {
     date: klineLast.date,
     open: klineLast.open,
@@ -61,13 +65,14 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     volume: klineLast.volume,
     stock_name: (fsLatest?.stock_name as string) || id,
     macd_status,
-    foreign_buy: (fsLatest?.foreign_buy as number) ?? 0,
-    trust_buy: (fsLatest?.trust_buy as number) ?? 0,
-    dealer_buy: (fsLatest?.dealer_buy as number) ?? 0,
-    foreign_hold_ratio: (fsLatest?.foreign_hold_ratio as number) ?? 0,
-    foreign_remain_ratio: (fsLatest?.foreign_remain_ratio as number) ?? 0,
-    foreign_limit_ratio: (fsLatest?.foreign_limit_ratio as number) ?? 0,
-    day_trading_volume: (fsLatest?.day_trading_volume as number) ?? 0,
+    institutionalDate: (fsLatest?.date as string) ?? null,
+    foreign_buy: num(fsLatest?.foreign_buy),
+    trust_buy: num(fsLatest?.trust_buy),
+    dealer_buy: num(fsLatest?.dealer_buy),
+    foreign_hold_ratio: num(fsLatest?.foreign_hold_ratio),
+    foreign_remain_ratio: num(fsLatest?.foreign_remain_ratio),
+    foreign_limit_ratio: num(fsLatest?.foreign_limit_ratio),
+    day_trading_volume: num(fsLatest?.day_trading_volume),
   }
 
   const strongHistory = await getStockStrongHistory(id, 10)

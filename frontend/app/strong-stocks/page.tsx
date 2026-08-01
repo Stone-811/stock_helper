@@ -10,6 +10,7 @@ interface StrongStocksResponse {
   latestDate: string
   availableDates: string[]
   totalCount: number
+  dataMissing?: boolean
 }
 
 export default function StrongStocksPage() {
@@ -185,7 +186,7 @@ export default function StrongStocksPage() {
         {/* 股票列表 */}
         {filteredStocks.length === 0 ? (
           <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            沒有符合條件的股票
+            {data?.dataMissing ? '這一天的明細資料尚未提供，請改選其他日期' : '沒有符合條件的股票'}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">

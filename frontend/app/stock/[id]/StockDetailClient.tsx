@@ -76,38 +76,34 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
 
           {/* 三大法人 */}
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="text-gray-900 text-base font-medium mb-3">三大法人買賣超（張）</div>
+            <div className="text-gray-900 text-base font-medium mb-3">
+              三大法人買賣超（張）
+              {latest.foreign_buy === null && (
+                <span className="text-sm font-normal text-gray-400 ml-2">當日資料尚未提供</span>
+              )}
+            </div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-              <div>
-                <div className="text-gray-800 text-sm font-medium">外資</div>
-                <div className={`text-lg font-bold ${latest.foreign_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {latest.foreign_buy >= 0 ? '+' : ''}{latest.foreign_buy.toLocaleString()}
+              {([
+                { label: '外資', v: latest.foreign_buy, kind: 'buy' },
+                { label: '投信', v: latest.trust_buy, kind: 'buy' },
+                { label: '自營商', v: latest.dealer_buy, kind: 'buy' },
+                { label: '外資持股比例', v: latest.foreign_hold_ratio, kind: 'pct' },
+                { label: '外資尚可投資', v: latest.foreign_remain_ratio, kind: 'pct' },
+                { label: '外資投資上限', v: latest.foreign_limit_ratio, kind: 'pct' },
+              ] as const).map(({ label, v, kind }) => (
+                <div key={label}>
+                  <div className="text-gray-800 text-sm font-medium">{label}</div>
+                  {v === null ? (
+                    <div className="text-lg font-medium text-gray-400">—</div>
+                  ) : kind === 'buy' ? (
+                    <div className={`text-lg font-bold ${v >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {v >= 0 ? '+' : ''}{v.toLocaleString()}
+                    </div>
+                  ) : (
+                    <div className="text-lg font-medium text-gray-900">{v.toFixed(2)}%</div>
+                  )}
                 </div>
-              </div>
-              <div>
-                <div className="text-gray-800 text-sm font-medium">投信</div>
-                <div className={`text-lg font-bold ${latest.trust_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {latest.trust_buy >= 0 ? '+' : ''}{latest.trust_buy.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-gray-800 text-sm font-medium">自營商</div>
-                <div className={`text-lg font-bold ${latest.dealer_buy >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {latest.dealer_buy >= 0 ? '+' : ''}{latest.dealer_buy.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-gray-800 text-sm font-medium">外資持股比例</div>
-                <div className="text-lg font-medium text-gray-900">{latest.foreign_hold_ratio.toFixed(2)}%</div>
-              </div>
-              <div>
-                <div className="text-gray-800 text-sm font-medium">外資尚可投資</div>
-                <div className="text-lg font-medium text-gray-900">{latest.foreign_remain_ratio.toFixed(2)}%</div>
-              </div>
-              <div>
-                <div className="text-gray-800 text-sm font-medium">外資投資上限</div>
-                <div className="text-lg font-medium text-gray-900">{latest.foreign_limit_ratio.toFixed(2)}%</div>
-              </div>
+              ))}
             </div>
           </div>
         </div>

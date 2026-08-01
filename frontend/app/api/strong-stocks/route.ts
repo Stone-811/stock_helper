@@ -3,7 +3,8 @@ import {
   getAvailableDates,
   getStrongStocksByDate,
   getStocksByDate,
-  getStrongCountForStocks
+  getStrongCountForStocks,
+  getLatestDate
 } from '../../../lib/firebase-admin'
 
 export async function GET(request: Request) {
@@ -19,10 +20,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ stocks: [], latestDate: null, availableDates: [] })
     }
 
-    // 使用指定日期或最新日期
+    // 使用指定日期，否則以權威 latest_date 為預設（與個股/自選頁一致），避免各頁「最新日」不一致
+    const authoritative = await getLatestDate()
+    const defaultDate = authoritative && uniqueDates.includes(authoritative) ? authoritative : uniqueDates[0]
     const targetDate = selectedDate && uniqueDates.includes(selectedDate)
       ? selectedDate
-      : uniqueDates[0]
+      : defaultDate
 
     // 從聚合集合取得該日強勢股
     const strongStocks = await getStrongStocksByDate(targetDate)
@@ -65,7 +68,9 @@ export async function GET(request: Request) {
       stocks: result,
       latestDate: targetDate,
       availableDates: uniqueDates,
-      totalCount: result.length
+      totalCount: result.length,
+      // B3: 有強勢股清單但當日明細（daily_data）缺失時標記，讓前端區分「無資料」與「無強勢股」
+      dataMissing: result.length === 0 && strongStocks.length > 0
     }, {
       headers: {
         'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300'
