@@ -115,8 +115,8 @@ class DailyCollector:
 
         collector = StockCollector()
 
-        # 修正：使用正確的方法名稱 collect_daily_data
-        filepath = collector.collect_daily_data(target_date=date, skip_macd=True)
+        # 使用 collect_daily_data；MACD 改用本地年度檔計算（零 API，故不再 skip）（C7）
+        filepath = collector.collect_daily_data(target_date=date, skip_macd=False)
 
         if filepath:
             # 讀取 CSV 檔案進行驗證

@@ -115,6 +115,41 @@ def update_daily_file_macd(file_path, api, force_update=False):
     return bull_count + bear_count
 
 
+def add_macd_from_archive(df, target_date, data_dir):
+    """
+    用本地年度檔計算每檔 MACD 狀態（零 API），填入 df['macd_status']（C7）。
+
+    get_macd_status 只需要收盤價序列，而完整歷史本地年度檔就有，
+    不必再逐檔向 FinMind 重抓（原做法 ~2000 次 API 且無節流，故生產環境一直 skip）。
+    """
+    import pandas as pd
+    from pathlib import Path
+
+    df = df.copy()
+    df['stock_id'] = df['stock_id'].astype(str)
+    df['date'] = df['date'].astype(str)
+
+    frames = [df[['stock_id', 'date', 'close']]]
+    year = str(target_date)[:4]
+    archive = Path(data_dir) / 'archive' / f'stocks_{year}.csv'
+    if archive.exists():
+        hist = pd.read_csv(archive, usecols=['stock_id', 'date', 'close'])
+        hist['stock_id'] = hist['stock_id'].astype(str)
+        hist['date'] = hist['date'].astype(str)
+        frames.append(hist)
+
+    combined = (pd.concat(frames, ignore_index=True)
+                .drop_duplicates(['stock_id', 'date'])
+                .sort_values(['stock_id', 'date']))
+
+    status_map = {
+        sid: get_macd_status(grp['close'].tail(60))
+        for sid, grp in combined.groupby('stock_id')
+    }
+    df['macd_status'] = df['stock_id'].map(status_map).fillna('-')
+    return df
+
+
 def update_all_daily_files(force_update=False):
     """
     更新所有 daily_stock_*.csv 檔案的 MACD 狀態

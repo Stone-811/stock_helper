@@ -141,16 +141,15 @@ class StockCollector:
             filepath = self.output_dir / filename
             df.to_csv(filepath, index=False, encoding='utf-8-sig')
 
-            # 8. 自動計算並加入 MACD 狀態（可跳過）
+            # 8. 加入 MACD 狀態（用本地年度檔計算，零 API，取代原逐檔打 API 的慢做法）（C7）
             if not skip_macd:
-                logging.info("計算 MACD 狀態...")
-                from .update_macd import update_daily_file_macd
                 try:
-                    update_daily_file_macd(filepath, self.api, force_update=False)
-                    logging.info("✓ MACD 狀態已更新")
+                    from .update_macd import add_macd_from_archive
+                    df = add_macd_from_archive(df, target_date, self.output_dir)
+                    df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                    logging.info("✓ MACD 狀態已更新（本地計算）")
                 except Exception as e:
                     logging.warning(f"⚠️ MACD 計算失敗: {e}")
-                    logging.warning("   檔案已儲存，但 MACD 狀態為空")
             else:
                 logging.info("⏭️ 跳過 MACD 計算")
 
