@@ -67,25 +67,28 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   // 依時間週期轉換資料
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
 
-  // 依日期區間篩選
-  const displayData = useMemo(() => {
+  // 顯示區間的起點
+  const startIdx = useMemo(() => {
     const days = periodToDays[datePeriod]
-    const startIdx = Math.max(0, chartData.length - days)
-    return chartData.slice(startIdx)
+    return Math.max(0, chartData.length - days)
   }, [chartData, datePeriod])
 
-  // 預先計算所有指標（單一來源，圖表與 tooltip 共用，不重複計算）
-  const maData = useMemo(() => ({
-    ma5: calculateMAValues(displayData, 5),
-    ma10: calculateMAValues(displayData, 10),
-    ma20: calculateMAValues(displayData, 20),
-    ma60: calculateMAValues(displayData, 60),
-  }), [displayData])
+  const displayData = useMemo(() => chartData.slice(startIdx), [chartData, startIdx])
 
-  const bbData = useMemo(() => calculateBBANDValues(displayData, 20, 2), [displayData])
-  const macdData = useMemo(() => calculateMACDValues(displayData), [displayData])
-  const kdData = useMemo(() => calculateKDValues(displayData), [displayData])
-  const rsiData = useMemo(() => calculateRSIValues(displayData), [displayData])
+  // 指標用「完整資料」計算後再擷取顯示區間：
+  // MACD/KD/RSI 等是遞迴計算（EMA 從起點累積），若只用短區間會暖身不足而失真，
+  // 也會與個股頁卡片（用完整 K 線算）的 MACD 狀態對不上。用完整資料算可確保一致。
+  const maData = useMemo(() => ({
+    ma5: calculateMAValues(chartData, 5).slice(startIdx),
+    ma10: calculateMAValues(chartData, 10).slice(startIdx),
+    ma20: calculateMAValues(chartData, 20).slice(startIdx),
+    ma60: calculateMAValues(chartData, 60).slice(startIdx),
+  }), [chartData, startIdx])
+
+  const bbData = useMemo(() => calculateBBANDValues(chartData, 20, 2).slice(startIdx), [chartData, startIdx])
+  const macdData = useMemo(() => calculateMACDValues(chartData).slice(startIdx), [chartData, startIdx])
+  const kdData = useMemo(() => calculateKDValues(chartData).slice(startIdx), [chartData, startIdx])
+  const rsiData = useMemo(() => calculateRSIValues(chartData).slice(startIdx), [chartData, startIdx])
 
   useEffect(() => {
     if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || displayData.length === 0) return
