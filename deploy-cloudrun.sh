@@ -30,11 +30,11 @@ RUN_SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
 
 echo "== 3. 先授予服務帳號權限（必須在部署前，否則 --set-secrets 會權限不足）=="
 gcloud projects add-iam-policy-binding "$PROJECT" \
-  --member="serviceAccount:${RUN_SA}" --role="roles/datastore.user" >/dev/null
+  --member="serviceAccount:${RUN_SA}" --role="roles/datastore.user" --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT" \
-  --member="serviceAccount:${RUN_SA}" --role="roles/run.invoker" >/dev/null
+  --member="serviceAccount:${RUN_SA}" --role="roles/run.invoker" --condition=None >/dev/null
 gcloud secrets add-iam-policy-binding FINMIND_API_TOKEN \
-  --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
+  --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" --condition=None >/dev/null
 gcloud storage buckets add-iam-policy-binding gs://stock-analysis-b5602-archive \
   --member="serviceAccount:${RUN_SA}" --role="roles/storage.objectAdmin" >/dev/null
 echo "  ✓ 權限授予完成（等幾秒讓權限生效）"
