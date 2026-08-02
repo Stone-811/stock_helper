@@ -15,8 +15,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any
 import pandas as pd
 
 # Firebase Admin SDK
@@ -384,97 +383,6 @@ def write_market_index(df: pd.DataFrame) -> int:
 
     logging.info(f"✓ 成功寫入 market_index: {len(df['index_id'].unique())} 個指數")
     return len(df)
-
-
-def get_daily_stocks(date: str) -> List[Dict]:
-    """
-    讀取每日股票資料（從分片重組）
-
-    讀取次數：1 次摘要 + N 次分片（約 6 次）
-
-    Parameters:
-    -----------
-    date : str
-        日期
-
-    Returns:
-    --------
-    List[Dict] : 股票資料列表
-    """
-    db = get_firestore_client()
-
-    # 讀取摘要
-    summary_ref = db.collection('daily_data').document(date)
-    summary_doc = summary_ref.get()
-
-    if not summary_doc.exists:
-        return []
-
-    summary = summary_doc.to_dict()
-    chunk_count = summary.get('chunk_count', 0)
-
-    # 讀取所有分片
-    all_stocks = []
-    for i in range(chunk_count):
-        chunk_ref = summary_ref.collection('chunks').document(f'chunk_{i}')
-        chunk_doc = chunk_ref.get()
-        if chunk_doc.exists:
-            chunk_data = chunk_doc.to_dict()
-            all_stocks.extend(chunk_data.get('stocks', []))
-
-    return all_stocks
-
-
-def get_strong_stocks(date: str) -> List[Dict]:
-    """
-    讀取每日強勢股
-
-    讀取次數：1 次
-
-    Parameters:
-    -----------
-    date : str
-        日期
-
-    Returns:
-    --------
-    List[Dict] : 強勢股列表
-    """
-    db = get_firestore_client()
-
-    doc_ref = db.collection('strong_stocks').document(date)
-    doc = doc_ref.get()
-
-    if not doc.exists:
-        return []
-
-    return doc.to_dict().get('stocks', [])
-
-
-def get_market_index_history(index_id: str) -> List[Dict]:
-    """
-    讀取指數歷史
-
-    讀取次數：1 次
-
-    Parameters:
-    -----------
-    index_id : str
-        指數 ID（TAIEX 或 TX）
-
-    Returns:
-    --------
-    List[Dict] : 歷史資料列表
-    """
-    db = get_firestore_client()
-
-    doc_ref = db.collection('market_index').document(index_id)
-    doc = doc_ref.get()
-
-    if not doc.exists:
-        return []
-
-    return doc.to_dict().get('history', [])
 
 
 def test_connection():
