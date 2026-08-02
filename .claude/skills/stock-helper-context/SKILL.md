@@ -48,8 +48,13 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - 排查指令：`gh run list --workflow=daily-collect.yml`（看每交易日成功與否）。
 
 ## 部署與資料持久化（2026-08）
-- **兩套排程並存**：GitHub Actions（`daily-collect.yml`，22:00）+ Cloud Run Job（`deploy-cloudrun.sh`，17:00+22:00 兩段式）。**採 Cloud Run 後應停用 GitHub Actions 排程**避免同時段重複收集。
-- **Cloud Run Job** `stock-collector`（asia-east1）：容器化在根目錄 `Dockerfile`（只 COPY stock_collector/、firebase_writer.py、gcs_archive.py——漏 gcs_archive.py 會啟動即崩潰）；兩個 Cloud Scheduler（`stock-collect-1700`/`2200`）觸發。Firestore 用 ADC、FinMind 用 Secret Manager。部署腳本 `deploy-cloudrun.sh`（**授權必須在部署前**，否則 --set-secrets 權限不足）。
+- **排程已改用 Cloud Run**（2026-08 上線驗證成功，30 秒完成一次收集）：Cloud Run Job `stock-collector`（asia-east1）+ 兩個 Cloud Scheduler（`stock-collect-1700`/`2200`，UTC 09:00/14:00 = 台灣 17:00/22:00）。**GitHub Actions 的 schedule 已停用**（保留 workflow_dispatch 手動備援）。
+- **Cloud Run Job 部署踩過的 5 個坑**（deploy-cloudrun.sh 已全部處理，未來重建照做）：
+  1. Dockerfile 必須 `COPY gcs_archive.py`（漏了 → 啟動即 ModuleNotFoundError）
+  2. `daily_collector.py` 的 `Path('logs').mkdir` 必須在 `logging.basicConfig` **之前**（否則 FileHandler 開檔 FileNotFoundError）
+  3. IAM 授權必須在 `gcloud run jobs deploy --set-secrets` **之前**；且專案 IAM 有條件式 binding，`add-iam-policy-binding` 要加 `--condition=None`
+  4. 記憶體要 **2Gi**（強勢股矩陣讀全部年度檔 + pandas pivot，512Mi 會 OOM）——這也是「強勢股矩陣每天全量重算」待優化的訊號
+  5. Firestore 用 ADC、FinMind 用 Secret Manager、年度檔用 GCS（見下）
 - **年度檔持久化（GCS）**：collector 是 stateless（年度檔在本地/CI 每次為空），故 `gcs_archive.py` 在 run_daily 開始下載、結束上傳年度檔到 bucket `gs://stock-analysis-b5602-archive`（`USE_GCS_ARCHIVE=1` 啟用）。這讓 MACD/強勢股矩陣在雲端也有完整歷史。GH Actions 也設了此環境變數。
 
 ## 清理與模組化狀態（2026-08）
