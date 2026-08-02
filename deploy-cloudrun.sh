@@ -25,7 +25,22 @@ if ! gcloud secrets describe FINMIND_API_TOKEN >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "== 3. 部署 Cloud Run Job（從 source 自動 build image）=="
+PROJECT_NUM=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
+RUN_SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
+
+echo "== 3. 先授予服務帳號權限（必須在部署前，否則 --set-secrets 會權限不足）=="
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${RUN_SA}" --role="roles/datastore.user" >/dev/null
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${RUN_SA}" --role="roles/run.invoker" >/dev/null
+gcloud secrets add-iam-policy-binding FINMIND_API_TOKEN \
+  --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
+gcloud storage buckets add-iam-policy-binding gs://stock-analysis-b5602-archive \
+  --member="serviceAccount:${RUN_SA}" --role="roles/storage.objectAdmin" >/dev/null
+echo "  ✓ 權限授予完成（等幾秒讓權限生效）"
+sleep 10
+
+echo "== 4. 部署 Cloud Run Job（從 source 自動 build image）=="
 gcloud run jobs deploy "$JOB" \
   --source=. \
   --region="$REGION" \
@@ -35,19 +50,6 @@ gcloud run jobs deploy "$JOB" \
   --cpu=1 \
   --set-env-vars=USE_GCS_ARCHIVE=1 \
   --set-secrets=FINMIND_API_TOKEN=FINMIND_API_TOKEN:latest
-
-PROJECT_NUM=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
-RUN_SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
-
-echo "== 4. 授予服務帳號權限（寫 Firestore + 觸發 Job + 讀 secret）=="
-gcloud projects add-iam-policy-binding "$PROJECT" \
-  --member="serviceAccount:${RUN_SA}" --role="roles/datastore.user" >/dev/null
-gcloud projects add-iam-policy-binding "$PROJECT" \
-  --member="serviceAccount:${RUN_SA}" --role="roles/run.invoker" >/dev/null
-gcloud secrets add-iam-policy-binding FINMIND_API_TOKEN \
-  --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
-gcloud storage buckets add-iam-policy-binding gs://stock-analysis-b5602-archive \
-  --member="serviceAccount:${RUN_SA}" --role="roles/storage.objectAdmin" >/dev/null
 
 echo "== 5. 建立兩個 Cloud Scheduler（UTC 09:00=台17:00、UTC 14:00=台22:00，工作日）=="
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB}:run"
