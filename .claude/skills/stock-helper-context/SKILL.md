@@ -41,9 +41,11 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **A1 列表 vs 個股 MACD 完全統一**：C7 後 Firestore `macd_status` 已有值（列表可用），但個股頁仍前端算，資料源不同、極臨界日可能小差異。要完全一致需二選一單一來源。
 - **安全**：`service-account.json` 私鑰會被 bundle 進 `.next`（本機建置產物，已 gitignore）；建議輪替金鑰、production 一律用環境變數 `FIREBASE_SERVICE_ACCOUNT_KEY` 注入而非 `require` 讀檔。
 
-## 根治建議（運維，最關鍵）
-- **查 GitHub Actions 為何在 2026 上半年斷過**（額度用完 / token 過期 / workflow 錯誤）——否則補了又斷。
-- 收集排程改台灣 ~22:00（外資持股發布後），或加「隔日補昨日」步驟。
+## 運維現況（2026-08 排查結論）
+- **GitHub Actions 沒有斷**：2026-07-24 才從 Supabase 遷 Firebase 並首次加 Actions，7/24 初設失敗 2 次（依賴/憑證）當天修好，7/27 起 cron 每交易日穩定成功。**上半年缺資料是因為當時根本沒這套系統**，非中斷。
+- **收集排程已改為台灣 22:00**（cron `0 14 * * 1-5`，原 18:30），等外資持股發布後才收集，根治「每天外資持股 0」。
+- ⚠️ **GitHub 會自動停用「連續 60 天無 commit」repo 的排程 workflow**——長期只靠 cron、沒人 push 會讓收集真的斷掉；要嘛定期 commit，要嘛用外部排程觸發。
+- 排查指令：`gh run list --workflow=daily-collect.yml`（看每交易日成功與否）。
 
 ## 常用指令
 ```bash
