@@ -66,5 +66,5 @@ create_sched "stock-collect-1700" "0 9 * * 1-5"
 create_sched "stock-collect-2200" "0 14 * * 1-5"
 
 echo ""
-echo "✅ 完成！Cloud Run Job = $JOB，兩個排程（台灣 17:00 + 22:00 工作日）已建立。"
-echo "   手動測試一次： gcloud run jobs execute $JOB --region=$REGION"
+echo "✅ 完成！Cloud Run Job = ${JOB}，兩個排程（台灣 17:00 + 22:00 工作日）已建立。"
+echo "   手動測試一次： gcloud run jobs execute ${JOB} --region=${REGION}"
