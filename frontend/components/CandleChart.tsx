@@ -123,7 +123,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         vertLine: { color: '#505070', width: 1, style: 2 },
         horzLine: { color: '#505070', width: 1, style: 2 },
       },
-      rightPriceScale: { borderColor: '#3a3a4e' },
+      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
       timeScale: {
         borderColor: '#3a3a4e',
         timeVisible: true,
@@ -189,7 +189,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       width: volumeChartRef.current.clientWidth,
       height: volumeHeight,
       grid: commonGrid,
-      rightPriceScale: { borderColor: '#3a3a4e' },
+      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
       timeScale: { borderColor: '#3a3a4e', visible: false, fixLeftEdge: true, fixRightEdge: true },
       handleScroll: false,
       handleScale: false,
@@ -211,7 +211,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       width: indicatorChartRef.current.clientWidth,
       height: indicatorHeight,
       grid: commonGrid,
-      rightPriceScale: { borderColor: '#3a3a4e' },
+      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
       timeScale: { borderColor: '#3a3a4e', timeVisible: true, fixLeftEdge: true, fixRightEdge: true },
       handleScroll: false,
       handleScale: false,
@@ -260,12 +260,24 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     volumeChart.timeScale().fitContent()
     indicatorChart.timeScale().fitContent()
 
+    // 同步三個圖表的右側價格軸寬度，讓繪圖區左右邊界一致，X 軸（時間）才能對齊
+    const allCharts = [mainChart, volumeChart, indicatorChart]
+    const syncPriceScaleWidth = () => {
+      const maxW = Math.max(...allCharts.map((c) => c.priceScale('right').width()))
+      if (maxW > 0) {
+        allCharts.forEach((c) => c.priceScale('right').applyOptions({ minimumWidth: maxW }))
+      }
+    }
+    // 等首次渲染完成後（rAF）才有正確寬度可同步
+    requestAnimationFrame(syncPriceScaleWidth)
+
     const handleResize = () => {
       if (mainChartRef.current) {
         const w = mainChartRef.current.clientWidth
         mainChart.applyOptions({ width: w })
         volumeChart.applyOptions({ width: w })
         indicatorChart.applyOptions({ width: w })
+        requestAnimationFrame(syncPriceScaleWidth)
       }
     }
     window.addEventListener('resize', handleResize)
