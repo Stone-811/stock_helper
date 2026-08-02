@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY stock_collector/ ./stock_collector/
-COPY firebase_writer.py utils.py ./
+COPY firebase_writer.py utils.py gcs_archive.py ./
 
 # 收集當日資料（不帶 --date = today）。
 # Firestore 用 ADC（Cloud Run 服務帳號，同專案免金鑰）；FinMind token 由環境變數注入。
