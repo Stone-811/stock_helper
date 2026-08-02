@@ -222,6 +222,10 @@ class DailyCollector:
         logging.info(f"📅 開始每日資料收集: {date or '今日'}")
         logging.info("=" * 70)
 
+        # 0. 從 Cloud Storage 下載年度檔（讓 Cloud Run 等 stateless 環境有持久歷史，供 MACD/強勢股計算）
+        from gcs_archive import download_archives
+        download_archives('data/daily_reports/archive')
+
         # 1. 收集股票資料
         if not skip_stock:
             logging.info("\n📊 [1/3] 收集股票資料...")
@@ -251,6 +255,10 @@ class DailyCollector:
             except Exception as e:
                 self.results['matrix']['error'] = str(e)
                 logging.error(f"  ❌ 失敗: {e}")
+
+        # 4. 年度檔上傳回 Cloud Storage（供下次 stateless 執行使用）
+        from gcs_archive import upload_archives
+        upload_archives('data/daily_reports/archive')
 
         # 輸出總結
         self.print_summary()

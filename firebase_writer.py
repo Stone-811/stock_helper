@@ -66,14 +66,14 @@ def get_firestore_client():
         except json.JSONDecodeError:
             pass
 
-    if cred is None:
-        raise ValueError("找不到 Firebase 憑證。請設定 service-account.json 或環境變數 FIREBASE_SERVICE_ACCOUNT_KEY")
-
     # 初始化 Firebase
     if not firebase_admin._apps:
-        firebase_admin.initialize_app(cred, {
-            'projectId': 'stock-analysis-b5602'
-        })
+        if cred is not None:
+            firebase_admin.initialize_app(cred, {'projectId': 'stock-analysis-b5602'})
+        else:
+            # Cloud Run / GCP 環境：用 Application Default Credentials（同專案免放金鑰）
+            logging.info("未找到明確憑證，改用 Application Default Credentials (ADC)")
+            firebase_admin.initialize_app(options={'projectId': 'stock-analysis-b5602'})
 
     _db = firestore.client()
     return _db

@@ -53,6 +53,7 @@ jobs:
       - name: Run daily collector
         env:
           FINMIND_API_TOKEN: ${{ secrets.FINMIND_API_TOKEN }}
+          USE_GCS_ARCHIVE: '1'
         run: |
           if [ -n "${{ inputs.date }}" ]; then
             python -m stock_collector.daily_collector --date ${{ inputs.date }}

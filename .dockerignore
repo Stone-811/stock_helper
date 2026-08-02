@@ -1,0 +1,15 @@
+# 只打包 collector 執行所需，排除前端、資料、憑證、文件
+frontend/
+data/
+logs/
+stock_collector/logs/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.github/
+.claude/
+service-account.json
+frontend/service-account.json
+.env
+*.md
