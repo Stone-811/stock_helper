@@ -46,7 +46,7 @@ gcloud run jobs deploy "$JOB" \
   --region="$REGION" \
   --task-timeout=10m \
   --max-retries=1 \
-  --memory=512Mi \
+  --memory=2Gi \
   --cpu=1 \
   --set-env-vars=USE_GCS_ARCHIVE=1 \
   --set-secrets=FINMIND_API_TOKEN=FINMIND_API_TOKEN:latest

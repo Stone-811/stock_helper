@@ -1,12 +1,8 @@
 name: Daily Stock Collection
 
 on:
-  schedule:
-    # 台灣時間 22:00 (UTC 14:00)，等外資持股等盤後資料發布後才收集（避免 18:30 時尚未發布而存 0）
-    # 分鐘 小時 日 月 星期（1-5 = 週一到週五）
-    - cron: '0 14 * * 1-5'
-
-  # 允許手動觸發
+  # 排程已改用 Cloud Run（Cloud Scheduler 台灣 17:00 + 22:00）；此處停用自動排程避免重複收集，
+  # 僅保留手動觸發作為備援
   workflow_dispatch:
     inputs:
       date:
