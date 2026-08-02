@@ -76,13 +76,6 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * 取得當前用戶
- */
-export function getUser(): User | null {
-  return auth.currentUser
-}
-
-/**
  * 監聽認證狀態變化
  */
 export function onAuthChange(callback: (user: User | null) => void) {

@@ -233,68 +233,6 @@ export async function getMarketIndex(indexId: string): Promise<any[]> {
 }
 
 /**
- * 取得個股歷史資料
- *
- * 注意：新架構採用分片儲存，個股查詢需遍歷所有日期
- * 若 daily_stocks 集合存在，優先使用（較快）
- */
-export async function getStockHistory(stockId: string): Promise<any[]> {
-  try {
-    // 1. 優先從舊架構 daily_stocks 查詢（如果存在）
-    const oldSnapshot = await db.collection('daily_stocks')
-      .where('stock_id', '==', stockId)
-      .orderBy('date', 'asc')
-      .limit(1)
-      .get()
-
-    if (!oldSnapshot.empty) {
-      // 舊架構存在，使用完整查詢
-      const fullSnapshot = await db.collection('daily_stocks')
-        .where('stock_id', '==', stockId)
-        .orderBy('date', 'asc')
-        .get()
-      return fullSnapshot.docs.map(doc => doc.data())
-    }
-
-    // 2. 新架構：從分片中搜尋
-    // 先取得所有可用日期
-    const dates = await getAvailableDates(500) // 取得最多 500 天
-
-    if (dates.length === 0) return []
-
-    // 並行讀取所有日期的分片
-    const stockHistory: any[] = []
-
-    // 分批處理以避免過多並行請求
-    const batchSize = 10
-    for (let i = 0; i < dates.length; i += batchSize) {
-      const batchDates = dates.slice(i, i + batchSize)
-      const batchPromises = batchDates.map(date => getStocksByDate(date))
-      const batchResults = await Promise.all(batchPromises)
-
-      for (let j = 0; j < batchResults.length; j++) {
-        const stocks = batchResults[j]
-        const found = stocks.find((s: any) => s.stock_id === stockId)
-        if (found) {
-          stockHistory.push({
-            ...found,
-            date: batchDates[j]
-          })
-        }
-      }
-    }
-
-    // 按日期排序
-    stockHistory.sort((a, b) => a.date.localeCompare(b.date))
-
-    return stockHistory
-  } catch (error) {
-    console.error('取得個股歷史失敗:', error)
-    return []
-  }
-}
-
-/**
  * 取得個股強勢股歷史（優化版）
  *
  * 從 strong_stocks/{date} 聚合文件中搜尋
@@ -378,18 +316,5 @@ export async function getStrongCountForStocks(stockIds: string[], days: number =
   } catch (error) {
     console.error('計算強勢次數失敗:', error)
     return {}
-  }
-}
-
-/**
- * 驗證用戶 Token
- */
-export async function verifyIdToken(token: string): Promise<any | null> {
-  try {
-    const decodedToken = await auth.verifyIdToken(token)
-    return decodedToken
-  } catch (error) {
-    console.error('Token 驗證失敗:', error)
-    return null
   }
 }
