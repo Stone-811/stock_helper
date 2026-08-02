@@ -47,6 +47,19 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - ⚠️ **GitHub 會自動停用「連續 60 天無 commit」repo 的排程 workflow**——長期只靠 cron、沒人 push 會讓收集真的斷掉；要嘛定期 commit，要嘛用外部排程觸發。
 - 排查指令：`gh run list --workflow=daily-collect.yml`（看每交易日成功與否）。
 
+## 部署與資料持久化（2026-08）
+- **兩套排程並存**：GitHub Actions（`daily-collect.yml`，22:00）+ Cloud Run Job（`deploy-cloudrun.sh`，17:00+22:00 兩段式）。**採 Cloud Run 後應停用 GitHub Actions 排程**避免同時段重複收集。
+- **Cloud Run Job** `stock-collector`（asia-east1）：容器化在根目錄 `Dockerfile`（只 COPY stock_collector/、firebase_writer.py、gcs_archive.py——漏 gcs_archive.py 會啟動即崩潰）；兩個 Cloud Scheduler（`stock-collect-1700`/`2200`）觸發。Firestore 用 ADC、FinMind 用 Secret Manager。部署腳本 `deploy-cloudrun.sh`（**授權必須在部署前**，否則 --set-secrets 權限不足）。
+- **年度檔持久化（GCS）**：collector 是 stateless（年度檔在本地/CI 每次為空），故 `gcs_archive.py` 在 run_daily 開始下載、結束上傳年度檔到 bucket `gs://stock-analysis-b5602-archive`（`USE_GCS_ARCHIVE=1` 啟用）。這讓 MACD/強勢股矩陣在雲端也有完整歷史。GH Actions 也設了此環境變數。
+
+## 清理與模組化狀態（2026-08）
+**已清理死碼**：`utils.py`（844 行舊 Streamlit 死碼）→ 精簡成 `stock_collector/indicators.py`（只 get_macd_status）；`update_macd.py` 逐檔打 API 舊版；`firebase_writer.py` 3 個死讀取器；前端 `getStockHistory`/`verifyIdToken`/`getPopularStocks`/`getAllStocks`/`getUser`；requirements 的 `ta`/`tqdm`/`loguru`。
+**待模組化（大重構，建議在乾淨 session 做 + 充分測試）**：
+- `stock_collector/stock_collector.py`（618 行）→ 拆 `transforms.py`（純 DataFrame 轉換，可單元測試）、`fetchers.py`（4 支批次 API）、`archive.py`（年度歸檔，與 merge_daily_files 重疊可整併）
+- `firebase-admin.ts`（396 行）→ 拆 init 與 queries/（stocks/strong/index 分組）
+- `firebase_writer.py` → 拆 `firestore_client.py` 與 `writers.py`
+**待清理（中信心，需先確認）**：`merge_daily_files.py`（已被 _append_to_yearly_archive 取代，若不再手動回補可刪）；`WatchlistButton.tsx`（孤兒元件，但可能是「加入自選」待辦）；`firebase-admin.ts` 舊架構 fallback（需確認舊 collection 已清空）。DailyStock interface **不可刪**（StrongStock 繼承它）。
+
 ## 常用指令
 ```bash
 # 補某交易日（含法人/外資持股/當沖/指數/強勢股/MACD）
