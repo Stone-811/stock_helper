@@ -43,6 +43,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex bg-gray-50">
+        {/* 清除訪客殘留的舊 Service Worker 與快取（已移除 PWA，避免 ChunkLoadError / 資料 stale） */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})}).catch(function(){});if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k)})}).catch(function(){})}}`,
+          }}
+        />
         <Sidebar />
         <MainContent>
           {children}
