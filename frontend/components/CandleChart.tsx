@@ -263,13 +263,18 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     // 同步三個圖表的右側價格軸寬度，讓繪圖區左右邊界一致，X 軸（時間）才能對齊
     const allCharts = [mainChart, volumeChart, indicatorChart]
     const syncPriceScaleWidth = () => {
-      const maxW = Math.max(...allCharts.map((c) => c.priceScale('right').width()))
-      if (maxW > 0) {
-        allCharts.forEach((c) => c.priceScale('right').applyOptions({ minimumWidth: maxW }))
+      try {
+        const maxW = Math.max(...allCharts.map((c) => c.priceScale('right').width()))
+        if (maxW > 0) {
+          allCharts.forEach((c) => c.priceScale('right').applyOptions({ minimumWidth: maxW }))
+        }
+      } catch {
+        // 圖表可能已被 remove，忽略
       }
     }
-    // 等首次渲染完成後（rAF）才有正確寬度可同步
-    requestAnimationFrame(syncPriceScaleWidth)
+    // 三張子圖 layout 時機不一（成交量/指標單位不同、資料量不同），單次 rAF 會漏掉較晚完成的那張；
+    // 改用多個遞增延遲重複同步，確保任一圖較晚 layout 也能對齊
+    const syncTimers = [0, 60, 160, 320, 640].map((d) => setTimeout(syncPriceScaleWidth, d))
 
     const handleResize = () => {
       if (mainChartRef.current) {
@@ -283,6 +288,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     window.addEventListener('resize', handleResize)
 
     return () => {
+      syncTimers.forEach(clearTimeout)
       window.removeEventListener('resize', handleResize)
       ma5SeriesRef.current = null
       ma10SeriesRef.current = null
