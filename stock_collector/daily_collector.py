@@ -23,6 +23,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+# 確保 logs 目錄存在（必須在 basicConfig 之前，否則 FileHandler 開檔會 FileNotFoundError，
+# 這在 Cloud Run 等沒有預建 logs/ 的環境會導致容器一啟動就崩潰）
+Path('logs').mkdir(exist_ok=True)
+
 # 設定日誌
 logging.basicConfig(
     level=logging.INFO,
@@ -32,9 +36,6 @@ logging.basicConfig(
         logging.FileHandler(f'logs/daily_collector_{datetime.now().strftime("%Y%m%d")}.log', encoding='utf-8')
     ]
 )
-
-# 確保 logs 目錄存在
-Path('logs').mkdir(exist_ok=True)
 
 
 class DailyCollector:
