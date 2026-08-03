@@ -13,12 +13,8 @@ import os
 from pathlib import Path
 from . import config
 
-# Firebase 寫入（檢查 service-account.json 是否存在）
-FIREBASE_ENABLED = (
-    (Path(__file__).parent.parent / 'frontend' / 'service-account.json').exists() or
-    (Path(__file__).parent.parent / 'service-account.json').exists() or
-    bool(os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY'))
-)
+# Firebase 寫入：憑證檔存在，或在 GCP/Cloud Run 環境（ADC）。判斷集中於 config.firebase_enabled()
+FIREBASE_ENABLED = config.firebase_enabled()
 
 # 設定日誌
 logging.basicConfig(

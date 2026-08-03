@@ -14,12 +14,12 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Firebase 寫入（檢查 service-account.json 是否存在）
-FIREBASE_ENABLED = (
-    (Path(__file__).parent.parent / 'frontend' / 'service-account.json').exists() or
-    (Path(__file__).parent.parent / 'service-account.json').exists() or
-    bool(os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY'))
-)
+# Firebase 寫入：憑證檔存在，或在 GCP/Cloud Run 環境（ADC）。判斷集中於 config.firebase_enabled()
+try:
+    from . import config
+except ImportError:  # 被當獨立腳本直接執行時（python stock_collector/update_strong_matrix.py）
+    import config
+FIREBASE_ENABLED = config.firebase_enabled()
 
 # 設定日誌
 logging.basicConfig(
