@@ -1,0 +1,29 @@
+# gcloud --source 上傳 build context 時的排除清單（Cloud Run Job build 只需 Dockerfile 指定的檔案）
+# 注意：一旦本檔存在，gcloud 不再讀 .gitignore，故需在此列全。
+
+.git/
+.gitignore
+
+# 資料與輸出（Job 執行時從 GCS 下載 archive，不需打進 image）
+data/
+logs/
+*.csv
+
+# 前端（不在收集器 image 內）
+frontend/
+
+# Python 快取 / 虛擬環境
+__pycache__/
+**/__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 機密與本機設定（token 由 --set-secrets 注入）
+.env
+.env.*
+
+# 其他
+.claude/
+*.md
+.DS_Store

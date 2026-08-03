@@ -176,6 +176,46 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
     return len(stocks_data)
 
 
+def get_daily_data_count(date: str) -> int:
+    """讀 daily_data/{date} 的股票筆數（不存在回 0）。
+
+    供收集後 self-check：Cloud Run「exit 0」不代表真的寫入 Firestore
+    （曾因 ADC gate 誤判而整批跳過寫入），用此確認當日資料確實落地。
+    """
+    db = get_firestore_client()
+    doc = db.collection('daily_data').document(str(date)).get()
+    if doc.exists:
+        return int(doc.to_dict().get('stock_count', 0) or 0)
+    return 0
+
+
+def list_daily_data_dates() -> list:
+    """列出 daily_data 中實際有資料的所有日期（document id），升冪排序。
+
+    供 available_dates（C5）與缺口偵測（C3）；只讀 document id，不載入內容。
+    """
+    db = get_firestore_client()
+    dates = [doc.id for doc in db.collection('daily_data').list_documents()]
+    return sorted(dates)
+
+
+def update_available_dates(keep_recent: int = 100) -> int:
+    """以 daily_data 實際存在的日期覆寫 metadata/available_dates（修正 C5）。
+
+    原本 available_dates 由 write_strong_stock_matrix 用「強勢股矩陣的日期」寫入，
+    與 daily_data 明細不一致 → 前端強勢股頁下拉可能選到沒有明細的日期。改以
+    daily_data 為權威來源，讓下拉日期與可查明細一致。
+    """
+    db = get_firestore_client()
+    dates_desc = sorted(list_daily_data_dates(), reverse=True)[:keep_recent]
+    db.collection('metadata').document('available_dates').set({
+        'dates': dates_desc,
+        'updated_at': firestore.SERVER_TIMESTAMP
+    })
+    logging.info(f"✓ available_dates 已更新（來源 daily_data）：{len(dates_desc)} 天")
+    return len(dates_desc)
+
+
 def write_strong_stocks(df: pd.DataFrame, date: str) -> int:
     """
     寫入單日強勢股到 Firestore（優化版：單一文件）
@@ -305,13 +345,7 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
             batch = db.batch()
             batch_operations = 0
 
-    # 更新 metadata
-    metadata_ref = db.collection('metadata').document('available_dates')
-    batch.set(metadata_ref, {
-        'dates': all_dates[:100],  # 保留最近 100 天
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
-
+    # available_dates 改由 update_available_dates() 以 daily_data 為權威來源寫入（C5），此處不再寫
     batch.commit()
 
     logging.info(f"✓ 成功寫入 strong_stocks: {len(all_dates)} 個日期，共 {total_written} 筆")

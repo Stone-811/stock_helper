@@ -261,8 +261,65 @@ class DailyCollector:
         from gcs_archive import upload_archives
         upload_archives('data/daily_reports/archive')
 
+        # 4.5 以 daily_data 實際日期更新 available_dates（C5：來源改為權威的 daily_data，
+        #     而非強勢股矩陣，避免前端下拉選到沒有明細的日期）
+        if not skip_stock:
+            try:
+                from firebase_writer import update_available_dates
+                update_available_dates()
+            except Exception as e:
+                logging.warning(f"更新 available_dates 失敗: {e}")
+
+        # 5. self-check：確認當日資料「真的寫進 Firestore」，而非只落在本地 CSV/GCS
+        self._verify_firestore_written(date, skip_stock)
+
         # 輸出總結
         self.print_summary()
+
+    def _verify_firestore_written(self, date=None, skip_stock=False):
+        """收集後驗證當日股票資料確實寫入 Firestore（而非只落在本地 CSV/GCS）。
+
+        Cloud Run「exit 0」不代表寫入成功——曾因 ADC gate 誤判整批跳過寫入卻仍正常結束。
+        僅在「這次有收集股票且收到當日資料」時檢查；非交易日（count=0）或 skip 不驗。
+        驗證失敗會把 stock 標為 failed，讓 main() 以非 0 結束、Cloud Run execution 真的 FAIL。
+        """
+        if skip_stock or self.results['stock']['count'] <= 0:
+            return
+        target = date or datetime.now().strftime('%Y-%m-%d')
+        try:
+            from firebase_writer import get_daily_data_count
+            written = get_daily_data_count(target)
+        except Exception as e:
+            logging.warning(f"self-check 無法讀取 Firestore（{e}），略過驗證")
+            return
+        if written <= 0:
+            self.results['stock']['success'] = False
+            self.results['stock']['error'] = (
+                f"收集到 {self.results['stock']['count']} 筆，但 Firestore daily_data/{target} 為空"
+                f"（寫入被跳過？檢查 FIREBASE_ENABLED / ADC）"
+            )
+            logging.error(f"❌ self-check 失敗：{self.results['stock']['error']}")
+        else:
+            logging.info(f"✓ self-check：daily_data/{target} 已落地 {written} 筆")
+
+    def get_gap_dates(self):
+        """找出 daily_data 已有資料範圍內「缺漏的交易日」（C3）。
+
+        get_missing_dates 只看 latest_date 之後，抓不到中間缺口；此處掃 daily_data 實際
+        日期，與「最早～最新」之間應有的交易日比對，回傳缺漏日期（升冪）。
+        """
+        try:
+            from firebase_writer import list_daily_data_dates
+            have = list_daily_data_dates()
+        except Exception as e:
+            logging.warning(f"無法讀取 daily_data 日期：{e}")
+            return []
+        if len(have) < 2:
+            return []
+        start = datetime.strptime(have[0], '%Y-%m-%d').date()
+        end = datetime.strptime(have[-1], '%Y-%m-%d').date()
+        expected = set(self.get_trading_days(start, end))
+        return sorted(expected - set(have))
 
     def run_incremental(self):
         """執行增量更新（只收集缺少的日期）"""
@@ -368,6 +425,7 @@ def main():
     parser.add_argument('--date', type=str, help='指定日期 (YYYY-MM-DD)')
     parser.add_argument('--days', type=int, help='收集過去 N 天')
     parser.add_argument('--incremental', action='store_true', help='增量更新模式')
+    parser.add_argument('--backfill-gaps', action='store_true', help='回補歷史區間內缺漏的交易日（C3）')
     parser.add_argument('--skip-stock', action='store_true', help='跳過股票資料')
     parser.add_argument('--skip-index', action='store_true', help='跳過指數資料')
     parser.add_argument('--skip-matrix', action='store_true', help='跳過強勢股矩陣')
@@ -377,7 +435,21 @@ def main():
     collector = DailyCollector()
 
     try:
-        if args.incremental:
+        if args.backfill_gaps:
+            # C3：回補歷史區間內缺漏的交易日（掃 daily_data 找中間缺口）
+            gaps = collector.get_gap_dates()
+            if not gaps:
+                logging.info("✓ 無缺漏交易日，daily_data 區間完整")
+            else:
+                preview = ', '.join(gaps[:10]) + ('...' if len(gaps) > 10 else '')
+                logging.info(f"發現 {len(gaps)} 個缺漏交易日，開始回補：{preview}")
+                for d in gaps:
+                    logging.info(f"\n{'='*70}\n回補缺漏日：{d}")
+                    collector.run_daily(date=d, skip_matrix=True)
+                collector.update_strong_matrix()
+            return 0
+
+        elif args.incremental:
             # 增量更新模式
             collector.run_incremental()
 
@@ -415,6 +487,19 @@ def main():
         logging.error(f"\n❌ 執行失敗: {e}")
         return 1
 
+    # 依收集結果決定 exit code（僅單日排程模式）：關鍵任務（股票/指數）未成功 → 非 0，
+    # 讓 Cloud Run execution 真的 FAIL，「假成功」才可觀測。批次/增量/回補有自身語意，不套用。
+    single_day_mode = not (args.incremental or args.backfill_gaps or args.days)
+    if single_day_mode:
+        r = collector.results
+        critical_failed = []
+        if not args.skip_stock and not r['stock']['success']:
+            critical_failed.append('stock')
+        if not args.skip_index and not r['index']['success']:
+            critical_failed.append('index')
+        if critical_failed:
+            logging.error(f"❌ 關鍵任務未成功：{critical_failed} → exit 1")
+            return 1
     return 0
 
 
