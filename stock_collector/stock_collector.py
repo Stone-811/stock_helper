@@ -149,6 +149,15 @@ class StockCollector:
             else:
                 logging.info("⏭️ 跳過 MACD 計算")
 
+            # 8.5 加入法人連續買賣天數（外資/投信連買連賣，用本地年度檔計算，零 API）
+            try:
+                from .streak import add_streak_from_archive
+                df = add_streak_from_archive(df, target_date, self.output_dir)
+                df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                logging.info("✓ 法人連續買賣天數已更新（本地計算）")
+            except Exception as e:
+                logging.warning(f"⚠️ 連續買賣天數計算失敗: {e}")
+
             # 9. 寫入 Firestore（若已設定）
             firestore_ok = None
             if FIREBASE_ENABLED:

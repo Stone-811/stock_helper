@@ -21,3 +21,26 @@ def get_macd_status(close_prices):
     histogram = macd - signal
 
     return '多' if histogram.iloc[-1] > 0 else '空'
+
+
+def get_buy_streak(net_values):
+    """法人連續同向買賣天數。
+
+    net_values: 買賣超序列（時間升冪，正=買超、負=賣超；單位張）
+    回傳: 連買 +N、連賣 -N；最新一日為 0 或無資料回 0。
+      例：[..., +100, +50, +200] → +3；[..., -10, -20] → -2。
+    """
+    vals = list(net_values)
+    if not vals:
+        return 0
+    last = vals[-1]
+    sign = 1 if last > 0 else (-1 if last < 0 else 0)
+    if sign == 0:
+        return 0
+    n = 0
+    for v in reversed(vals):
+        if (sign == 1 and v > 0) or (sign == -1 and v < 0):
+            n += 1
+        else:
+            break
+    return n * sign

@@ -96,7 +96,9 @@ def _convert_stock_row(row) -> Dict[str, Any]:
         'foreign_hold_ratio': float(row.get('foreign_hold_ratio', 0) or 0),
         'foreign_remain_ratio': float(row.get('foreign_remain_ratio', 0) or 0),
         'foreign_limit_ratio': float(row.get('foreign_limit_ratio', 0) or 0),
-        'macd_status': str(row.get('macd_status', '') or '')
+        'macd_status': str(row.get('macd_status', '') or ''),
+        'foreign_streak': int(row.get('foreign_streak', 0) or 0),
+        'trust_streak': int(row.get('trust_streak', 0) or 0),
     }
 
 

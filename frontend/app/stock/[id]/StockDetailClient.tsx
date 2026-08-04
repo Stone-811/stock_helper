@@ -84,13 +84,13 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
               {([
-                { label: '外資', v: latest.foreign_buy, kind: 'buy' },
-                { label: '投信', v: latest.trust_buy, kind: 'buy' },
-                { label: '自營商', v: latest.dealer_buy, kind: 'buy' },
-                { label: '外資持股比例', v: latest.foreign_hold_ratio, kind: 'pct' },
-                { label: '外資尚可投資', v: latest.foreign_remain_ratio, kind: 'pct' },
-                { label: '外資投資上限', v: latest.foreign_limit_ratio, kind: 'pct' },
-              ] as const).map(({ label, v, kind }) => (
+                { label: '外資', v: latest.foreign_buy, kind: 'buy', streak: latest.foreign_streak },
+                { label: '投信', v: latest.trust_buy, kind: 'buy', streak: latest.trust_streak },
+                { label: '自營商', v: latest.dealer_buy, kind: 'buy', streak: null },
+                { label: '外資持股比例', v: latest.foreign_hold_ratio, kind: 'pct', streak: null },
+                { label: '外資尚可投資', v: latest.foreign_remain_ratio, kind: 'pct', streak: null },
+                { label: '外資投資上限', v: latest.foreign_limit_ratio, kind: 'pct', streak: null },
+              ] as const).map(({ label, v, kind, streak }) => (
                 <div key={label}>
                   <div className="text-gray-800 text-sm font-medium">{label}</div>
                   {v === null ? (
@@ -101,6 +101,11 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                     </div>
                   ) : (
                     <div className="text-lg font-medium text-gray-900">{v.toFixed(2)}%</div>
+                  )}
+                  {streak !== null && streak !== 0 && (
+                    <div className={`text-xs font-medium mt-0.5 ${streak > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                      {streak > 0 ? `連買 ${streak} 天` : `連賣 ${Math.abs(streak)} 天`}
+                    </div>
                   )}
                 </div>
               ))}

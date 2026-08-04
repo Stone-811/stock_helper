@@ -190,6 +190,8 @@ export interface DailyStock {
   foreign_remain_ratio: number
   foreign_limit_ratio: number
   macd_status: string
+  foreign_streak?: number // 外資連續買賣天數（連買 +N、連賣 -N；舊資料可能無此欄位）
+  trust_streak?: number   // 投信連續買賣天數
 }
 
 export interface StrongStock extends DailyStock {

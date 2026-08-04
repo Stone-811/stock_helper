@@ -20,6 +20,8 @@ export interface StockLatest {
   foreign_remain_ratio: number | null
   foreign_limit_ratio: number | null
   day_trading_volume: number | null
+  foreign_streak: number | null // 外資連續買賣天數（連買 +N、連賣 -N）
+  trust_streak: number | null   // 投信連續買賣天數（連買 +N、連賣 -N）
 }
 
 export interface StockDetailData {
@@ -73,6 +75,8 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     foreign_remain_ratio: num(fsLatest?.foreign_remain_ratio),
     foreign_limit_ratio: num(fsLatest?.foreign_limit_ratio),
     day_trading_volume: num(fsLatest?.day_trading_volume),
+    foreign_streak: num(fsLatest?.foreign_streak),
+    trust_streak: num(fsLatest?.trust_streak),
   }
 
   const strongHistory = await getStockStrongHistory(id, 10)

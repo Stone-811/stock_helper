@@ -88,12 +88,22 @@ export default function StockCard({ stock }: StockCardProps) {
             <div className={stock.foreign_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.foreign_buy >= 0 ? '+' : ''}{stock.foreign_buy}
             </div>
+            {!!stock.foreign_streak && (
+              <div className={`text-[10px] ${stock.foreign_streak > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                {stock.foreign_streak > 0 ? `連買${stock.foreign_streak}` : `連賣${Math.abs(stock.foreign_streak)}`}
+              </div>
+            )}
           </div>
           <div className="text-center">
             <div className="text-gray-400">投信</div>
             <div className={stock.trust_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.trust_buy >= 0 ? '+' : ''}{stock.trust_buy}
             </div>
+            {!!stock.trust_streak && (
+              <div className={`text-[10px] ${stock.trust_streak > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                {stock.trust_streak > 0 ? `連買${stock.trust_streak}` : `連賣${Math.abs(stock.trust_streak)}`}
+              </div>
+            )}
           </div>
           <div className="text-center">
             <div className="text-gray-400">自營</div>
