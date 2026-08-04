@@ -26,9 +26,10 @@ def alert_enabled() -> bool:
     return bool(os.getenv('SMTP_USER') and os.getenv('SMTP_PASS'))
 
 
-def send_alert(subject: str, body: str) -> bool:
-    """寄送純文字告警信。回傳是否成功。缺設定時靜默略過並回 False。
+def send_alert(subject: str, body: str, to: str | None = None) -> bool:
+    """寄送純文字信。回傳是否成功。缺設定時靜默略過並回 False。
 
+    to：收件人（覆蓋 ALERT_EMAIL），用於「寄給特定使用者」的警示通知；未給則用 ALERT_EMAIL。
     用 EmailMessage（policy=default）組信：主旨與內文的 UTF-8 編碼由標準庫處理，
     避免 MIMEText + as_string() 對含中文的 header 以 ascii 編碼失敗。
     """
@@ -40,7 +41,7 @@ def send_alert(subject: str, body: str) -> bool:
 
     host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
     port = int(os.getenv('SMTP_PORT', '465'))
-    to_addr = os.getenv('ALERT_EMAIL', user)
+    to_addr = to or os.getenv('ALERT_EMAIL', user)
     recipients = [a.strip() for a in to_addr.split(',') if a.strip()]
 
     msg = EmailMessage()

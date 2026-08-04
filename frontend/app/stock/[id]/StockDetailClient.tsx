@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
 import StockSearchOptimized from '../../../components/StockSearchOptimized'
+import AlertButton from '../../../components/AlertButton'
 import type { StockDetailData } from '../../../lib/stock-data'
 
 export default function StockDetailClient({ data }: { data: StockDetailData }) {
@@ -24,6 +25,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
               <h1 className="text-xl font-bold text-gray-800">
                 {data.stock_id} {data.stock_name}
               </h1>
+              <AlertButton stockId={data.stock_id} stockName={data.stock_name} />
             </div>
             <StockSearchOptimized />
           </div>

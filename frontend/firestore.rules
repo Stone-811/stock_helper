@@ -51,5 +51,14 @@ service cloud.firestore {
       }
     }
 
+    // 用戶到價/訊號警示（只能存取自己的；後端用 Admin SDK 讀取檢查、繞過此規則）
+    match /user_alerts/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /alerts/{alertId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
   }
 }

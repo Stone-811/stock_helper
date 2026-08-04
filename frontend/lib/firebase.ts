@@ -19,6 +19,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  addDoc,
   deleteDoc,
   query,
   where,
@@ -166,6 +167,88 @@ export async function isInWatchlist(stockId: string): Promise<boolean> {
     return docSnap.exists()
   } catch (error) {
     console.error('檢查自選股失敗:', error)
+    return false
+  }
+}
+
+// ============ 到價 / 訊號警示 ============
+
+export type AlertType = 'price_above' | 'price_below' | 'macd_bullish' | 'macd_bearish' | 'foreign_streak' | 'trust_streak'
+
+export interface StockAlert {
+  id: string
+  stock_id: string
+  stock_name: string
+  type: AlertType
+  value: number
+  email: string
+  enabled: boolean
+  created_at: Date
+  triggered_at?: string
+}
+
+/** 新增警示（auto-id）；自動帶登入者 email 供後端寄送 */
+export async function addAlert(stockId: string, stockName: string, type: AlertType, value: number): Promise<boolean> {
+  const user = auth.currentUser
+  if (!user) return false
+  try {
+    const alertsRef = collection(db, 'user_alerts', user.uid, 'alerts')
+    await addDoc(alertsRef, {
+      stock_id: stockId,
+      stock_name: stockName,
+      type,
+      value,
+      email: user.email || '',
+      enabled: true,
+      created_at: Timestamp.now(),
+    })
+    return true
+  } catch (error) {
+    console.error('新增警示失敗:', error)
+    return false
+  }
+}
+
+/** 取得使用者所有警示 */
+export async function getAlerts(): Promise<StockAlert[]> {
+  const user = auth.currentUser
+  if (!user) return []
+  try {
+    const snapshot = await getDocs(collection(db, 'user_alerts', user.uid, 'alerts'))
+    return snapshot.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        stock_id: data.stock_id,
+        stock_name: data.stock_name,
+        type: data.type,
+        value: data.value,
+        email: data.email,
+        enabled: data.enabled,
+        created_at: data.created_at?.toDate() || new Date(),
+        triggered_at: data.triggered_at,
+      }
+    })
+  } catch (error) {
+    console.error('取得警示失敗:', error)
+    return []
+  }
+}
+
+/** 取得某檔股票的警示 */
+export async function getAlertsForStock(stockId: string): Promise<StockAlert[]> {
+  return (await getAlerts()).filter((a) => a.stock_id === stockId)
+}
+
+/** 移除警示 */
+export async function removeAlert(alertId: string): Promise<boolean> {
+  const user = auth.currentUser
+  if (!user) return false
+  try {
+    await deleteDoc(doc(db, 'user_alerts', user.uid, 'alerts', alertId))
+    return true
+  } catch (error) {
+    console.error('移除警示失敗:', error)
     return false
   }
 }

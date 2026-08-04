@@ -273,6 +273,14 @@ class DailyCollector:
         # 5. self-check：確認當日資料「真的寫進 Firestore」，而非只落在本地 CSV/GCS
         self._verify_firestore_written(date, skip_stock)
 
+        # 6. 檢查使用者到價/訊號警示，達成則 Email 通知（僅在當日股票確實寫入後）
+        if not skip_stock and self.results['stock']['success']:
+            try:
+                from stock_collector.alert_checker import check_alerts
+                check_alerts(date)
+            except Exception as e:
+                logging.warning(f"警示檢查失敗: {e}")
+
         # 輸出總結
         self.print_summary()
 
