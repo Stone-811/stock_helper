@@ -18,6 +18,7 @@ import ssl
 import smtplib
 import logging
 from email.mime.text import MIMEText
+from email.header import Header
 from email.utils import formatdate
 
 
@@ -40,7 +41,7 @@ def send_alert(subject: str, body: str) -> bool:
     recipients = [a.strip() for a in to_addr.split(',') if a.strip()]
 
     msg = MIMEText(body, 'plain', 'utf-8')
-    msg['Subject'] = subject
+    msg['Subject'] = Header(subject, 'utf-8')  # 中文主旨需 UTF-8 編碼，否則 as_string() 會 ascii 編碼失敗
     msg['From'] = user
     msg['To'] = ', '.join(recipients)
     msg['Date'] = formatdate(localtime=True)
