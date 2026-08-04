@@ -398,6 +398,38 @@ class DailyCollector:
         logging.info("=" * 70)
 
 
+def _alert_failure(reason: str, collector):
+    """組裝並寄出收集失敗告警（分區塊純文字）。缺 SMTP 設定時自動略過。"""
+    try:
+        from notify import send_alert
+    except Exception:
+        return
+    r = collector.results
+    task_names = {'stock': '股票資料', 'index': '指數資料', 'matrix': '強勢股矩陣'}
+    lines = [
+        '選股小幫手 每日收集器 — 異常告警',
+        '=' * 40,
+        f'時間　：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+        f'原因　：{reason}',
+        '',
+        '── 各任務結果 ──',
+    ]
+    for task, res in r.items():
+        name = task_names.get(task, task)
+        status = '✅ 成功' if res['success'] else '❌ 失敗'
+        lines.append(f'{name}：{status}｜筆數 {res["count"]}')
+        if res['error']:
+            lines.append(f'　└ {res["error"]}')
+    lines += [
+        '',
+        '── 建議處理 ──',
+        '1. 查 Cloud Run 執行 log 確認失敗原因',
+        '2. 手動補跑單日：python -m stock_collector.daily_collector --date YYYY-MM-DD',
+        '3. 回補中間缺口：python -m stock_collector.daily_collector --backfill-gaps',
+    ]
+    send_alert('[選股小幫手] 收集異常告警', '\n'.join(lines))
+
+
 def main():
     """主程式"""
     parser = argparse.ArgumentParser(
@@ -426,6 +458,7 @@ def main():
     parser.add_argument('--days', type=int, help='收集過去 N 天')
     parser.add_argument('--incremental', action='store_true', help='增量更新模式')
     parser.add_argument('--backfill-gaps', action='store_true', help='回補歷史區間內缺漏的交易日（C3）')
+    parser.add_argument('--test-alert', action='store_true', help='寄一封測試告警信後結束（驗證 Email 設定）')
     parser.add_argument('--skip-stock', action='store_true', help='跳過股票資料')
     parser.add_argument('--skip-index', action='store_true', help='跳過指數資料')
     parser.add_argument('--skip-matrix', action='store_true', help='跳過強勢股矩陣')
@@ -435,6 +468,13 @@ def main():
     collector = DailyCollector()
 
     try:
+        if args.test_alert:
+            # 驗證 Email 告警管道
+            from notify import send_alert
+            ok = send_alert('[選股小幫手] 測試告警',
+                            '這是一封測試信。\n收到代表收集器的 Email 告警管道設定正常。')
+            return 0 if ok else 1
+
         if args.backfill_gaps:
             # C3：回補歷史區間內缺漏的交易日（掃 daily_data 找中間缺口）
             gaps = collector.get_gap_dates()
@@ -485,6 +525,7 @@ def main():
         return 1
     except Exception as e:
         logging.error(f"\n❌ 執行失敗: {e}")
+        _alert_failure(f"收集器執行崩潰：{e}", collector)
         return 1
 
     # 依收集結果決定 exit code（僅單日排程模式）：關鍵任務（股票/指數）未成功 → 非 0，
@@ -499,6 +540,7 @@ def main():
             critical_failed.append('index')
         if critical_failed:
             logging.error(f"❌ 關鍵任務未成功：{critical_failed} → exit 1")
+            _alert_failure(f"關鍵任務未成功：{critical_failed}", collector)
             return 1
     return 0
 

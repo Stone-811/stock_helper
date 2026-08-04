@@ -40,6 +40,22 @@ gcloud storage buckets add-iam-policy-binding gs://stock-analysis-b5602-archive 
 echo "  ✓ 權限授予完成（等幾秒讓權限生效）"
 sleep 10
 
+# SMTP secret（選配，用於收集失敗 Email 告警）。存在才啟用，缺了也能部署（告警靜默停用）。
+SMTP_SECRETS=""
+SMTP_ENV=""
+if gcloud secrets describe SMTP_PASS >/dev/null 2>&1; then
+  gcloud secrets add-iam-policy-binding SMTP_PASS \
+    --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" --condition=None >/dev/null 2>&1 || true
+  SMTP_SECRETS=",SMTP_PASS=SMTP_PASS:latest"
+  SMTP_ENV=",SMTP_USER=${SMTP_USER:-tingo8320@gmail.com},ALERT_EMAIL=${ALERT_EMAIL:-tingo8320@gmail.com}"
+  echo "  ✓ 偵測到 SMTP_PASS secret → 啟用 Email 告警（收件：${ALERT_EMAIL:-tingo8320@gmail.com}）"
+else
+  echo "  ⚠️ 未偵測到 SMTP_PASS secret → Email 告警停用。啟用方式："
+  echo "     1) 開 Gmail 應用程式密碼：https://myaccount.google.com/apppasswords"
+  echo "     2) printf '%s' '你的16碼應用程式密碼' | gcloud secrets create SMTP_PASS --data-file=-"
+  echo "     3) 重跑本腳本即可自動啟用"
+fi
+
 echo "== 4. 部署 Cloud Run Job（從 source 自動 build image）=="
 gcloud run jobs deploy "$JOB" \
   --source=. \
@@ -48,8 +64,8 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --memory=2Gi \
   --cpu=1 \
-  --set-env-vars=USE_GCS_ARCHIVE=1 \
-  --set-secrets=FINMIND_API_TOKEN=FINMIND_API_TOKEN:latest
+  --set-env-vars="USE_GCS_ARCHIVE=1${SMTP_ENV}" \
+  --set-secrets="FINMIND_API_TOKEN=FINMIND_API_TOKEN:latest${SMTP_SECRETS}"
 
 echo "== 5. 建立兩個 Cloud Scheduler（UTC 09:00=台17:00、UTC 14:00=台22:00，工作日）=="
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB}:run"
