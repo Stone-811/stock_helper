@@ -85,7 +85,7 @@ export default function AlertButton({ stockId, stockName }: { stockId: string; s
         <>
           {/* 點擊外部關閉 */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
+          <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
             {!user ? (
               <div className="text-center py-2">
                 <p className="text-sm text-gray-600 mb-3">登入後可設定到價 / 訊號提醒，達成時 Email 通知你</p>

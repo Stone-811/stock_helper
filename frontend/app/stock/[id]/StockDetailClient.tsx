@@ -17,13 +17,13 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Link href="/" className="text-gray-500 hover:text-gray-700">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pl-12 md:pl-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link href="/" className="text-gray-500 hover:text-gray-700 whitespace-nowrap">
                 ← 返回
               </Link>
-              <h1 className="text-xl font-bold text-gray-800">
-                {data.stock_id} {data.stock_name}
+              <h1 className="text-xl font-bold text-gray-800 whitespace-nowrap">
+                {data.stock_id}{data.stock_name && data.stock_name !== data.stock_id ? ` ${data.stock_name}` : ''}
               </h1>
               <AlertButton stockId={data.stock_id} stockName={data.stock_name} />
             </div>
