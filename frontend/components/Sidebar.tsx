@@ -14,6 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/', label: '首頁', icon: '📊' },
   { href: '/strong-stocks', label: '強勢股', icon: '🔥' },
+  { href: '/screener', label: '選股', icon: '🔍' },
   { href: '/watchlist', label: '自選股', icon: '⭐' },
 ]
 
