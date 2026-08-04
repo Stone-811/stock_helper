@@ -272,24 +272,28 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         // 圖表可能已被 remove，忽略
       }
     }
-    // 三張子圖 layout 時機不一（成交量/指標單位不同、資料量不同），單次 rAF 會漏掉較晚完成的那張；
-    // 改用多個遞增延遲重複同步，確保任一圖較晚 layout 也能對齊
-    const syncTimers = [0, 60, 160, 320, 640].map((d) => setTimeout(syncPriceScaleWidth, d))
 
-    const handleResize = () => {
+    // 事件驅動同步（取代先前多個 setTimeout 猜 layout 時機，避免極慢裝置/字型晚載時漏對齊）：
+    // 1) 首次繪製後、2) 字型載入完成（數字寬度會變）、3) 容器尺寸變化（視窗縮放、側邊欄收合）
+    requestAnimationFrame(syncPriceScaleWidth)
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      document.fonts.ready.then(() => requestAnimationFrame(syncPriceScaleWidth)).catch(() => {})
+    }
+
+    // ResizeObserver 監聽容器：涵蓋視窗縮放、側邊欄收合等容器尺寸變化，並在首次 observe 時觸發一次
+    const resizeObserver = new ResizeObserver(() => {
       if (mainChartRef.current) {
         const w = mainChartRef.current.clientWidth
         mainChart.applyOptions({ width: w })
         volumeChart.applyOptions({ width: w })
         indicatorChart.applyOptions({ width: w })
-        requestAnimationFrame(syncPriceScaleWidth)
       }
-    }
-    window.addEventListener('resize', handleResize)
+      requestAnimationFrame(syncPriceScaleWidth)
+    })
+    if (mainChartRef.current) resizeObserver.observe(mainChartRef.current)
 
     return () => {
-      syncTimers.forEach(clearTimeout)
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
       ma5SeriesRef.current = null
       ma10SeriesRef.current = null
       ma20SeriesRef.current = null

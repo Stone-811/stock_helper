@@ -112,7 +112,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
     for file in all_files:
         try:
-            df = pd.read_csv(file)
+            df = pd.read_csv(file, low_memory=False)
             df = calculate_strong(df)
 
             # 取需要的欄位
@@ -176,7 +176,8 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
         count = pivot[col].sum()
         logging.info(f"  {col}: {count} 檔強勢股")
 
-    return str(filepath)
+    # 回傳股票數（非路徑）——供 daily_collector 統計與 print_summary 正確顯示筆數
+    return len(pivot)
 
 
 def main():
@@ -189,13 +190,13 @@ def main():
 
     args = parser.parse_args()
 
-    filepath = update_matrix(
+    count = update_matrix(
         data_dir=args.data_dir,
         output_filename=args.output
     )
 
-    if filepath:
-        print(f"\n✅ 成功！矩陣已更新: {filepath}")
+    if count:
+        print(f"\n✅ 成功！強勢股矩陣已更新（{count} 檔股票）")
     else:
         print(f"\n❌ 失敗！")
         return 1

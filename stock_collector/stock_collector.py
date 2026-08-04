@@ -165,7 +165,7 @@ class StockCollector:
                 try:
                     from firebase_writer import write_daily_stocks
                     # 重新讀取 CSV（包含 MACD 狀態）
-                    df_with_macd = pd.read_csv(filepath)
+                    df_with_macd = pd.read_csv(filepath, low_memory=False)
                     write_daily_stocks(df_with_macd)
                     firestore_ok = True
                     logging.info("✓ Firestore 寫入完成")
@@ -441,7 +441,7 @@ class StockCollector:
             logging.info(f"追加到年度檔案: {archive_filepath.name}")
 
             # 讀取現有年度資料
-            archive_df = pd.read_csv(archive_filepath)
+            archive_df = pd.read_csv(archive_filepath, low_memory=False)
 
             # 移除相同日期的舊資料（避免重複）
             archive_df = archive_df[archive_df['date'] != target_date]
