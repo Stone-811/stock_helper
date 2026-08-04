@@ -64,6 +64,16 @@ def _load_day_stock_map(db, date: str) -> dict:
     return stock_map
 
 
+def _streak_label(v) -> str:
+    """連續買賣天數 → 可讀字串：正=連買、負=連賣、0=無。"""
+    n = int(v or 0)
+    if n > 0:
+        return f'連買 {n} 天'
+    if n < 0:
+        return f'連賣 {abs(n)} 天'
+    return '無'
+
+
 def _notify(alert: dict, stock: dict, date: str) -> None:
     from notify import send_alert
     cond = _LABELS.get(alert.get('type'), str(alert.get('type'))).format(v=alert.get('value'))
@@ -74,8 +84,8 @@ def _notify(alert: dict, stock: dict, date: str) -> None:
         f"股票：{alert.get('stock_id')} {name}",
         f"條件：{cond}",
         f"目前收盤：{stock.get('close')}",
-        f"外資連買：{stock.get('foreign_streak', 0)} 天　投信連買：{stock.get('trust_streak', 0)} 天",
-        f"MACD：{stock.get('macd_status', '-')}",
+        f"外資：{_streak_label(stock.get('foreign_streak'))}　投信：{_streak_label(stock.get('trust_streak'))}",
+        f"MACD：{'多頭' if stock.get('macd_status') == '多' else '空頭' if stock.get('macd_status') == '空' else '-'}",
         f"資料日期：{date}",
         '',
         '此警示已自動停用，如需再次追蹤請至網站重新啟用。',
