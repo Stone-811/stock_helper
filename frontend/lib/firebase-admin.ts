@@ -73,6 +73,17 @@ export async function getLatestDate(): Promise<string | null> {
  * 新架構：daily_data/{date}/chunks/chunk_{n}
  * 每個分片包含 500 筆股票，約 5-6 個分片
  */
+/** 去重：daily_data 分片可能含重複 stock_id（見 collector _merge_data 一對多 merge 修正），前端讀取層再保險一次 */
+function dedupeByStockId(stocks: any[]): any[] {
+  const seen = new Set<string>()
+  return stocks.filter((s) => {
+    const id = String(s?.stock_id ?? '')
+    if (!id || seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
 export async function getStocksByDate(date: string): Promise<any[]> {
   try {
     // 1. 優先從新架構讀取（分片）
@@ -102,7 +113,7 @@ export async function getStocksByDate(date: string): Promise<any[]> {
           }
         }
 
-        return allStocks
+        return dedupeByStockId(allStocks)
       }
     }
 
@@ -111,7 +122,7 @@ export async function getStocksByDate(date: string): Promise<any[]> {
     const aggregateDoc = await aggregateRef.get()
 
     if (aggregateDoc.exists) {
-      return aggregateDoc.data()?.stocks || []
+      return dedupeByStockId(aggregateDoc.data()?.stocks || [])
     }
 
     // 3. 最後備用：逐筆查詢 daily_stocks
@@ -119,7 +130,7 @@ export async function getStocksByDate(date: string): Promise<any[]> {
       .where('date', '==', date)
       .get()
 
-    return snapshot.docs.map(doc => doc.data())
+    return dedupeByStockId(snapshot.docs.map(doc => doc.data()))
   } catch (error) {
     console.error('取得股票資料失敗:', error)
     return []

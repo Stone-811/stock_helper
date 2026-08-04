@@ -333,7 +333,9 @@ class StockCollector:
             cols_to_keep = ['stock_id', 'stock_name']
             if 'industry_category' in stock_info.columns:
                 cols_to_keep.append('industry_category')
-            stock_info = stock_info[cols_to_keep].drop_duplicates()
+            # 指定 subset=['stock_id']：taiwan_stock_info 同一代號可能多筆（不同市場/產業類別），
+            # 全欄位 drop_duplicates 會殘留多筆 → 後續 merge 一對多產生重複股票
+            stock_info = stock_info[cols_to_keep].drop_duplicates(subset=['stock_id'], keep='first')
             # 重新命名產業欄位
             if 'industry_category' in stock_info.columns:
                 stock_info = stock_info.rename(columns={'industry_category': 'industry'})
@@ -411,6 +413,8 @@ class StockCollector:
             'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'
         ]
         df = df[[c for c in columns if c in df.columns]]
+        # 最終防禦：任一右表（法人/持股/當沖）若 stock_id 重複，left merge 都會產生重複行
+        df = df.drop_duplicates(subset=['stock_id'], keep='first')
 
         return df
 
