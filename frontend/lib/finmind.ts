@@ -165,3 +165,54 @@ export async function fetchInstitutionalHistory(
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
+
+interface FinMindShareholdingRow {
+  date: string
+  stock_id: string
+  ForeignInvestmentShares: number // 外資實際持股股數
+  ForeignInvestmentSharesRatio: number // 外資持股比例（%）
+}
+
+export interface ForeignHoldingDay {
+  date: string
+  shares: number // 外資持股張數（真實持有量，非買賣超累加）
+  ratio: number // 外資持股比例 %
+}
+
+/**
+ * 取單一股票的「外資實際持股」歷史（張、比例）
+ *
+ * FinMind dataset：TaiwanStockShareholding（每日申報的絕對持股，非買賣超推估）。
+ * 只有外資有逐檔官方持股；投信/自營無此資料。
+ * shares = ForeignInvestmentShares ÷ 1000（股 → 張）。失敗回空陣列。
+ */
+export async function fetchForeignShareholding(
+  stockId: string,
+  startDate: string
+): Promise<ForeignHoldingDay[]> {
+  const token = process.env.FINMIND_API_TOKEN || ''
+  const params = new URLSearchParams({
+    dataset: 'TaiwanStockShareholding',
+    data_id: stockId,
+    start_date: startDate,
+  })
+
+  const res = await fetch(`${FINMIND_API}?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    next: { revalidate: 300 },
+  })
+
+  if (!res.ok) return []
+
+  const json = await res.json()
+  if (json.status !== 200 || !Array.isArray(json.data)) return []
+
+  return (json.data as FinMindShareholdingRow[])
+    .map((d) => ({
+      date: d.date,
+      shares: Math.round(d.ForeignInvestmentShares / 1000),
+      ratio: d.ForeignInvestmentSharesRatio,
+    }))
+    .filter((d) => d.shares > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
