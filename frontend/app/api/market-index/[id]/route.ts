@@ -26,9 +26,12 @@ export async function GET(
       changePercent = (change / prevClose) * 100
     }
 
+    // market_index history 項目未帶 index_name → 用代號補中文名，避免前端卡片顯示空白
+    const indexNameMap: Record<string, string> = { TAIEX: '加權指數', TX: '台指期' }
+
     return NextResponse.json({
       index_id: id,
-      index_name: latestData.index_name,
+      index_name: latestData.index_name || indexNameMap[id] || id,
       latest: latestData,
       history: indexData,
       change,

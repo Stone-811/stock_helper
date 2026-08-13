@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
 import InstitutionalChart from '../../../components/InstitutionalChart'
@@ -7,6 +8,7 @@ import AlertButton from '../../../components/AlertButton'
 import type { StockDetailData } from '../../../lib/stock-data'
 
 export default function StockDetailClient({ data }: { data: StockDetailData }) {
+  const [showInst, setShowInst] = useState(false) // 手機版：三大法人明細收合（桌機恆顯示）
   const { latest, history } = data
   const isPositive = latest.close >= latest.open
   const priceChange = latest.close - latest.open
@@ -36,7 +38,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 股票資訊卡片 */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-sm p-4 md:p-6 mb-6">
           <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
             {/* 價格 */}
             <div className="col-span-2">
@@ -91,15 +93,23 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             </div>
           </div>
 
-          {/* 三大法人 */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="text-gray-900 text-base font-medium mb-3">
-              三大法人買賣超（張）
-              {latest.foreign_buy === null && (
-                <span className="text-sm font-normal text-gray-400 ml-2">當日資料尚未提供</span>
-              )}
+          {/* 三大法人（手機版預設收合，桌機恆顯示） */}
+          <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-gray-900 text-base font-medium">
+                三大法人買賣超（張）
+                {latest.foreign_buy === null && (
+                  <span className="text-sm font-normal text-gray-400 ml-2">當日資料尚未提供</span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowInst((v) => !v)}
+                className="md:hidden text-gray-500 text-sm px-2 py-1 -mr-2 whitespace-nowrap"
+              >
+                {showInst ? '收合 ▲' : '展開 ▼'}
+              </button>
             </div>
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+            <div className={`${showInst ? 'grid' : 'hidden'} md:grid grid-cols-3 md:grid-cols-6 gap-4`}>
               {([
                 { label: '外資', v: latest.foreign_buy, kind: 'buy', streak: latest.foreign_streak },
                 { label: '投信', v: latest.trust_buy, kind: 'buy', streak: latest.trust_streak },

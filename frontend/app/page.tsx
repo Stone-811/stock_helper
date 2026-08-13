@@ -18,23 +18,23 @@ function IndexCard({ data, showOpenInterest = false }: { data: IndexResponse; sh
   const isPositive = data.change >= 0
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 md:gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">{data.index_name}</h2>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-800">{data.index_name}</h2>
           <p className="text-sm text-gray-800">資料日期：{data.latest.date}</p>
         </div>
         <div className="text-right">
-          <div className={`text-3xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
+          <div className={`text-2xl md:text-3xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
             {data.latest.close.toLocaleString()}
           </div>
-          <div className={`text-lg ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
+          <div className={`text-base md:text-lg ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
             {isPositive ? '+' : ''}{data.change.toFixed(2)} ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
           </div>
         </div>
       </div>
 
-      <div className={`grid ${showOpenInterest ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'} gap-4 mt-4 pt-4 border-t border-gray-100`}>
+      <div className={`grid ${showOpenInterest ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'} gap-x-4 gap-y-2 md:gap-4 mt-3 md:mt-4 pt-3 md:pt-4 border-t border-gray-100`}>
         <div>
           <span className="text-sm text-gray-800">開盤</span>
           <div className="font-medium text-gray-900">{data.latest.open.toLocaleString()}</div>

@@ -107,8 +107,8 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* 手機版 */}
-          <div className="md:hidden">
+          {/* 手機版（左內距避開固定在 top-4 left-4 的 X 關閉鈕，避免壓到標題） */}
+          <div className="md:hidden pl-10">
             <h1 className="text-white text-xl font-bold">台股分析系統</h1>
             <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
           </div>

@@ -67,6 +67,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const [showMA60, setShowMA60] = useState(false)
   const [showBB, setShowBB] = useState(false)
   const [showVolume, setShowVolume] = useState(true)
+  const [moreOpen, setMoreOpen] = useState(false) // 手機版：版面/疊加控制收合
   const [crosshairTime, setCrosshairTime] = useState<string | null>(null)
 
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
@@ -273,12 +274,13 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const up = chg >= 0
 
   const btn = (active: boolean) =>
-    `px-2 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
+    `px-2.5 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[40px] md:min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
 
   return (
     <div className="bg-[#131722] rounded-lg p-2 md:p-3">
       {/* 控制列 */}
       <div className="flex flex-col gap-2 mb-2">
+        {/* 常駐：週期 + 區間（＋手機版「更多」切換版面/疊加）*/}
         <div className="flex flex-wrap items-center gap-1.5 md:gap-3">
           <div className="flex gap-1">
             {([['day', '日K'], ['week', '週K'], ['month', '月K']] as [TimeFrame, string][]).map(([k, l]) => (
@@ -290,41 +292,46 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
               <button key={p} onClick={() => setDatePeriod(p)} className={btn(datePeriod === p)}>{p}</button>
             ))}
           </div>
-          <div className="flex items-center gap-1 md:ml-auto">
-            <span className="text-gray-400 text-xs hidden md:inline">版面</span>
-            <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[34px]">
-              <option value="price">價格為主</option>
-              <option value="balanced">均衡</option>
-              <option value="indicator">指標為主</option>
-            </select>
-          </div>
+          <button onClick={() => setMoreOpen((v) => !v)} className={`md:hidden ml-auto ${btn(moreOpen)}`}>⚙️ 更多</button>
         </div>
 
+        {/* 常駐：指標多選 */}
         <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
           <span className="text-gray-400 text-xs">指標</span>
           {(['macd', 'kd', 'rsi', 'daytrade'] as Indicator[]).filter((i) => i !== 'daytrade' || hasDayTrade).map((ind) => {
             const active = activeIndicators.includes(ind)
             return (
-              <button key={ind} onClick={() => toggleIndicator(ind)} className={`px-2 py-1 text-xs md:text-sm rounded border min-h-[30px] ${active ? 'bg-blue-600/90 text-white border-blue-500' : 'bg-transparent text-gray-300 border-[#2d323f] hover:bg-[#232733]'}`}>
+              <button key={ind} onClick={() => toggleIndicator(ind)} className={`px-2.5 py-1 text-xs md:text-sm rounded border min-h-[40px] md:min-h-[30px] ${active ? 'bg-blue-600/90 text-white border-blue-500' : 'bg-transparent text-gray-300 border-[#2d323f] hover:bg-[#232733]'}`}>
                 {INDICATOR_LABELS[ind]}
               </button>
             )
           })}
-          <span className="text-gray-600 text-xs">（最多 2）</span>
+          <span className="text-gray-600 text-xs hidden md:inline">（最多 2）</span>
+        </div>
 
-          <span className="text-gray-400 text-xs ml-2">疊加</span>
+        {/* 版面 + 疊加：手機收合（⚙️更多）、桌機常駐 */}
+        <div className={`${moreOpen ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-x-3 gap-y-1`}>
+          <div className="flex items-center gap-1">
+            <span className="text-gray-400 text-xs">版面</span>
+            <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[40px] md:min-h-[34px]">
+              <option value="price">價格為主</option>
+              <option value="balanced">均衡</option>
+              <option value="indicator">指標為主</option>
+            </select>
+          </div>
+          <span className="text-gray-400 text-xs md:ml-2">疊加</span>
           {([['MA5', showMA5, setShowMA5, 'text-amber-400'], ['MA10', showMA10, setShowMA10, 'text-blue-400'], ['MA20', showMA20, setShowMA20, 'text-pink-400'], ['MA60', showMA60, setShowMA60, 'text-purple-400']] as [string, boolean, (v: boolean) => void, string][]).map(([label, on, set, color]) => (
-            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[30px]">
-              <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="w-3.5 h-3.5" />
+            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+              <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
               <span className={`${color} text-xs`}>{label}</span>
             </label>
           ))}
-          <label className="flex items-center gap-1 cursor-pointer min-h-[30px]">
-            <input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} className="w-3.5 h-3.5" />
+          <label className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+            <input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
             <span className="text-fuchsia-400 text-xs">布林</span>
           </label>
-          <label className="flex items-center gap-1 cursor-pointer min-h-[30px]">
-            <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="w-3.5 h-3.5" />
+          <label className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+            <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
             <span className="text-gray-300 text-xs">量</span>
           </label>
         </div>
@@ -340,23 +347,26 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
                 <span className={up ? 'text-red-400' : 'text-green-400'}> {up ? '+' : ''}{chg.toFixed(2)} ({up ? '+' : ''}{chgPct.toFixed(2)}%)</span>
               </span>
               <span>量 <span className="text-gray-300">{volumeFormatter(cur.volume)}</span></span>
-              {(showMA5 && ma.ma5[curIndex] != null) && <span className="text-amber-400">MA5 {ma.ma5[curIndex]!.toFixed(1)}</span>}
-              {(showMA10 && ma.ma10[curIndex] != null) && <span className="text-blue-400">MA10 {ma.ma10[curIndex]!.toFixed(1)}</span>}
-              {(showMA20 && ma.ma20[curIndex] != null) && <span className="text-pink-400">MA20 {ma.ma20[curIndex]!.toFixed(1)}</span>}
-              {(showMA60 && ma.ma60[curIndex] != null) && <span className="text-purple-400">MA60 {ma.ma60[curIndex]!.toFixed(1)}</span>}
-              {(showBB && bb[curIndex]) && <span className="text-fuchsia-300">BB {bb[curIndex]!.upper.toFixed(0)}/{bb[curIndex]!.middle.toFixed(0)}/{bb[curIndex]!.lower.toFixed(0)}</span>}
-              {activeIndicators.includes('macd') && macd[curIndex] && (
-                <span><span className="text-gray-500">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
-              )}
-              {activeIndicators.includes('kd') && kd[curIndex] && (
-                <span><span className="text-gray-500">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
-              )}
-              {activeIndicators.includes('rsi') && rsi[curIndex] != null && (
-                <span><span className="text-gray-500">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
-              )}
-              {activeIndicators.includes('daytrade') && dayTrade[curIndex] != null && (
-                <span><span className="text-gray-500">當沖</span> <span className="text-cyan-400">{dayTrade[curIndex]!.toFixed(1)}%</span></span>
-              )}
+              {/* MA/布林/指標數值：手機版隱藏（避免 legend 太密蓋住 K 棒），桌機顯示 */}
+              <span className="hidden md:contents">
+                {(showMA5 && ma.ma5[curIndex] != null) && <span className="text-amber-400">MA5 {ma.ma5[curIndex]!.toFixed(1)}</span>}
+                {(showMA10 && ma.ma10[curIndex] != null) && <span className="text-blue-400">MA10 {ma.ma10[curIndex]!.toFixed(1)}</span>}
+                {(showMA20 && ma.ma20[curIndex] != null) && <span className="text-pink-400">MA20 {ma.ma20[curIndex]!.toFixed(1)}</span>}
+                {(showMA60 && ma.ma60[curIndex] != null) && <span className="text-purple-400">MA60 {ma.ma60[curIndex]!.toFixed(1)}</span>}
+                {(showBB && bb[curIndex]) && <span className="text-fuchsia-300">BB {bb[curIndex]!.upper.toFixed(0)}/{bb[curIndex]!.middle.toFixed(0)}/{bb[curIndex]!.lower.toFixed(0)}</span>}
+                {activeIndicators.includes('macd') && macd[curIndex] && (
+                  <span><span className="text-gray-500">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
+                )}
+                {activeIndicators.includes('kd') && kd[curIndex] && (
+                  <span><span className="text-gray-500">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
+                )}
+                {activeIndicators.includes('rsi') && rsi[curIndex] != null && (
+                  <span><span className="text-gray-500">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
+                )}
+                {activeIndicators.includes('daytrade') && dayTrade[curIndex] != null && (
+                  <span><span className="text-gray-500">當沖</span> <span className="text-cyan-400">{dayTrade[curIndex]!.toFixed(1)}%</span></span>
+                )}
+              </span>
             </div>
           </div>
         )}
