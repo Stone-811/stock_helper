@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import TopBar from './TopBar'
 
 export default function MainContent({ children }: { children: React.ReactNode }) {
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -35,6 +36,7 @@ export default function MainContent({ children }: { children: React.ReactNode })
 
   return (
     <main className={`flex-1 transition-all duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+      <TopBar />
       {children}
     </main>
   )

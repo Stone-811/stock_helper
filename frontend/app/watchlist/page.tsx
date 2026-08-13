@@ -79,7 +79,7 @@ export default function WatchlistPage() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm sticky top-0 z-10">
+        <header className="bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 py-4">
             <h1 className="text-xl font-bold text-gray-800 pl-12 md:pl-0">自選股</h1>
           </div>
@@ -114,7 +114,7 @@ export default function WatchlistPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm sticky top-0 z-10">
+      <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <h1 className="text-xl font-bold text-gray-800 pl-12 md:pl-0">自選股</h1>
         </div>

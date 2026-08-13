@@ -21,6 +21,15 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 2. 寫 Firestore：`daily_data/{date}/chunks`（每日全市場，**只保留近幾天**）、`strong_stocks/{date}`（~100 天）、`market_index/{TAIEX,TX}`（history 陣列）、`metadata/{latest_date, available_dates}`
 3. 前端讀 Firestore；**但個股 K 線改打 FinMind REST（`lib/finmind.ts`，單股完整歷史，繞過 Firestore）**、MACD 由前端 `lib/indicators.ts` 自算
 
+## 個股頁功能與全站搜尋（2026-08 擴充，皆前端；收集器/排程未動）
+個股頁 `app/stock/[id]/`（`StockDetailClient.tsx`）：
+- **當日當沖比例**：資訊卡片一格，= `day_trading_volume / volume`（當沖量早已由 collector 抓 `TaiwanStockDayTrading` 存進 daily_data）。技術圖「指標」下拉多一項 **當沖比例**（子圖畫每日 %）；歷史當沖量由 `lib/finmind.ts` 的 `fetchStockDayTrading()` 抓 FinMind、在 `stock-data.ts` 併入 K 線 `history`。大盤圖無此欄位 → `CandleChart` 以 `hasDayTrade` 自動隱藏該選項。
+- **三大法人累計買賣超趨勢圖**：`components/InstitutionalChart.tsx`（獨立 lightweight-charts 折線，**刻意不併進 K 線子圖**以避開多子圖 priceScale 對齊坑）。資料 client 端 lazy 打 `app/api/stock/[id]/institutional/route.ts` → `fetchInstitutionalHistory()`（FinMind `TaiwanStockInstitutionalInvestorsBuySell`）。買賣超定義**比照收集器**：外資=`Foreign_Investor`、投信=`Investment_Trust`、自營=`Dealer_self`+`Dealer_Hedging`，`(buy−sell)/1000` 後 **`Math.trunc`**（對齊 `_process_institutional_data` + firebase_writer 的 `.astype(int)`，最新日才與法人數字卡片一致；用 `Math.round` 會差 1 張）。
+- **技術圖左上角 overlay 精簡**（`CandleChart.tsx`）：只留 日期／收(含漲跌%)／量；原本的開高低、沖、與未勾選的指標值不再常駐。
+- ⚠️ 個股頁現有 **3 支 FinMind 呼叫**：K 線 + 當沖（server-side，`getStockData`）+ 法人（client lazy API route）。都 `next: { revalidate: 300 }`。
+
+**全站置頂搜尋列**：`components/TopBar.tsx` 放進 `MainContent`（每頁皆顯示含首頁，手機左側留 hamburger 空間）。搜尋（代碼/名稱，Server Action `app/actions/stocks.ts::searchStocks`，已同時比對 stock_id 與 stock_name）已從各頁 header 移除、集中於此；**各頁 header 一律改為非 sticky**（原 `sticky top-0 z-10`），避免與置頂列（`sticky top-0 z-30`）雙重固定重疊。
+
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。
 2. **資料源日期不一致**：個股頁 K 線用 FinMind、法人用 Firestore，兩者「最新日」可能差一天 → 收盤與法人不同日。已修：法人改抓「與 K 線同一天」。
@@ -30,6 +39,8 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 6. **daily_data 只保留近幾天**：`available_dates` / `strong_stocks` 有 ~100 天，但 `daily_data` 沒有 → 選較舊日期時明細會空（已回 `dataMissing` 讓前端提示）。
 7. **latest_date 無條件覆蓋**：collector 用 `--date` 補舊資料時會把 latest_date 倒退。已修：只在 `date >= 現值` 時更新（firebase_writer.py）。補多天時**最後一次要跑最新日**，否則 latest_date 會停在最後跑的舊日。
 8. **時間週期換算**：`periodToDays` 是「交易日數」，不可拿去減聚合後的週/月 bar 數。區間篩選用「日曆天門檻」（已修）。
+9. **⚠️ `strong_stock_matrix` 舊架構停更於 2024-07-03**：`getStockStrongHistory`（firebase-admin.ts）原本「先讀 `strong_stock_matrix`、有資料就用」，但該 collection 早已停更 → 「近 N 日強勢」**恆為 0**，且該 `stock_id==` + `orderBy date` 查詢還缺複合索引（噴 `FAILED_PRECONDITION`）。**已改為只讀現行 `strong_stocks/{date}`**（`getAvailableDates` + `getStrongStocksByDate`，才是最新權威來源；元素為 `{stock_id, stock_name}`）。強勢股的權威來源＝`strong_stocks/{date}` + `metadata/available_dates`，**別再用 strong_stock_matrix**。
+10. **firestore.indexes.json 與實際部署有落差**：檔案仍列舊架構 `daily_stocks`/`market_index_daily`（現行架構未用）；已補 `strong_stock_matrix (stock_id,date)` 索引（改用新架構後其實已非必要，留著無害）；另 `stock_analysis_reports` 索引**已部署但不在檔案內** → `firebase deploy --only firestore:indexes --force` 會把它一併刪掉，**勿用 --force**。
 
 ## 已修 bug 清單（2026-08 本次 session，均已部署）
 **前端**：A2 週/月K 區間鈕單位、A3 月K MACD 暖身（K 線抓 5 年）、B1 個股頁日期錯位、B2 找不到時假 0（改顯示「—」）、B3 強勢股 dataMissing 提示、B4 最新日統一、MACD 卡片 vs 圖表一致（指標用完整資料算）、PWA 快取 24h→60s。

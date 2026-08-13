@@ -250,52 +250,27 @@ export async function getMarketIndex(indexId: string): Promise<any[]> {
  */
 export async function getStockStrongHistory(stockId: string, limitDays: number = 100): Promise<{ date: string, is_strong: boolean }[]> {
   try {
-    // 1. 先嘗試舊架構 strong_stock_matrix
-    const oldSnapshot = await db.collection('strong_stock_matrix')
-      .where('stock_id', '==', stockId)
-      .orderBy('date', 'asc')
-      .limit(1)
-      .get()
-
-    if (!oldSnapshot.empty) {
-      // 舊架構存在，使用完整查詢
-      const fullSnapshot = await db.collection('strong_stock_matrix')
-        .where('stock_id', '==', stockId)
-        .orderBy('date', 'asc')
-        .get()
-
-      return fullSnapshot.docs.map(doc => ({
-        date: doc.data().date,
-        is_strong: true
-      }))
-    }
-
-    // 2. 新架構：遍歷 strong_stocks 集合
+    // 現行架構：逐日讀 strong_stocks/{date} 的強勢股清單。
+    // 註：舊架構 strong_stock_matrix 已停止更新（最後一日 2024-07-03），不再作為來源——
+    //     否則會讀到過期資料，導致「近 N 日強勢」恆為 0（且該 stock_id+date 查詢還需複合索引）。
     const dates = await getAvailableDates(limitDays)
     const strongHistory: { date: string, is_strong: boolean }[] = []
 
-    // 分批處理
+    // 分批並行查詢，降低往返延遲
     const batchSize = 20
     for (let i = 0; i < dates.length; i += batchSize) {
       const batchDates = dates.slice(i, i + batchSize)
-      const batchPromises = batchDates.map(date => getStrongStocksByDate(date))
-      const batchResults = await Promise.all(batchPromises)
+      const batchResults = await Promise.all(batchDates.map(date => getStrongStocksByDate(date)))
 
       for (let j = 0; j < batchResults.length; j++) {
-        const stocks = batchResults[j]
-        const found = stocks.some((s: any) => s.stock_id === stockId)
+        const found = batchResults[j].some((s: any) => s.stock_id === stockId)
         if (found) {
-          strongHistory.push({
-            date: batchDates[j],
-            is_strong: true
-          })
+          strongHistory.push({ date: batchDates[j], is_strong: true })
         }
       }
     }
 
-    // 按日期排序
     strongHistory.sort((a, b) => a.date.localeCompare(b.date))
-
     return strongHistory
   } catch (error) {
     console.error('取得強勢股歷史失敗:', error)

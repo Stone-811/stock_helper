@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import StockCard from '../../components/StockCard'
-import StockSearchOptimized from '../../components/StockSearchOptimized'
 import { StrongStock } from '../../lib/firebase'
 
 interface ScreenerResponse {
@@ -59,12 +58,9 @@ export default function ScreenerPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
+      <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-4 pl-12 md:pl-0">
-            <h1 className="text-xl font-bold text-gray-800">自訂選股</h1>
-            <StockSearchOptimized />
-          </div>
+          <h1 className="text-xl font-bold text-gray-800">自訂選股</h1>
         </div>
       </header>
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import StockChart from '../../../components/StockChart'
-import StockSearchOptimized from '../../../components/StockSearchOptimized'
+import InstitutionalChart from '../../../components/InstitutionalChart'
 import AlertButton from '../../../components/AlertButton'
 import type { StockDetailData } from '../../../lib/stock-data'
 
@@ -11,23 +11,25 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
   const isPositive = latest.close >= latest.open
   const priceChange = latest.close - latest.open
   const priceChangePct = ((priceChange / latest.open) * 100).toFixed(2)
+  // 當日當沖比例 = 當沖量 / 成交量
+  const dayTradeRatio =
+    latest.day_trading_volume != null && latest.volume > 0
+      ? (latest.day_trading_volume / latest.volume) * 100
+      : null
 
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
+      <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pl-12 md:pl-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <Link href="/" className="text-gray-500 hover:text-gray-700 whitespace-nowrap">
-                ← 返回
-              </Link>
-              <h1 className="text-xl font-bold text-gray-800 whitespace-nowrap">
-                {data.stock_id}{data.stock_name && data.stock_name !== data.stock_id ? ` ${data.stock_name}` : ''}
-              </h1>
-              <AlertButton stockId={data.stock_id} stockName={data.stock_name} />
-            </div>
-            <StockSearchOptimized />
+          <div className="flex items-center gap-3 flex-wrap">
+            <Link href="/" className="text-gray-500 hover:text-gray-700 whitespace-nowrap">
+              ← 返回
+            </Link>
+            <h1 className="text-xl font-bold text-gray-800 whitespace-nowrap">
+              {data.stock_id}{data.stock_name && data.stock_name !== data.stock_id ? ` ${data.stock_name}` : ''}
+            </h1>
+            <AlertButton stockId={data.stock_id} stockName={data.stock_name} />
           </div>
         </div>
       </header>
@@ -35,7 +37,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 股票資訊卡片 */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
             {/* 價格 */}
             <div className="col-span-2">
               <div className="text-gray-900 text-base font-medium">收盤價</div>
@@ -60,6 +62,19 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
               <div className="text-gray-900 text-base font-medium">成交量</div>
               <div className="text-xl font-bold text-gray-900">{latest.volume.toLocaleString()}</div>
               <div className="text-sm text-gray-700">張</div>
+            </div>
+
+            {/* 當日當沖比例 */}
+            <div>
+              <div className="text-gray-900 text-base font-medium">當日當沖比例</div>
+              {dayTradeRatio === null ? (
+                <div className="text-xl font-bold text-gray-400">—</div>
+              ) : (
+                <>
+                  <div className="text-xl font-bold text-cyan-600">{dayTradeRatio.toFixed(1)}%</div>
+                  <div className="text-sm text-gray-700">{latest.day_trading_volume!.toLocaleString()} 張</div>
+                </>
+              )}
             </div>
 
             {/* 強勢次數 */}
@@ -119,6 +134,11 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
       {/* 技術分析圖表 - 全幅 */}
       <div className="w-full px-2 mb-6">
         <StockChart data={history} height={600} />
+      </div>
+
+      {/* 三大法人累計買賣超趨勢 - 全幅 */}
+      <div className="w-full px-2 mb-6">
+        <InstitutionalChart key={data.stock_id} stockId={data.stock_id} height={320} />
       </div>
     </main>
   )

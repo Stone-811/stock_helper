@@ -1,7 +1,10 @@
 import { cache } from 'react'
 import { getStocksByDate, getStockStrongHistory } from './firebase-admin'
-import { fetchStockKline } from './finmind'
+import { fetchStockKline, fetchStockDayTrading } from './finmind'
 import { calculateMACDValues, Candle } from './indicators'
+
+// K 線多帶當日當沖量（張），供技術圖「當沖比例」指標使用
+export type StockCandle = Candle & { day_trading_volume?: number }
 
 export interface StockLatest {
   date: string
@@ -28,7 +31,7 @@ export interface StockDetailData {
   stock_id: string
   stock_name: string
   latest: StockLatest
-  history: Candle[]
+  history: StockCandle[]
   recentStrongDays: number
 }
 
@@ -45,7 +48,16 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
   const klineLast = history[history.length - 1]
 
   // B1: 法人資訊抓「與 K 線最後一根同一天」的 Firestore 資料，避免收盤價與法人分屬不同日
-  const dayStocks = await getStocksByDate(klineLast.date)
+  // 同時（平行）抓個股當沖歷史，併入 K 線供技術圖「當沖比例」指標使用；失敗不影響頁面
+  const [dayStocks, dayTrading] = await Promise.all([
+    getStocksByDate(klineLast.date),
+    fetchStockDayTrading(id, start).catch(() => []),
+  ])
+  const dtMap = new Map(dayTrading.map((d) => [d.date, d.day_trading_volume]))
+  const historyWithDayTrading: StockCandle[] = history.map((c) => ({
+    ...c,
+    day_trading_volume: dtMap.get(c.date),
+  }))
   const fsLatest = dayStocks.find((s: { stock_id: string }) => s.stock_id === id) as
     | Record<string, unknown>
     | undefined
@@ -87,7 +99,7 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     stock_id: id,
     stock_name: latest.stock_name,
     latest,
-    history,
+    history: historyWithDayTrading,
     recentStrongDays,
   }
 })

@@ -23,6 +23,14 @@
         { "fieldPath": "index_id", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "strong_stock_matrix",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "stock_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

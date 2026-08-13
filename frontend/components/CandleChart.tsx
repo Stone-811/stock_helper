@@ -24,7 +24,7 @@ interface CandleChartProps {
 }
 
 type TimeFrame = 'day' | 'week' | 'month'
-type Indicator = 'macd' | 'kd' | 'rsi'
+type Indicator = 'macd' | 'kd' | 'rsi' | 'daytrade'
 type DatePeriod = '3M' | '6M' | '1Y' | '2Y'
 
 const periodToDays: Record<DatePeriod, number> = {
@@ -94,6 +94,13 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const macdData = useMemo(() => calculateMACDValues(chartData).slice(startIdx), [chartData, startIdx])
   const kdData = useMemo(() => calculateKDValues(chartData).slice(startIdx), [chartData, startIdx])
   const rsiData = useMemo(() => calculateRSIValues(chartData).slice(startIdx), [chartData, startIdx])
+
+  // 當沖比例（%）：僅個股帶當沖量；大盤無。非遞迴指標，直接用顯示區間計算
+  const hasDayTrade = useMemo(() => data.some((d) => d.day_trading_volume != null), [data])
+  const dayTradeData = useMemo(
+    () => displayData.map((d) => (d.day_trading_volume != null && d.volume > 0 ? (d.day_trading_volume / d.volume) * 100 : null)),
+    [displayData]
+  )
 
   useEffect(() => {
     if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || displayData.length === 0) return
@@ -238,6 +245,14 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       const rsiLine = indicatorChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       rsiLine.setData(toLineData(displayData, rsiData))
       addBandLines(indicatorChart, displayData, 70, 30)
+    } else if (indicator === 'daytrade') {
+      // 當沖比例（%）長條，青色呼應主圖 overlay 的「沖」
+      const dt = indicatorChart.addHistogramSeries({ priceFormat: { type: 'price', precision: 1 }, lastValueVisible: false, priceLineVisible: false })
+      dt.setData(
+        displayData
+          .map((d, i) => ({ time: d.date, value: dayTradeData[i] ?? 0, color: '#06b6d480' }))
+          .filter((_, i) => dayTradeData[i] != null)
+      )
     }
 
     // 十字線同步
@@ -305,7 +320,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       volumeChart.remove()
       indicatorChart.remove()
     }
-  }, [displayData, indicator, height, maData, bbData, macdData, kdData, rsiData, showBB, showMA5, showMA10, showMA20, showMA60, volumeFormatter])
+  }, [displayData, indicator, height, maData, bbData, macdData, kdData, rsiData, dayTradeData, showBB, showMA5, showMA10, showMA20, showMA60, volumeFormatter])
 
   // 控制 MA / 布林 顯示（避免重建圖表）
   useEffect(() => { ma5SeriesRef.current?.applyOptions({ visible: showMA5 }) }, [showMA5])
@@ -319,6 +334,11 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   }, [showBB])
 
   const cur = crosshairIndex >= 0 ? displayData[crosshairIndex] : null
+  // 漲跌以「前一根收盤」為基準（標準漲跌幅），首根則退回以當根開盤計
+  const prevClose = cur ? (crosshairIndex > 0 ? displayData[crosshairIndex - 1].close : cur.open) : 0
+  const curChg = cur ? cur.close - prevClose : 0
+  const curChgPct = prevClose ? (curChg / prevClose) * 100 : 0
+  const curUp = curChg >= 0
 
   return (
     <div className="bg-[#1a1a2e] rounded-lg p-2 md:p-4">
@@ -368,6 +388,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
               <option value="macd">MACD</option>
               <option value="kd">KD</option>
               <option value="rsi">RSI</option>
+              {hasDayTrade && <option value="daytrade">當沖比例</option>}
             </select>
           </div>
         </div>
@@ -396,19 +417,13 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       <div className="relative">
         {cur && (
           <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
+            {/* 永遠精簡：只留 日期・收盤(含漲跌%)・量；開高低與當沖移至他處，避免資訊過載 */}
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <span>{cur.date}</span>
-              <span>開 <span className="text-yellow-400">{cur.open.toFixed(2)}</span></span>
-              <span>高 <span className="text-red-400">{cur.high.toFixed(2)}</span></span>
-              <span>低 <span className="text-green-400">{cur.low.toFixed(2)}</span></span>
-              <span>收 <span className={cur.close >= cur.open ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span></span>
+              <span>收 <span className={curUp ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span>
+                <span className={curUp ? 'text-red-400' : 'text-green-400'}> {curUp ? '+' : ''}{curChg.toFixed(2)} ({curUp ? '+' : ''}{curChgPct.toFixed(2)}%)</span>
+              </span>
               <span>量 <span className="text-gray-300">{volumeFormatter(cur.volume)}</span></span>
-              {cur.day_trading_volume !== undefined && cur.day_trading_volume > 0 && (
-                <span>沖 <span className="text-cyan-400">
-                  {cur.day_trading_volume.toLocaleString()}張
-                  {cur.volume > 0 && <span className="text-cyan-300"> ({((cur.day_trading_volume / cur.volume) * 100).toFixed(1)}%)</span>}
-                </span></span>
-              )}
             </div>
             <div className="flex flex-wrap gap-x-4 mt-1">
               {showMA5 && maData.ma5[crosshairIndex] != null && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
@@ -439,6 +454,9 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
               )}
               {indicator === 'rsi' && rsiData[crosshairIndex] != null && (
                 <span className="text-purple-400">RSI {rsiData[crosshairIndex]!.toFixed(2)}</span>
+              )}
+              {indicator === 'daytrade' && dayTradeData[crosshairIndex] != null && (
+                <span className="text-cyan-400">當沖 {dayTradeData[crosshairIndex]!.toFixed(1)}%</span>
               )}
             </div>
           </div>
