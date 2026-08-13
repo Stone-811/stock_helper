@@ -178,7 +178,7 @@ export default function Home() {
         {/* 圖表 */}
         {activeData && (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <IndexChart data={activeData.history} height={600} />
+            <IndexChart data={activeData.history} indexId={activeData.index_id} height={600} />
           </div>
         )}
       </div>
