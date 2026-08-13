@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, HistogramData } from 'lightweight-charts'
+import { createChart, ColorType, IChartApi, ISeriesApi, Time } from 'lightweight-charts'
 import {
   Candle,
   calculateMAValues,
@@ -26,465 +26,362 @@ interface CandleChartProps {
 type TimeFrame = 'day' | 'week' | 'month'
 type Indicator = 'macd' | 'kd' | 'rsi' | 'daytrade'
 type DatePeriod = '3M' | '6M' | '1Y' | '2Y'
+type LayoutPreset = 'price' | 'balanced' | 'indicator'
 
-const periodToDays: Record<DatePeriod, number> = {
-  '3M': 65,
-  '6M': 130,
-  '1Y': 250,
-  '2Y': 500,
-}
+const INDICATOR_LABELS: Record<Indicator, string> = { macd: 'MACD', kd: 'KD', rsi: 'RSI', daytrade: '當沖比例' }
+const MAX_INDICATORS = 2
+const AXIS_WIDTH = 68 // 固定右軸寬 → 各圖繪圖區左右緣一致、天生對齊（免動態喬寬）
 
+const periodCalendarDays: Record<DatePeriod, number> = { '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
 const defaultVolumeFormatter = (v: number) => `${v.toLocaleString()}張`
 
-export default function CandleChart({ data, height = 500, volumeFormatter = defaultVolumeFormatter }: CandleChartProps) {
-  const mainChartRef = useRef<HTMLDivElement>(null)
-  const volumeChartRef = useRef<HTMLDivElement>(null)
-  const indicatorChartRef = useRef<HTMLDivElement>(null)
+const BG = '#131722'
+const GRID = '#1f2530'
+const BORDER = '#2a2e39'
+const TEXT = '#9598a1'
 
-  // MA 系列的 refs（控制顯示/隱藏，避免重建圖表）
-  const ma5SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const ma10SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const ma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  // 布林通道三條線的 refs
-  const bbUpperRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const bbMiddleRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const bbLowerRef = useRef<ISeriesApi<'Line'> | null>(null)
+// 主圖佔總高的比例（依 preset 與是否有指標）
+function priceRatio(numInd: number, preset: LayoutPreset): number {
+  if (numInd === 0) return 1
+  if (preset === 'price') return 0.74
+  if (preset === 'indicator') return 0.54
+  return 0.64
+}
+
+export default function CandleChart({ data, height = 500, volumeFormatter = defaultVolumeFormatter }: CandleChartProps) {
+  const priceRef = useRef<HTMLDivElement>(null)
+  const indicatorRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // 免重建即可切換顯示的系列
+  const maRefs = useRef<{ ma5?: ISeriesApi<'Line'>; ma10?: ISeriesApi<'Line'>; ma20?: ISeriesApi<'Line'>; ma60?: ISeriesApi<'Line'> }>({})
+  const bbRefs = useRef<{ upper?: ISeriesApi<'Line'>; middle?: ISeriesApi<'Line'>; lower?: ISeriesApi<'Line'> }>({})
+  const volRef = useRef<ISeriesApi<'Histogram'> | null>(null)
 
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
-  const [indicator, setIndicator] = useState<Indicator>('macd')
-  const [datePeriod, setDatePeriod] = useState<DatePeriod>('3M')
-  const [crosshairIndex, setCrosshairIndex] = useState<number>(-1)
-
-  // MA 顯示設定
+  const [datePeriod, setDatePeriod] = useState<DatePeriod>('6M')
+  const [indicators, setIndicators] = useState<Indicator[]>(['macd'])
+  const [preset, setPreset] = useState<LayoutPreset>('balanced')
   const [showMA5, setShowMA5] = useState(true)
   const [showMA10, setShowMA10] = useState(true)
   const [showMA20, setShowMA20] = useState(true)
   const [showMA60, setShowMA60] = useState(false)
-  // 布林通道顯示設定
   const [showBB, setShowBB] = useState(false)
+  const [showVolume, setShowVolume] = useState(true)
+  const [crosshairTime, setCrosshairTime] = useState<string | null>(null)
 
-  // 依時間週期轉換資料
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
-
-  // 顯示區間的起點：用「日曆天門檻」而非固定 bar 數，
-  // 否則週K（1 bar=1 週）、月K（1 bar=1 月）會與交易日數單位不符，導致區間鈕失準。
-  const startIdx = useMemo(() => {
-    if (chartData.length === 0) return 0
-    const calendarDays: Record<DatePeriod, number> = { '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
-    const lastMs = new Date(chartData[chartData.length - 1].date).getTime()
-    const cutoff = new Date(lastMs - calendarDays[datePeriod] * 86400000).toISOString().slice(0, 10)
-    const idx = chartData.findIndex((d) => d.date >= cutoff)
-    return idx < 0 ? 0 : idx
-  }, [chartData, datePeriod])
-
-  const displayData = useMemo(() => chartData.slice(startIdx), [chartData, startIdx])
-
-  // 指標用「完整資料」計算後再擷取顯示區間：
-  // MACD/KD/RSI 等是遞迴計算（EMA 從起點累積），若只用短區間會暖身不足而失真，
-  // 也會與個股頁卡片（用完整 K 線算）的 MACD 狀態對不上。用完整資料算可確保一致。
-  const maData = useMemo(() => ({
-    ma5: calculateMAValues(chartData, 5).slice(startIdx),
-    ma10: calculateMAValues(chartData, 10).slice(startIdx),
-    ma20: calculateMAValues(chartData, 20).slice(startIdx),
-    ma60: calculateMAValues(chartData, 60).slice(startIdx),
-  }), [chartData, startIdx])
-
-  const bbData = useMemo(() => calculateBBANDValues(chartData, 20, 2).slice(startIdx), [chartData, startIdx])
-  const macdData = useMemo(() => calculateMACDValues(chartData).slice(startIdx), [chartData, startIdx])
-  const kdData = useMemo(() => calculateKDValues(chartData).slice(startIdx), [chartData, startIdx])
-  const rsiData = useMemo(() => calculateRSIValues(chartData).slice(startIdx), [chartData, startIdx])
-
-  // 當沖比例（%）：僅個股帶當沖量；大盤無。非遞迴指標，直接用顯示區間計算
   const hasDayTrade = useMemo(() => data.some((d) => d.day_trading_volume != null), [data])
-  const dayTradeData = useMemo(
-    () => displayData.map((d) => (d.day_trading_volume != null && d.volume > 0 ? (d.day_trading_volume / d.volume) * 100 : null)),
-    [displayData]
+
+  // 指標一律用完整資料算（暖身足夠、與卡片一致）
+  const ma = useMemo(() => ({
+    ma5: calculateMAValues(chartData, 5),
+    ma10: calculateMAValues(chartData, 10),
+    ma20: calculateMAValues(chartData, 20),
+    ma60: calculateMAValues(chartData, 60),
+  }), [chartData])
+  const bb = useMemo(() => calculateBBANDValues(chartData, 20, 2), [chartData])
+  const macd = useMemo(() => calculateMACDValues(chartData), [chartData])
+  const kd = useMemo(() => calculateKDValues(chartData), [chartData])
+  const rsi = useMemo(() => calculateRSIValues(chartData), [chartData])
+  const dayTrade = useMemo(
+    () => chartData.map((d) => (d.day_trading_volume != null && d.volume > 0 ? (d.day_trading_volume / d.volume) * 100 : null)),
+    [chartData]
+  )
+
+  const activeIndicators = useMemo(
+    () => indicators.filter((i) => i !== 'daytrade' || hasDayTrade).slice(0, MAX_INDICATORS),
+    [indicators, hasDayTrade]
   )
 
   useEffect(() => {
-    if (!mainChartRef.current || !volumeChartRef.current || !indicatorChartRef.current || displayData.length === 0) return
+    if (!priceRef.current || chartData.length === 0) return
 
-    const mainHeight = Math.floor(height * 0.55)
-    const volumeHeight = Math.floor(height * 0.15)
-    const indicatorHeight = Math.floor(height * 0.25)
+    const numInd = activeIndicators.length
+    const pRatio = priceRatio(numInd, preset)
+    const priceH = numInd === 0 ? height : Math.round(height * pRatio)
+    const indH = numInd === 0 ? 0 : Math.floor((height - priceH) / numInd)
 
-    const commonLayout = {
-      background: { type: ColorType.Solid, color: '#1a1a2e' },
-      textColor: '#a0a0a0',
-      fontSize: 16,
+    const layout = { background: { type: ColorType.Solid, color: BG }, textColor: TEXT, fontSize: 12 }
+    const grid = { vertLines: { color: GRID }, horzLines: { color: GRID } }
+    const crosshair = {
+      mode: 1 as const,
+      vertLine: { color: '#5b616e', width: 1 as const, style: 3 as const, labelBackgroundColor: '#363a45' },
+      horzLine: { color: '#5b616e', width: 1 as const, style: 3 as const, labelBackgroundColor: '#363a45' },
     }
-    const commonGrid = {
-      vertLines: { color: '#2a2a3e' },
-      horzLines: { color: '#2a2a3e' },
+    const commonScale = { borderColor: BORDER, minimumWidth: AXIS_WIDTH }
+
+    const charts: IChartApi[] = []
+    const primarySeries: ISeriesApi<'Candlestick' | 'Line' | 'Histogram'>[] = []
+    const bottomIdx = numInd // 最後一張（顯示時間軸）
+
+    // ===== 主圖：K線 + 均線 + 布林 + 成交量（底部半透明疊加）=====
+    const priceChart = createChart(priceRef.current, {
+      layout, width: priceRef.current.clientWidth, height: priceH, grid, crosshair,
+      rightPriceScale: { ...commonScale, scaleMargins: { top: 0.06, bottom: 0.02 } },
+      timeScale: { borderColor: BORDER, timeVisible: true, rightOffset: 6, barSpacing: 8, visible: numInd === 0 },
+      handleScroll: true, handleScale: true,
+    })
+    charts.push(priceChart)
+
+    const volSeries = priceChart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false })
+    volSeries.setData(chartData.map((d) => ({ time: d.date as Time, value: d.volume, color: d.close >= d.open ? '#ef444440' : '#22c55e40' })))
+    volSeries.applyOptions({ visible: showVolume })
+    volRef.current = volSeries
+    priceChart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 }, visible: false })
+
+    const candle = priceChart.addCandlestickSeries({
+      upColor: '#ef4444', downColor: '#22c55e', borderUpColor: '#ef4444', borderDownColor: '#22c55e', wickUpColor: '#ef4444', wickDownColor: '#22c55e',
+      lastValueVisible: true, priceLineVisible: true, priceLineColor: '#5b616e', priceLineStyle: 2, priceLineWidth: 1,
+    })
+    candle.setData(chartData.map((d) => ({ time: d.date as Time, open: d.open, high: d.high, low: d.low, close: d.close })))
+    primarySeries.push(candle)
+
+    const mkLine = (color: string, style = 0, visible = true) =>
+      priceChart.addLineSeries({ color, lineWidth: 1, lineStyle: style, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, visible })
+    const bbU = mkLine('#f472b6', 0, showBB); bbU.setData(bbandLine(chartData, bb, 'upper')); bbRefs.current.upper = bbU
+    const bbM = mkLine('#a78bfa', 2, showBB); bbM.setData(bbandLine(chartData, bb, 'middle')); bbRefs.current.middle = bbM
+    const bbL = mkLine('#f472b6', 0, showBB); bbL.setData(bbandLine(chartData, bb, 'lower')); bbRefs.current.lower = bbL
+
+    const mkMA = (values: (number | null)[], color: string, visible: boolean) => {
+      const s = mkLine(color, 0, visible); s.setData(toLineData(chartData, values)); return s
     }
+    maRefs.current.ma5 = mkMA(ma.ma5, '#f59e0b', showMA5)
+    maRefs.current.ma10 = mkMA(ma.ma10, '#3b82f6', showMA10)
+    maRefs.current.ma20 = mkMA(ma.ma20, '#ec4899', showMA20)
+    maRefs.current.ma60 = mkMA(ma.ma60, '#8b5cf6', showMA60)
 
-    // ========== 主圖 (K線 + MA + 布林) ==========
-    const mainChart = createChart(mainChartRef.current, {
-      layout: commonLayout,
-      width: mainChartRef.current.clientWidth,
-      height: mainHeight,
-      grid: commonGrid,
-      crosshair: {
-        mode: 1,
-        vertLine: { color: '#505070', width: 1, style: 2 },
-        horzLine: { color: '#505070', width: 1, style: 2 },
-      },
-      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
-      timeScale: {
-        borderColor: '#3a3a4e',
-        timeVisible: true,
-        visible: false,
-        rightOffset: 5,
-        fixLeftEdge: true,
-        fixRightEdge: true,
-      },
-      handleScroll: false,
-      handleScale: false,
-    })
+    // ===== 指標子圖（各一張，軸乾淨、可縮放）=====
+    activeIndicators.forEach((ind, i) => {
+      const el = indicatorRefs.current[i]
+      if (!el) return
+      const isBottom = i + 1 === bottomIdx
+      const ch = createChart(el, {
+        layout, width: el.clientWidth, height: indH, grid, crosshair,
+        rightPriceScale: { ...commonScale, scaleMargins: { top: 0.12, bottom: 0.1 } },
+        timeScale: { borderColor: BORDER, timeVisible: true, rightOffset: 6, barSpacing: 8, visible: isBottom },
+        handleScroll: true, handleScale: true,
+      })
+      charts.push(ch)
 
-    const candleSeries = mainChart.addCandlestickSeries({
-      upColor: '#ef4444',
-      downColor: '#22c55e',
-      borderUpColor: '#ef4444',
-      borderDownColor: '#22c55e',
-      wickUpColor: '#ef4444',
-      wickDownColor: '#22c55e',
-      lastValueVisible: false,
-      priceLineVisible: false,
-    })
-    const candleData: CandlestickData[] = displayData.map(item => ({
-      time: item.date,
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-    }))
-    candleSeries.setData(candleData)
-
-    // 布林通道（先加，讓 K 線畫在上層）
-    const bbUpper = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
-    bbUpper.setData(bbandLine(displayData, bbData, 'upper'))
-    bbUpperRef.current = bbUpper
-    const bbMiddle = mainChart.addLineSeries({ color: '#a78bfa', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
-    bbMiddle.setData(bbandLine(displayData, bbData, 'middle'))
-    bbMiddleRef.current = bbMiddle
-    const bbLower = mainChart.addLineSeries({ color: '#f472b6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showBB, crosshairMarkerVisible: false })
-    bbLower.setData(bbandLine(displayData, bbData, 'lower'))
-    bbLowerRef.current = bbLower
-
-    // MA 線
-    const ma5 = mainChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA5 })
-    ma5.setData(toLineData(displayData, maData.ma5))
-    ma5SeriesRef.current = ma5
-
-    const ma10 = mainChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA10 })
-    ma10.setData(toLineData(displayData, maData.ma10))
-    ma10SeriesRef.current = ma10
-
-    const ma20 = mainChart.addLineSeries({ color: '#ec4899', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA20 })
-    ma20.setData(toLineData(displayData, maData.ma20))
-    ma20SeriesRef.current = ma20
-
-    const ma60 = mainChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, visible: showMA60 })
-    ma60.setData(toLineData(displayData, maData.ma60))
-    ma60SeriesRef.current = ma60
-
-    // ========== 成交量圖 ==========
-    const volumeChart = createChart(volumeChartRef.current, {
-      layout: commonLayout,
-      width: volumeChartRef.current.clientWidth,
-      height: volumeHeight,
-      grid: commonGrid,
-      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
-      timeScale: { borderColor: '#3a3a4e', visible: false, fixLeftEdge: true, fixRightEdge: true },
-      handleScroll: false,
-      handleScale: false,
-    })
-    const volumeSeries = volumeChart.addHistogramSeries({
-      priceFormat: { type: 'volume' },
-      lastValueVisible: false,
-    })
-    const volumeData: HistogramData[] = displayData.map(item => ({
-      time: item.date,
-      value: item.volume,
-      color: item.close >= item.open ? '#ef444480' : '#22c55e80',
-    }))
-    volumeSeries.setData(volumeData)
-
-    // ========== 副圖指標 ==========
-    const indicatorChart = createChart(indicatorChartRef.current, {
-      layout: commonLayout,
-      width: indicatorChartRef.current.clientWidth,
-      height: indicatorHeight,
-      grid: commonGrid,
-      rightPriceScale: { borderColor: '#3a3a4e', minimumWidth: 68 },
-      timeScale: { borderColor: '#3a3a4e', timeVisible: true, fixLeftEdge: true, fixRightEdge: true },
-      handleScroll: false,
-      handleScale: false,
-    })
-
-    if (indicator === 'macd') {
-      const hist = indicatorChart.addHistogramSeries({ priceFormat: { type: 'price', precision: 2 }, lastValueVisible: false, priceLineVisible: false })
-      hist.setData(displayData.map((d, i) => ({
-        time: d.date,
-        value: macdData[i]?.histogram ?? 0,
-        color: (macdData[i]?.histogram ?? 0) >= 0 ? '#ef444480' : '#22c55e80',
-      })).filter((_, i) => macdData[i]))
-      const dif = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      dif.setData(toLineData(displayData, macdData.map(m => m?.dif ?? null)))
-      const macd = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      macd.setData(toLineData(displayData, macdData.map(m => m?.macd ?? null)))
-    } else if (indicator === 'kd') {
-      const kLine = indicatorChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      kLine.setData(toLineData(displayData, kdData.map(v => v?.k ?? null)))
-      const dLine = indicatorChart.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      dLine.setData(toLineData(displayData, kdData.map(v => v?.d ?? null)))
-      addBandLines(indicatorChart, displayData, 80, 20)
-    } else if (indicator === 'rsi') {
-      const rsiLine = indicatorChart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      rsiLine.setData(toLineData(displayData, rsiData))
-      addBandLines(indicatorChart, displayData, 70, 30)
-    } else if (indicator === 'daytrade') {
-      // 當沖比例（%）長條，青色呼應主圖 overlay 的「沖」
-      const dt = indicatorChart.addHistogramSeries({ priceFormat: { type: 'price', precision: 1 }, lastValueVisible: false, priceLineVisible: false })
-      dt.setData(
-        displayData
-          .map((d, i) => ({ time: d.date, value: dayTradeData[i] ?? 0, color: '#06b6d480' }))
-          .filter((_, i) => dayTradeData[i] != null)
-      )
-    }
-
-    // 十字線同步
-    volumeChart.subscribeCrosshairMove(param => {
-      if (param.time) mainChart.setCrosshairPosition(0, param.time, candleSeries)
-    })
-    indicatorChart.subscribeCrosshairMove(param => {
-      if (param.time) mainChart.setCrosshairPosition(0, param.time, candleSeries)
-    })
-    mainChart.subscribeCrosshairMove(param => {
-      if (param.time) {
-        const idx = displayData.findIndex(d => d.date === param.time)
-        setCrosshairIndex(idx)
+      let primary: ISeriesApi<'Line' | 'Histogram'>
+      if (ind === 'macd') {
+        const hist = ch.addHistogramSeries({ priceFormat: { type: 'price', precision: 2 }, lastValueVisible: false, priceLineVisible: false })
+        hist.setData(chartData.map((d, k) => ({ time: d.date as Time, value: macd[k]?.histogram ?? 0, color: (macd[k]?.histogram ?? 0) >= 0 ? '#ef444488' : '#22c55e88' })).filter((_, k) => macd[k]))
+        const dif = ch.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+        dif.setData(toLineData(chartData, macd.map((m) => m?.dif ?? null)))
+        const dea = ch.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+        dea.setData(toLineData(chartData, macd.map((m) => m?.macd ?? null)))
+        primary = hist
+      } else if (ind === 'kd') {
+        const k = ch.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+        k.setData(toLineData(chartData, kd.map((v) => v?.k ?? null)))
+        const d = ch.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+        d.setData(toLineData(chartData, kd.map((v) => v?.d ?? null)))
+        addBandLines(ch, chartData, 80, 20)
+        primary = k
+      } else if (ind === 'rsi') {
+        const r = ch.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+        r.setData(toLineData(chartData, rsi))
+        addBandLines(ch, chartData, 70, 30)
+        primary = r
       } else {
-        setCrosshairIndex(-1)
+        const dt = ch.addHistogramSeries({ priceFormat: { type: 'price', precision: 1 }, lastValueVisible: false, priceLineVisible: false })
+        dt.setData(chartData.map((d, k) => ({ time: d.date as Time, value: dayTrade[k] ?? 0, color: '#06b6d488' })).filter((_, k) => dayTrade[k] != null))
+        primary = dt
       }
+      primarySeries.push(primary)
     })
 
-    mainChart.timeScale().fitContent()
-    volumeChart.timeScale().fitContent()
-    indicatorChart.timeScale().fitContent()
+    // ===== 初始可視範圍（用邏輯索引，穩定不受非交易日字串影響）=====
+    const lastDate = chartData[chartData.length - 1].date
+    const cutoff = new Date(new Date(lastDate).getTime() - periodCalendarDays[datePeriod] * 86400000).toISOString().slice(0, 10)
+    let startIdx = chartData.findIndex((d) => d.date >= cutoff)
+    if (startIdx < 0) startIdx = 0
+    const logical = { from: startIdx - 0.5, to: chartData.length - 1 + 6 }
+    charts.forEach((c) => c.timeScale().setVisibleLogicalRange(logical))
 
-    // 同步三個圖表的右側價格軸寬度，讓繪圖區左右邊界一致，X 軸（時間）才能對齊
-    const allCharts = [mainChart, volumeChart, indicatorChart]
-    const syncPriceScaleWidth = () => {
-      try {
-        const maxW = Math.max(...allCharts.map((c) => c.priceScale('right').width()))
-        if (maxW > 0) {
-          allCharts.forEach((c) => c.priceScale('right').applyOptions({ minimumWidth: maxW }))
-        }
-      } catch {
-        // 圖表可能已被 remove，忽略
-      }
-    }
-
-    // 事件驅動同步（取代先前多個 setTimeout 猜 layout 時機，避免極慢裝置/字型晚載時漏對齊）：
-    // 1) 首次繪製後、2) 字型載入完成（數字寬度會變）、3) 容器尺寸變化（視窗縮放、側邊欄收合）
-    requestAnimationFrame(syncPriceScaleWidth)
-    if (typeof document !== 'undefined' && document.fonts?.ready) {
-      document.fonts.ready.then(() => requestAnimationFrame(syncPriceScaleWidth)).catch(() => {})
-    }
-
-    // ResizeObserver 監聽容器：涵蓋視窗縮放、側邊欄收合等容器尺寸變化，並在首次 observe 時觸發一次
-    const resizeObserver = new ResizeObserver(() => {
-      if (mainChartRef.current) {
-        const w = mainChartRef.current.clientWidth
-        mainChart.applyOptions({ width: w })
-        volumeChart.applyOptions({ width: w })
-        indicatorChart.applyOptions({ width: w })
-      }
-      requestAnimationFrame(syncPriceScaleWidth)
+    // ===== 同步：可視範圍（縮放/平移）=====
+    let rangeSyncing = false
+    charts.forEach((src) => {
+      src.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (rangeSyncing || !range) return
+        rangeSyncing = true
+        charts.forEach((c) => { if (c !== src) c.timeScale().setVisibleLogicalRange(range) })
+        rangeSyncing = false
+      })
     })
-    if (mainChartRef.current) resizeObserver.observe(mainChartRef.current)
+
+    // ===== 同步：十字線 + 讀值 =====
+    let chSyncing = false
+    charts.forEach((src, si) => {
+      src.subscribeCrosshairMove((param) => {
+        setCrosshairTime(param.time ? String(param.time) : null)
+        if (chSyncing) return
+        chSyncing = true
+        charts.forEach((c, ci) => {
+          if (ci === si) return
+          if (param.time) c.setCrosshairPosition(0, param.time, primarySeries[ci])
+          else c.clearCrosshairPosition()
+        })
+        chSyncing = false
+      })
+    })
+
+    // ===== 寬度隨容器變化 =====
+    const ro = new ResizeObserver(() => {
+      const w = priceRef.current?.clientWidth
+      if (w) charts.forEach((c) => c.applyOptions({ width: w }))
+    })
+    if (priceRef.current) ro.observe(priceRef.current)
 
     return () => {
-      resizeObserver.disconnect()
-      ma5SeriesRef.current = null
-      ma10SeriesRef.current = null
-      ma20SeriesRef.current = null
-      ma60SeriesRef.current = null
-      bbUpperRef.current = null
-      bbMiddleRef.current = null
-      bbLowerRef.current = null
-      mainChart.remove()
-      volumeChart.remove()
-      indicatorChart.remove()
+      ro.disconnect()
+      maRefs.current = {}
+      bbRefs.current = {}
+      volRef.current = null
+      charts.forEach((c) => c.remove())
     }
-  }, [displayData, indicator, height, maData, bbData, macdData, kdData, rsiData, dayTradeData, showBB, showMA5, showMA10, showMA20, showMA60, volumeFormatter])
+  }, [chartData, height, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi, dayTrade]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 控制 MA / 布林 顯示（避免重建圖表）
-  useEffect(() => { ma5SeriesRef.current?.applyOptions({ visible: showMA5 }) }, [showMA5])
-  useEffect(() => { ma10SeriesRef.current?.applyOptions({ visible: showMA10 }) }, [showMA10])
-  useEffect(() => { ma20SeriesRef.current?.applyOptions({ visible: showMA20 }) }, [showMA20])
-  useEffect(() => { ma60SeriesRef.current?.applyOptions({ visible: showMA60 }) }, [showMA60])
+  // 顯示/隱藏（免重建）
+  useEffect(() => { maRefs.current.ma5?.applyOptions({ visible: showMA5 }) }, [showMA5])
+  useEffect(() => { maRefs.current.ma10?.applyOptions({ visible: showMA10 }) }, [showMA10])
+  useEffect(() => { maRefs.current.ma20?.applyOptions({ visible: showMA20 }) }, [showMA20])
+  useEffect(() => { maRefs.current.ma60?.applyOptions({ visible: showMA60 }) }, [showMA60])
   useEffect(() => {
-    bbUpperRef.current?.applyOptions({ visible: showBB })
-    bbMiddleRef.current?.applyOptions({ visible: showBB })
-    bbLowerRef.current?.applyOptions({ visible: showBB })
+    bbRefs.current.upper?.applyOptions({ visible: showBB })
+    bbRefs.current.middle?.applyOptions({ visible: showBB })
+    bbRefs.current.lower?.applyOptions({ visible: showBB })
   }, [showBB])
+  useEffect(() => { volRef.current?.applyOptions({ visible: showVolume }) }, [showVolume])
 
-  const cur = crosshairIndex >= 0 ? displayData[crosshairIndex] : null
-  // 漲跌以「前一根收盤」為基準（標準漲跌幅），首根則退回以當根開盤計
-  const prevClose = cur ? (crosshairIndex > 0 ? displayData[crosshairIndex - 1].close : cur.open) : 0
-  const curChg = cur ? cur.close - prevClose : 0
-  const curChgPct = prevClose ? (curChg / prevClose) * 100 : 0
-  const curUp = curChg >= 0
+  const toggleIndicator = (ind: Indicator) => {
+    setIndicators((prev) => {
+      if (prev.includes(ind)) return prev.filter((i) => i !== ind)
+      if (prev.length >= MAX_INDICATORS) return [...prev.slice(1), ind]
+      return [...prev, ind]
+    })
+  }
+
+  const curIndex = crosshairTime ? chartData.findIndex((d) => d.date === crosshairTime) : chartData.length - 1
+  const cur = curIndex >= 0 ? chartData[curIndex] : null
+  const prevClose = cur ? (curIndex > 0 ? chartData[curIndex - 1].close : cur.open) : 0
+  const chg = cur ? cur.close - prevClose : 0
+  const chgPct = prevClose ? (chg / prevClose) * 100 : 0
+  const up = chg >= 0
+
+  const btn = (active: boolean) =>
+    `px-2 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
 
   return (
-    <div className="bg-[#1a1a2e] rounded-lg p-2 md:p-4">
+    <div className="bg-[#131722] rounded-lg p-2 md:p-3">
       {/* 控制列 */}
-      <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-3 md:mb-4">
-        <div className="flex flex-wrap items-center gap-2 md:gap-4">
-          {/* 時間週期 */}
-          <div className="flex gap-1 md:gap-2">
-            {[
-              { key: 'day', label: '日K' },
-              { key: 'week', label: '週K' },
-              { key: 'month', label: '月K' },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setTimeFrame(key as TimeFrame)}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-sm md:text-base font-medium rounded min-h-[36px] ${
-                  timeFrame === key ? 'bg-blue-600 text-white' : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
-                }`}
-              >
-                {label}
-              </button>
+      <div className="flex flex-col gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-1.5 md:gap-3">
+          <div className="flex gap-1">
+            {([['day', '日K'], ['week', '週K'], ['month', '月K']] as [TimeFrame, string][]).map(([k, l]) => (
+              <button key={k} onClick={() => setTimeFrame(k)} className={btn(timeFrame === k)}>{l}</button>
             ))}
           </div>
-          {/* 日期區間 */}
-          <div className="flex gap-1 md:gap-2">
-            {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map(period => (
-              <button
-                key={period}
-                onClick={() => setDatePeriod(period)}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-sm md:text-base font-medium rounded min-h-[36px] ${
-                  datePeriod === period ? 'bg-green-600 text-white' : 'bg-[#2a2a3e] text-white hover:bg-[#3a3a4e]'
-                }`}
-              >
-                {period}
-              </button>
+          <div className="flex gap-1">
+            {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map((p) => (
+              <button key={p} onClick={() => setDatePeriod(p)} className={btn(datePeriod === p)}>{p}</button>
             ))}
           </div>
-          {/* 副圖指標 */}
-          <div className="flex items-center gap-1 md:gap-2">
-            <span className="text-white text-sm md:text-base hidden md:inline">指標:</span>
-            <select
-              value={indicator}
-              onChange={(e) => setIndicator(e.target.value as Indicator)}
-              className="bg-[#2a2a3e] text-white text-sm md:text-base font-medium rounded px-2 py-1 md:py-1.5 border border-[#3a3a4e] min-h-[36px]"
-            >
-              <option value="macd">MACD</option>
-              <option value="kd">KD</option>
-              <option value="rsi">RSI</option>
-              {hasDayTrade && <option value="daytrade">當沖比例</option>}
+          <div className="flex items-center gap-1 md:ml-auto">
+            <span className="text-gray-400 text-xs hidden md:inline">版面</span>
+            <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[34px]">
+              <option value="price">價格為主</option>
+              <option value="balanced">均衡</option>
+              <option value="indicator">指標為主</option>
             </select>
           </div>
         </div>
 
-        {/* MA + 布林 勾選 */}
-        <div className="flex flex-wrap items-center gap-2 md:gap-3 md:ml-auto">
-          {[
-            { on: showMA5, set: setShowMA5, label: 'MA5', color: 'accent-amber-500', text: 'text-amber-400' },
-            { on: showMA10, set: setShowMA10, label: 'MA10', color: 'accent-blue-500', text: 'text-blue-400' },
-            { on: showMA20, set: setShowMA20, label: 'MA20', color: 'accent-pink-500', text: 'text-pink-400' },
-            { on: showMA60, set: setShowMA60, label: 'MA60', color: 'accent-purple-500', text: 'text-purple-400' },
-          ].map(({ on, set, label, color, text }) => (
-            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[36px]">
-              <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className={`w-4 h-4 ${color}`} />
-              <span className={`${text} text-xs md:text-sm`}>{label}</span>
+        <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+          <span className="text-gray-400 text-xs">指標</span>
+          {(['macd', 'kd', 'rsi', 'daytrade'] as Indicator[]).filter((i) => i !== 'daytrade' || hasDayTrade).map((ind) => {
+            const active = activeIndicators.includes(ind)
+            return (
+              <button key={ind} onClick={() => toggleIndicator(ind)} className={`px-2 py-1 text-xs md:text-sm rounded border min-h-[30px] ${active ? 'bg-blue-600/90 text-white border-blue-500' : 'bg-transparent text-gray-300 border-[#2d323f] hover:bg-[#232733]'}`}>
+                {INDICATOR_LABELS[ind]}
+              </button>
+            )
+          })}
+          <span className="text-gray-600 text-xs">（最多 2）</span>
+
+          <span className="text-gray-400 text-xs ml-2">疊加</span>
+          {([['MA5', showMA5, setShowMA5, 'text-amber-400'], ['MA10', showMA10, setShowMA10, 'text-blue-400'], ['MA20', showMA20, setShowMA20, 'text-pink-400'], ['MA60', showMA60, setShowMA60, 'text-purple-400']] as [string, boolean, (v: boolean) => void, string][]).map(([label, on, set, color]) => (
+            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[30px]">
+              <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="w-3.5 h-3.5" />
+              <span className={`${color} text-xs`}>{label}</span>
             </label>
           ))}
-          <label className="flex items-center gap-1 cursor-pointer min-h-[36px]">
-            <input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} className="w-4 h-4 accent-fuchsia-500" />
-            <span className="text-fuchsia-400 text-xs md:text-sm">布林</span>
+          <label className="flex items-center gap-1 cursor-pointer min-h-[30px]">
+            <input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} className="w-3.5 h-3.5" />
+            <span className="text-fuchsia-400 text-xs">布林</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer min-h-[30px]">
+            <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="w-3.5 h-3.5" />
+            <span className="text-gray-300 text-xs">量</span>
           </label>
         </div>
       </div>
 
-      {/* 圖表區 */}
+      {/* 圖表 + 左上讀值 */}
       <div className="relative">
         {cur && (
-          <div className="absolute top-2 left-2 z-10 text-white text-base font-mono bg-[#1a1a2e]/80 px-2 py-1 rounded">
-            {/* 永遠精簡：只留 日期・收盤(含漲跌%)・量；開高低與當沖移至他處，避免資訊過載 */}
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span>{cur.date}</span>
-              <span>收 <span className={curUp ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span>
-                <span className={curUp ? 'text-red-400' : 'text-green-400'}> {curUp ? '+' : ''}{curChg.toFixed(2)} ({curUp ? '+' : ''}{curChgPct.toFixed(2)}%)</span>
+          <div className="absolute top-1 left-2 z-10 text-xs md:text-sm font-mono bg-[#131722]/85 px-2 py-0.5 rounded pointer-events-none">
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-300">
+              <span className="text-gray-400">{cur.date}</span>
+              <span>收 <span className={up ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span>
+                <span className={up ? 'text-red-400' : 'text-green-400'}> {up ? '+' : ''}{chg.toFixed(2)} ({up ? '+' : ''}{chgPct.toFixed(2)}%)</span>
               </span>
               <span>量 <span className="text-gray-300">{volumeFormatter(cur.volume)}</span></span>
-            </div>
-            <div className="flex flex-wrap gap-x-4 mt-1">
-              {showMA5 && maData.ma5[crosshairIndex] != null && <span className="text-amber-400">MA5 {maData.ma5[crosshairIndex]!.toFixed(2)}</span>}
-              {showMA10 && maData.ma10[crosshairIndex] != null && <span className="text-blue-400">MA10 {maData.ma10[crosshairIndex]!.toFixed(2)}</span>}
-              {showMA20 && maData.ma20[crosshairIndex] != null && <span className="text-pink-400">MA20 {maData.ma20[crosshairIndex]!.toFixed(2)}</span>}
-              {showMA60 && maData.ma60[crosshairIndex] != null && <span className="text-purple-400">MA60 {maData.ma60[crosshairIndex]!.toFixed(2)}</span>}
-              {showBB && bbData[crosshairIndex] && (
-                <>
-                  <span className="text-fuchsia-300">BB上 {bbData[crosshairIndex]!.upper.toFixed(2)}</span>
-                  <span className="text-violet-300">BB中 {bbData[crosshairIndex]!.middle.toFixed(2)}</span>
-                  <span className="text-fuchsia-300">BB下 {bbData[crosshairIndex]!.lower.toFixed(2)}</span>
-                </>
+              {(showMA5 && ma.ma5[curIndex] != null) && <span className="text-amber-400">MA5 {ma.ma5[curIndex]!.toFixed(1)}</span>}
+              {(showMA10 && ma.ma10[curIndex] != null) && <span className="text-blue-400">MA10 {ma.ma10[curIndex]!.toFixed(1)}</span>}
+              {(showMA20 && ma.ma20[curIndex] != null) && <span className="text-pink-400">MA20 {ma.ma20[curIndex]!.toFixed(1)}</span>}
+              {(showMA60 && ma.ma60[curIndex] != null) && <span className="text-purple-400">MA60 {ma.ma60[curIndex]!.toFixed(1)}</span>}
+              {(showBB && bb[curIndex]) && <span className="text-fuchsia-300">BB {bb[curIndex]!.upper.toFixed(0)}/{bb[curIndex]!.middle.toFixed(0)}/{bb[curIndex]!.lower.toFixed(0)}</span>}
+              {activeIndicators.includes('macd') && macd[curIndex] && (
+                <span><span className="text-gray-500">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
               )}
-            </div>
-            <div className="flex flex-wrap gap-x-4 mt-1">
-              {indicator === 'macd' && macdData[crosshairIndex] && (
-                <>
-                  <span className="text-blue-400">DIF {macdData[crosshairIndex]!.dif.toFixed(2)}</span>
-                  <span className="text-orange-400">MACD {macdData[crosshairIndex]!.macd.toFixed(2)}</span>
-                  <span className={macdData[crosshairIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>柱 {macdData[crosshairIndex]!.histogram.toFixed(2)}</span>
-                </>
+              {activeIndicators.includes('kd') && kd[curIndex] && (
+                <span><span className="text-gray-500">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
               )}
-              {indicator === 'kd' && kdData[crosshairIndex] && (
-                <>
-                  <span className="text-blue-400">K {kdData[crosshairIndex]!.k.toFixed(2)}</span>
-                  <span className="text-orange-400">D {kdData[crosshairIndex]!.d.toFixed(2)}</span>
-                </>
+              {activeIndicators.includes('rsi') && rsi[curIndex] != null && (
+                <span><span className="text-gray-500">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
               )}
-              {indicator === 'rsi' && rsiData[crosshairIndex] != null && (
-                <span className="text-purple-400">RSI {rsiData[crosshairIndex]!.toFixed(2)}</span>
-              )}
-              {indicator === 'daytrade' && dayTradeData[crosshairIndex] != null && (
-                <span className="text-cyan-400">當沖 {dayTradeData[crosshairIndex]!.toFixed(1)}%</span>
+              {activeIndicators.includes('daytrade') && dayTrade[curIndex] != null && (
+                <span><span className="text-gray-500">當沖</span> <span className="text-cyan-400">{dayTrade[curIndex]!.toFixed(1)}%</span></span>
               )}
             </div>
           </div>
         )}
-        <div ref={mainChartRef} />
+        <div ref={priceRef} />
+        {activeIndicators.map((ind, i) => (
+          <div key={ind} ref={(el) => { indicatorRefs.current[i] = el }} className="mt-px" />
+        ))}
       </div>
-      <div ref={volumeChartRef} className="mt-1" />
-      <div ref={indicatorChartRef} className="mt-1" />
     </div>
   )
 }
 
 // ========== 工具函數 ==========
 
-// 超買/超賣水平線
+// 指標超買/超賣參考線
 function addBandLines(chart: IChartApi, data: ChartCandle[], upper: number, lower: number) {
-  const ob = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, lastValueVisible: false, crosshairMarkerVisible: false })
-  const os = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2, lastValueVisible: false, crosshairMarkerVisible: false })
-  ob.setData(data.map(d => ({ time: d.date, value: upper })))
-  os.setData(data.map(d => ({ time: d.date, value: lower })))
+  const ob = chart.addLineSeries({ color: '#ef444455', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+  const os = chart.addLineSeries({ color: '#22c55e55', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
+  ob.setData(data.map((d) => ({ time: d.date as Time, value: upper })))
+  os.setData(data.map((d) => ({ time: d.date as Time, value: lower })))
 }
 
 // 日K → 週K / 月K 聚合（保留額外欄位，OHLCV 正確聚合）
 function convertToTimeFrame(data: ChartCandle[], timeFrame: TimeFrame): ChartCandle[] {
   if (timeFrame === 'day') return data
-
   const grouped: { [key: string]: ChartCandle[] } = {}
-  data.forEach(item => {
+  data.forEach((item) => {
     const date = new Date(item.date)
     let key: string
     if (timeFrame === 'week') {
@@ -498,13 +395,12 @@ function convertToTimeFrame(data: ChartCandle[], timeFrame: TimeFrame): ChartCan
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(item)
   })
-
   return Object.entries(grouped).map(([date, items]) => ({
-    ...items[items.length - 1], // 保留額外欄位（法人等，取區間最後一筆）
+    ...items[items.length - 1],
     date,
     open: items[0].open,
-    high: Math.max(...items.map(i => i.high)),
-    low: Math.min(...items.map(i => i.low)),
+    high: Math.max(...items.map((i) => i.high)),
+    low: Math.min(...items.map((i) => i.low)),
     close: items[items.length - 1].close,
     volume: items.reduce((sum, i) => sum + i.volume, 0),
     day_trading_volume: items.reduce((sum, i) => sum + (i.day_trading_volume || 0), 0),
