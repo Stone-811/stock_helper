@@ -164,29 +164,31 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       charts.push(ch)
 
       let primary: ISeriesApi<'Line' | 'Histogram'>
+      // ⚠️ 所有指標系列一律「保留完整時間軸」（暖身期用 whitespace {time} 佔位、不濾掉），
+      //   讓每張子圖的時間軸起點都與主圖一致；否則各圖 logical index 錯位 → K 棒與指標柱對不上。
       if (ind === 'macd') {
         const hist = ch.addHistogramSeries({ priceFormat: { type: 'price', precision: 2 }, lastValueVisible: false, priceLineVisible: false })
-        hist.setData(chartData.map((d, k) => ({ time: d.date as Time, value: macd[k]?.histogram ?? 0, color: (macd[k]?.histogram ?? 0) >= 0 ? '#ef444488' : '#22c55e88' })).filter((_, k) => macd[k]))
+        hist.setData(chartData.map((d, k) => macd[k] ? { time: d.date as Time, value: macd[k]!.histogram, color: macd[k]!.histogram >= 0 ? '#ef444488' : '#22c55e88' } : { time: d.date as Time }))
         const dif = ch.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
-        dif.setData(toLineData(chartData, macd.map((m) => m?.dif ?? null)))
+        dif.setData(toLineWS(chartData, macd.map((m) => m?.dif ?? null)))
         const dea = ch.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
-        dea.setData(toLineData(chartData, macd.map((m) => m?.macd ?? null)))
+        dea.setData(toLineWS(chartData, macd.map((m) => m?.macd ?? null)))
         primary = hist
       } else if (ind === 'kd') {
         const k = ch.addLineSeries({ color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
-        k.setData(toLineData(chartData, kd.map((v) => v?.k ?? null)))
+        k.setData(toLineWS(chartData, kd.map((v) => v?.k ?? null)))
         const d = ch.addLineSeries({ color: '#f97316', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
-        d.setData(toLineData(chartData, kd.map((v) => v?.d ?? null)))
+        d.setData(toLineWS(chartData, kd.map((v) => v?.d ?? null)))
         addBandLines(ch, chartData, 80, 20)
         primary = k
       } else if (ind === 'rsi') {
         const r = ch.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
-        r.setData(toLineData(chartData, rsi))
+        r.setData(toLineWS(chartData, rsi))
         addBandLines(ch, chartData, 70, 30)
         primary = r
       } else {
         const dt = ch.addHistogramSeries({ priceFormat: { type: 'price', precision: 1 }, lastValueVisible: false, priceLineVisible: false })
-        dt.setData(chartData.map((d, k) => ({ time: d.date as Time, value: dayTrade[k] ?? 0, color: '#06b6d488' })).filter((_, k) => dayTrade[k] != null))
+        dt.setData(chartData.map((d, k) => dayTrade[k] != null ? { time: d.date as Time, value: dayTrade[k]!, color: '#06b6d488' } : { time: d.date as Time }))
         primary = dt
       }
       primarySeries.push(primary)
@@ -368,6 +370,11 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
 }
 
 // ========== 工具函數 ==========
+
+// 折線資料，暖身期(null)以 whitespace {time} 佔位（保留完整時間軸，勿濾掉 → 子圖與主圖同步對齊）
+function toLineWS(data: ChartCandle[], values: (number | null)[]) {
+  return data.map((d, i) => (values[i] != null ? { time: d.date as Time, value: values[i] as number } : { time: d.date as Time }))
+}
 
 // 指標超買/超賣參考線
 function addBandLines(chart: IChartApi, data: ChartCandle[], upper: number, lower: number) {
