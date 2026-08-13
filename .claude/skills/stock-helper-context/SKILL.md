@@ -37,6 +37,14 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 
 **全站置頂搜尋列**：`components/TopBar.tsx` 放進 `MainContent`（每頁皆顯示含首頁，手機左側留 hamburger 空間）。搜尋（代碼/名稱，Server Action `app/actions/stocks.ts::searchStocks`，已同時比對 stock_id 與 stock_name）已從各頁 header 移除、集中於此；**各頁 header 一律改為非 sticky**（原 `sticky top-0 z-10`），避免與置頂列（`sticky top-0 z-30`）雙重固定重疊。
 
+## 前端 UI / RWD 慣例（2026-08-13）
+- **手機版一律用 Tailwind `md:` 斷點做「桌機常駐／手機收合」**（不做 JS 量視窗）：
+  - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值用 `hidden md:contents` 手機隱藏（只留 日期/收/量）。觸控目標 `min-h-[40px] md:min-h-[34/30px]`、checkbox `w-4 h-4 md:w-3.5`。
+  - `StockDetailClient`：三大法人明細手機預設收合（`showInst` state +「展開/收合」鈕 `md:hidden`；grid `${showInst?'grid':'hidden'} md:grid`），卡片 `p-4 md:p-6`。
+  - `Sidebar`：手機標題加 `pl-10` 避開固定在 `top-4 left-4` 的 X 關閉鈕（否則壓到「台」字）。
+  - 首頁 `IndexCard`：`p-4 md:p-6`、值 `text-2xl md:text-3xl`。
+- **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
+
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。
 2. **資料源日期不一致**：個股頁 K 線用 FinMind、法人用 Firestore，兩者「最新日」可能差一天 → 收盤與法人不同日。已修：法人改抓「與 K 線同一天」。
