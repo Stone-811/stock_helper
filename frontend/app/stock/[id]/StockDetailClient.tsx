@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import StockChart from '../../../components/StockChart'
 import InstitutionalChart from '../../../components/InstitutionalChart'
 import AlertButton from '../../../components/AlertButton'
@@ -9,6 +9,12 @@ import type { StockDetailData } from '../../../lib/stock-data'
 
 export default function StockDetailClient({ data }: { data: StockDetailData }) {
   const [showInst, setShowInst] = useState(false) // 手機版：三大法人明細收合（桌機恆顯示）
+  const router = useRouter()
+  // 返回「上一頁」（強勢股/選股/自選股/搜尋皆可正確回去）；無瀏覽歷史（直接開個股頁）才退回首頁
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back()
+    else router.push('/')
+  }
   const { latest, history } = data
   const isPositive = latest.close >= latest.open
   const priceChange = latest.close - latest.open
@@ -25,9 +31,9 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <Link href="/" className="text-gray-500 hover:text-gray-700 whitespace-nowrap">
+            <button onClick={handleBack} className="text-gray-500 hover:text-gray-700 whitespace-nowrap">
               ← 返回
-            </Link>
+            </button>
             <h1 className="text-xl font-bold text-gray-800 whitespace-nowrap">
               {data.stock_id}{data.stock_name && data.stock_name !== data.stock_id ? ` ${data.stock_name}` : ''}
             </h1>
