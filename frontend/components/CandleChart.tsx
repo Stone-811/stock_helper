@@ -118,7 +118,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     // ===== 主圖：K線 + 均線 + 布林 + 成交量（底部半透明疊加）=====
     const priceChart = createChart(priceRef.current, {
       layout, width: priceRef.current.clientWidth, height: priceH, grid, crosshair,
-      rightPriceScale: { ...commonScale, scaleMargins: { top: 0.06, bottom: 0.02 } },
+      rightPriceScale: { ...commonScale, scaleMargins: { top: 0.1, bottom: 0.2 } },
       timeScale: { borderColor: BORDER, timeVisible: true, rightOffset: 6, barSpacing: 8, visible: numInd === 0 },
       handleScroll: true, handleScale: true,
     })
