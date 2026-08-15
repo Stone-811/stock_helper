@@ -58,7 +58,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const volRef = useRef<ISeriesApi<'Histogram'> | null>(null)
 
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
-  const [datePeriod, setDatePeriod] = useState<DatePeriod>('6M')
+  const [datePeriod, setDatePeriod] = useState<DatePeriod>('3M')
   const [indicators, setIndicators] = useState<Indicator[]>(['macd'])
   const [preset, setPreset] = useState<LayoutPreset>('balanced')
   const [showMA5, setShowMA5] = useState(true)
