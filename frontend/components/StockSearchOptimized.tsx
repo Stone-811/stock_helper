@@ -102,36 +102,24 @@ export default function StockSearchOptimized() {
 
   return (
     <div className="relative">
-      <div className="flex items-center">
-        <div className="relative">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => query && results.length > 0 && setIsOpen(true)}
-            placeholder="搜尋股票代碼或名稱..."
-            className="w-full md:w-64 px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          {/* 載入指示器 */}
-          {isPending && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => {
-            if (results.length > 0) {
-              handleSelect(results[0])
-            }
-          }}
-          disabled={isPending || results.length === 0}
-          className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          查詢
-        </button>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => query && results.length > 0 && setIsOpen(true)}
+          placeholder="搜尋股票代碼或名稱..."
+          aria-label="搜尋股票代碼或名稱"
+          className="w-full md:w-64 px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+        {/* 載入指示器 */}
+        {isPending && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
       </div>
 
       {/* 搜尋結果下拉選單 */}

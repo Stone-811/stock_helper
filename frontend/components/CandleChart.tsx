@@ -13,7 +13,7 @@ import {
   bbandLine,
 } from '../lib/indicators'
 
-// 個股會多帶當沖量；大盤沒有（可選）
+// 個股會多帶當沖量；大盤沒有（可選）。當沖量保留於資料結構供籌碼區使用，技術圖不再繪製。
 type ChartCandle = Candle & { day_trading_volume?: number }
 
 interface CandleChartProps {
@@ -24,15 +24,14 @@ interface CandleChartProps {
 }
 
 type TimeFrame = 'day' | 'week' | 'month'
-type Indicator = 'macd' | 'kd' | 'rsi' | 'daytrade'
-type DatePeriod = '3M' | '6M' | '1Y' | '2Y'
+type Indicator = 'macd' | 'kd' | 'rsi'
+type DatePeriod = '1M' | '3M' | '6M' | '1Y' | '2Y'
 type LayoutPreset = 'price' | 'balanced' | 'indicator'
 
-const INDICATOR_LABELS: Record<Indicator, string> = { macd: 'MACD', kd: 'KD', rsi: 'RSI', daytrade: '當沖比例' }
-const MAX_INDICATORS = 2
+const INDICATOR_LABELS: Record<Indicator, string> = { macd: 'MACD', kd: 'KD', rsi: 'RSI' }
 const AXIS_WIDTH = 68 // 固定右軸寬 → 各圖繪圖區左右緣一致、天生對齊（免動態喬寬）
 
-const periodCalendarDays: Record<DatePeriod, number> = { '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
+const periodCalendarDays: Record<DatePeriod, number> = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
 const defaultVolumeFormatter = (v: number) => `${v.toLocaleString()}張`
 
 const BG = '#131722'
@@ -59,7 +58,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
 
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day')
   const [datePeriod, setDatePeriod] = useState<DatePeriod>('3M')
-  const [indicators, setIndicators] = useState<Indicator[]>(['macd'])
+  const [indicator, setIndicator] = useState<Indicator>('macd') // 單選（技術指標）
   const [preset, setPreset] = useState<LayoutPreset>('balanced')
   const [showMA5, setShowMA5] = useState(true)
   const [showMA10, setShowMA10] = useState(true)
@@ -67,11 +66,10 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const [showMA60, setShowMA60] = useState(false)
   const [showBB, setShowBB] = useState(false)
   const [showVolume, setShowVolume] = useState(true)
-  const [moreOpen, setMoreOpen] = useState(false) // 手機版：版面/疊加控制收合
+  const [moreOpen, setMoreOpen] = useState(false) // 手機版：圖表設定（版面/疊加）收合
   const [crosshairTime, setCrosshairTime] = useState<string | null>(null)
 
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
-  const hasDayTrade = useMemo(() => data.some((d) => d.day_trading_volume != null), [data])
 
   // 指標一律用完整資料算（暖身足夠、與卡片一致）
   const ma = useMemo(() => ({
@@ -84,15 +82,8 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const macd = useMemo(() => calculateMACDValues(chartData), [chartData])
   const kd = useMemo(() => calculateKDValues(chartData), [chartData])
   const rsi = useMemo(() => calculateRSIValues(chartData), [chartData])
-  const dayTrade = useMemo(
-    () => chartData.map((d) => (d.day_trading_volume != null && d.volume > 0 ? (d.day_trading_volume / d.volume) * 100 : null)),
-    [chartData]
-  )
 
-  const activeIndicators = useMemo(
-    () => indicators.filter((i) => i !== 'daytrade' || hasDayTrade).slice(0, MAX_INDICATORS),
-    [indicators, hasDayTrade]
-  )
+  const activeIndicators = useMemo(() => [indicator] as Indicator[], [indicator])
 
   useEffect(() => {
     if (!priceRef.current || chartData.length === 0) return
@@ -182,15 +173,11 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         d.setData(toLineWS(chartData, kd.map((v) => v?.d ?? null)))
         addBandLines(ch, chartData, 80, 20)
         primary = k
-      } else if (ind === 'rsi') {
+      } else {
         const r = ch.addLineSeries({ color: '#8b5cf6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
         r.setData(toLineWS(chartData, rsi))
         addBandLines(ch, chartData, 70, 30)
         primary = r
-      } else {
-        const dt = ch.addHistogramSeries({ priceFormat: { type: 'price', precision: 1 }, lastValueVisible: false, priceLineVisible: false })
-        dt.setData(chartData.map((d, k) => dayTrade[k] != null ? { time: d.date as Time, value: dayTrade[k]!, color: '#06b6d488' } : { time: d.date as Time }))
-        primary = dt
       }
       primarySeries.push(primary)
     })
@@ -244,7 +231,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       volRef.current = null
       charts.forEach((c) => c.remove())
     }
-  }, [chartData, height, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi, dayTrade]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chartData, height, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 顯示/隱藏（免重建）
   useEffect(() => { maRefs.current.ma5?.applyOptions({ visible: showMA5 }) }, [showMA5])
@@ -258,14 +245,6 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   }, [showBB])
   useEffect(() => { volRef.current?.applyOptions({ visible: showVolume }) }, [showVolume])
 
-  const toggleIndicator = (ind: Indicator) => {
-    setIndicators((prev) => {
-      if (prev.includes(ind)) return prev.filter((i) => i !== ind)
-      if (prev.length >= MAX_INDICATORS) return [...prev.slice(1), ind]
-      return [...prev, ind]
-    })
-  }
-
   const curIndex = crosshairTime ? chartData.findIndex((d) => d.date === crosshairTime) : chartData.length - 1
   const cur = curIndex >= 0 ? chartData[curIndex] : null
   const prevClose = cur ? (curIndex > 0 ? chartData[curIndex - 1].close : cur.open) : 0
@@ -274,13 +253,13 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const up = chg >= 0
 
   const btn = (active: boolean) =>
-    `px-2.5 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[40px] md:min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
+    `px-2.5 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[44px] md:min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
 
   return (
     <div className="bg-[#131722] rounded-lg p-2 md:p-3">
       {/* 控制列 */}
       <div className="flex flex-col gap-2 mb-2">
-        {/* 常駐：週期 + 區間（＋手機版「更多」切換版面/疊加）*/}
+        {/* 常駐：週期 + 區間（＋手機版「圖表設定」切換版面/疊加）*/}
         <div className="flex flex-wrap items-center gap-1.5 md:gap-3">
           <div className="flex gap-1">
             {([['day', '日K'], ['week', '週K'], ['month', '月K']] as [TimeFrame, string][]).map(([k, l]) => (
@@ -288,32 +267,37 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
             ))}
           </div>
           <div className="flex gap-1">
-            {(['3M', '6M', '1Y', '2Y'] as DatePeriod[]).map((p) => (
+            {(['1M', '3M', '6M', '1Y', '2Y'] as DatePeriod[]).map((p) => (
               <button key={p} onClick={() => setDatePeriod(p)} className={btn(datePeriod === p)}>{p}</button>
             ))}
           </div>
-          <button onClick={() => setMoreOpen((v) => !v)} className={`md:hidden ml-auto ${btn(moreOpen)}`}>⚙️ 更多</button>
+          <button onClick={() => setMoreOpen((v) => !v)} className={`md:hidden ml-auto ${btn(moreOpen)}`}>⚙️ 圖表設定</button>
         </div>
 
-        {/* 常駐：指標多選 */}
-        <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-          <span className="text-gray-400 text-xs">指標</span>
-          {(['macd', 'kd', 'rsi', 'daytrade'] as Indicator[]).filter((i) => i !== 'daytrade' || hasDayTrade).map((ind) => {
-            const active = activeIndicators.includes(ind)
+        {/* 常駐：技術指標（單選 Tabs） */}
+        <div className="flex items-center gap-4 border-b border-[#2d323f]">
+          {(['macd', 'kd', 'rsi'] as Indicator[]).map((ind) => {
+            const active = indicator === ind
             return (
-              <button key={ind} onClick={() => toggleIndicator(ind)} className={`px-2.5 py-1 text-xs md:text-sm rounded border min-h-[40px] md:min-h-[30px] ${active ? 'bg-blue-600/90 text-white border-blue-500' : 'bg-transparent text-gray-300 border-[#2d323f] hover:bg-[#232733]'}`}>
+              <button
+                key={ind}
+                onClick={() => setIndicator(ind)}
+                aria-selected={active}
+                role="tab"
+                className={`relative py-2 text-sm font-medium min-h-[44px] md:min-h-[36px] transition-colors ${active ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
                 {INDICATOR_LABELS[ind]}
+                {active && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-blue-500 rounded-full" />}
               </button>
             )
           })}
-          <span className="text-gray-600 text-xs hidden md:inline">（最多 2）</span>
         </div>
 
-        {/* 版面 + 疊加：手機收合（⚙️更多）、桌機常駐 */}
+        {/* 版面 + 疊加：手機收合（⚙️ 圖表設定）、桌機常駐 */}
         <div className={`${moreOpen ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-x-3 gap-y-1`}>
           <div className="flex items-center gap-1">
             <span className="text-gray-400 text-xs">版面</span>
-            <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[40px] md:min-h-[34px]">
+            <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[44px] md:min-h-[34px]">
               <option value="price">價格為主</option>
               <option value="balanced">均衡</option>
               <option value="indicator">指標為主</option>
@@ -321,16 +305,16 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
           </div>
           <span className="text-gray-400 text-xs md:ml-2">疊加</span>
           {([['MA5', showMA5, setShowMA5, 'text-amber-400'], ['MA10', showMA10, setShowMA10, 'text-blue-400'], ['MA20', showMA20, setShowMA20, 'text-pink-400'], ['MA60', showMA60, setShowMA60, 'text-purple-400']] as [string, boolean, (v: boolean) => void, string][]).map(([label, on, set, color]) => (
-            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+            <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[44px] md:min-h-[30px]">
               <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
               <span className={`${color} text-xs`}>{label}</span>
             </label>
           ))}
-          <label className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[44px] md:min-h-[30px]">
             <input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
             <span className="text-fuchsia-400 text-xs">布林</span>
           </label>
-          <label className="flex items-center gap-1 cursor-pointer min-h-[40px] md:min-h-[30px]">
+          <label className="flex items-center gap-1 cursor-pointer min-h-[44px] md:min-h-[30px]">
             <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
             <span className="text-gray-300 text-xs">量</span>
           </label>
@@ -354,17 +338,14 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
                 {(showMA20 && ma.ma20[curIndex] != null) && <span className="text-pink-400">MA20 {ma.ma20[curIndex]!.toFixed(1)}</span>}
                 {(showMA60 && ma.ma60[curIndex] != null) && <span className="text-purple-400">MA60 {ma.ma60[curIndex]!.toFixed(1)}</span>}
                 {(showBB && bb[curIndex]) && <span className="text-fuchsia-300">BB {bb[curIndex]!.upper.toFixed(0)}/{bb[curIndex]!.middle.toFixed(0)}/{bb[curIndex]!.lower.toFixed(0)}</span>}
-                {activeIndicators.includes('macd') && macd[curIndex] && (
+                {indicator === 'macd' && macd[curIndex] && (
                   <span><span className="text-gray-500">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
                 )}
-                {activeIndicators.includes('kd') && kd[curIndex] && (
+                {indicator === 'kd' && kd[curIndex] && (
                   <span><span className="text-gray-500">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
                 )}
-                {activeIndicators.includes('rsi') && rsi[curIndex] != null && (
+                {indicator === 'rsi' && rsi[curIndex] != null && (
                   <span><span className="text-gray-500">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
-                )}
-                {activeIndicators.includes('daytrade') && dayTrade[curIndex] != null && (
-                  <span><span className="text-gray-500">當沖</span> <span className="text-cyan-400">{dayTrade[curIndex]!.toFixed(1)}%</span></span>
                 )}
               </span>
             </div>

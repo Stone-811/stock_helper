@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import StockCard from '../../components/StockCard'
 import { StrongStock as TodayStrongStock } from '../../lib/firebase'
+import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
 
 interface StrongStocksResponse {
   stocks: TodayStrongStock[]
@@ -15,6 +16,7 @@ interface StrongStocksResponse {
 export default function StrongStocksPage() {
   const [data, setData] = useState<StrongStocksResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [filter, setFilter] = useState({
     macd: 'all',
@@ -30,18 +32,21 @@ export default function StrongStocksPage() {
   // 載入資料
   const fetchData = async (date?: string) => {
     setLoading(true)
+    setError(false)
     try {
       const url = date
         ? `/api/strong-stocks?days=7&date=${date}`
         : '/api/strong-stocks?days=7'
       const res = await fetch(url)
+      if (!res.ok) throw new Error('http')
       const json = await res.json()
       setData(json)
       if (!date && json.latestDate) {
         setSelectedDate(json.latestDate)
       }
-    } catch (error) {
-      console.error('Failed to fetch:', error)
+    } catch (e) {
+      console.error('Failed to fetch:', e)
+      setError(true)
     } finally {
       setLoading(false)
     }
@@ -67,20 +72,27 @@ export default function StrongStocksPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl text-gray-500">載入中...</div>
+      <div className="min-h-screen bg-gray-50">
+        <PageHeader title="強勢股列表" />
+        <div className="max-w-7xl mx-auto px-4 py-6"><CardGridSkeleton /></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <PageHeader title="強勢股列表" />
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(selectedDate || undefined)} />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold text-gray-800">強勢股列表</h1>
-        </div>
-      </header>
+      <PageHeader title="強勢股列表" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 日期資訊卡片 */}
@@ -180,9 +192,11 @@ export default function StrongStocksPage() {
 
         {/* 股票列表 */}
         {filteredStocks.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            {data?.dataMissing ? '這一天的明細資料尚未提供，請改選其他日期' : '沒有符合條件的股票'}
-          </div>
+          <EmptyState
+            icon={data?.dataMissing ? '📅' : '🔍'}
+            title={data?.dataMissing ? '這一天沒有明細資料' : '沒有符合條件的股票'}
+            description={data?.dataMissing ? '請改選其他交易日' : '試著放寬 MACD／成交量／產業等條件'}
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
             {filteredStocks.map((stock) => (

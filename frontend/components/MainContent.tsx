@@ -35,7 +35,7 @@ export default function MainContent({ children }: { children: React.ReactNode })
   }, [])
 
   return (
-    <main className={`flex-1 transition-all duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+    <main className={`flex-1 transition-all duration-300 pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
       <TopBar />
       {children}
     </main>

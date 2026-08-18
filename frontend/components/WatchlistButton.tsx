@@ -64,9 +64,10 @@ export default function WatchlistButton({ stockId, stockName, className = '' }: 
     return (
       <button
         disabled
-        className={`px-3 py-1.5 rounded-lg text-gray-400 bg-gray-100 ${className}`}
+        aria-label="自選股載入中"
+        className={`inline-flex items-center justify-center min-h-[40px] px-3 rounded-lg text-gray-400 bg-gray-100 ${className}`}
       >
-        ...
+        …
       </button>
     )
   }
@@ -74,14 +75,16 @@ export default function WatchlistButton({ stockId, stockName, className = '' }: 
   return (
     <button
       onClick={handleClick}
-      className={`px-3 py-1.5 rounded-lg transition-colors ${
+      className={`inline-flex items-center justify-center gap-1 min-h-[40px] px-3 rounded-lg text-sm font-medium transition-colors ${
         inWatchlist
           ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
       } ${className}`}
       title={inWatchlist ? '從自選股移除' : '加入自選股'}
+      aria-label={inWatchlist ? '從自選股移除' : '加入自選股'}
     >
-      {inWatchlist ? '★ 已加入' : '☆ 加入自選'}
+      <span aria-hidden="true">{inWatchlist ? '★' : '☆'}</span>
+      <span className="hidden sm:inline">{inWatchlist ? '已加入' : '加入自選'}</span>
     </button>
   )
 }

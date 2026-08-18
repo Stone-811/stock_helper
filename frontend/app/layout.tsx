@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "../components/Sidebar";
 import MainContent from "../components/MainContent";
+import MobileBottomNav from "../components/MobileBottomNav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,6 +54,7 @@ export default function RootLayout({
         <MainContent>
           {children}
         </MainContent>
+        <MobileBottomNav />
       </body>
     </html>
   );

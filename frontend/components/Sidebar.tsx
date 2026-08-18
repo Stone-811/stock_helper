@@ -23,7 +23,7 @@ export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
 
-  // 從 localStorage 讀取縮放狀態
+  // 從 localStorage 讀取縮放狀態（桌機）
   useEffect(() => {
     const saved = localStorage.getItem('sidebar-collapsed')
     if (saved === 'true') {
@@ -31,12 +31,18 @@ export default function Sidebar() {
     }
   }, [])
 
+  // 手機版：由 TopBar 的 ☰ 透過事件開關抽屜（抽屜只放帳號/資料來源等次要項目，主導覽在 Bottom Nav）
+  useEffect(() => {
+    const toggle = () => setIsOpen((v) => !v)
+    window.addEventListener('toggle-mobile-menu', toggle)
+    return () => window.removeEventListener('toggle-mobile-menu', toggle)
+  }, [])
+
   // 儲存縮放狀態並通知其他元件
   const toggleCollapse = () => {
     const newState = !isCollapsed
     setIsCollapsed(newState)
     localStorage.setItem('sidebar-collapsed', String(newState))
-    // 發送自訂事件通知 MainContent
     window.dispatchEvent(new CustomEvent('sidebar-collapse-change', {
       detail: { collapsed: newState }
     }))
@@ -52,37 +58,7 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* 手機版漢堡選單按鈕 */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-[#1a1a2e] text-white shadow-lg"
-        onClick={() => setIsOpen(!isOpen)}
-        aria-label="Toggle menu"
-      >
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          {isOpen ? (
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          ) : (
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 6h16M4 12h16M4 18h16"
-            />
-          )}
-        </svg>
-      </button>
-
-      {/* Sidebar */}
+      {/* Sidebar（桌機常駐；手機為次要抽屜） */}
       <aside
         className={`
           fixed left-0 top-0 h-full bg-[#1a1a2e] z-40
@@ -93,7 +69,7 @@ export default function Sidebar() {
           ${isCollapsed ? 'md:w-20' : 'w-64'}
         `}
       >
-        {/* Logo/標題 + 縮排按鈕 */}
+        {/* Logo/標題 + 縮排/關閉按鈕 */}
         <div className={`border-b border-[#2a2a3e] ${isCollapsed ? 'md:p-2' : 'p-6'} relative`}>
           {/* 桌面版 */}
           <div className="hidden md:block">
@@ -107,13 +83,13 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* 手機版（左內距避開固定在 top-4 left-4 的 X 關閉鈕，避免壓到標題） */}
-          <div className="md:hidden pl-10">
+          {/* 手機版 */}
+          <div className="md:hidden">
             <h1 className="text-white text-xl font-bold">台股分析系統</h1>
             <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
           </div>
 
-          {/* 桌面版縮排按鈕（移到標題區右上角） */}
+          {/* 桌面版縮排按鈕 */}
           <button
             onClick={toggleCollapse}
             className="hidden md:block absolute top-4 right-4 p-2 text-gray-400 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors"
@@ -125,18 +101,24 @@ export default function Sidebar() {
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
+
+          {/* 手機版關閉按鈕 */}
+          <button
+            onClick={() => setIsOpen(false)}
+            className="md:hidden absolute top-4 right-4 flex items-center justify-center w-11 h-11 text-gray-400 hover:text-white rounded-lg"
+            aria-label="關閉選單"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* 導航列表 */}
-        <nav className={`flex-1 p-4 ${isCollapsed ? 'md:p-2' : ''}`}>
+        {/* 主導航（桌機顯示；手機改用 Bottom Nav） */}
+        <nav className={`hidden md:block flex-1 p-4 ${isCollapsed ? 'md:p-2' : ''}`}>
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -160,31 +142,27 @@ export default function Sidebar() {
           ))}
         </nav>
 
+        {/* 手機抽屜：主導覽已在 Bottom Nav，這裡撐開讓帳號區靠底 */}
+        <div className="md:hidden flex-1" />
+
         {/* 登入區 */}
         <AuthButton isCollapsed={isCollapsed} />
 
         {/* 底部資訊 */}
         {isCollapsed ? (
           <div className="hidden md:block p-2 border-t border-[#2a2a3e]">
-            <p className="text-gray-500 text-xs text-center" title="資料來源：FinMind">
-              📈
-            </p>
+            <p className="text-gray-500 text-xs text-center" title="資料來源：FinMind">📈</p>
           </div>
         ) : (
           <div className="p-4 border-t border-[#2a2a3e]">
-            <p className="text-gray-500 text-xs text-center">
-              資料來源：FinMind
-            </p>
+            <p className="text-gray-500 text-xs text-center">資料來源：FinMind</p>
           </div>
         )}
       </aside>
 
       {/* 手機版遮罩 */}
       {isOpen && (
-        <div
-          className="md:hidden fixed inset-0 bg-black/50 z-30"
-          onClick={() => setIsOpen(false)}
-        />
+        <div className="md:hidden fixed inset-0 bg-black/50 z-30" onClick={() => setIsOpen(false)} />
       )}
     </>
   )

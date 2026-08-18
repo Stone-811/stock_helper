@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import IndexChart from '../components/IndexChart'
 import { MarketIndex } from '../lib/firebase'
+import { PageHeader, ChartSkeleton, ErrorState } from '../components/states'
 
 interface IndexResponse {
   index_id: string
@@ -69,42 +70,41 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'TAIEX' | 'TX'>('TAIEX')
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // 同時取得加權指數和台指期資料
-        const [taiexRes, txRes] = await Promise.all([
-          fetch('/api/market-index/TAIEX'),
-          fetch('/api/market-index/TX')
-        ])
-
-        if (taiexRes.ok) {
-          const taiexJson = await taiexRes.json()
-          setTaiexData(taiexJson)
-        }
-
-        if (txRes.ok) {
-          const txJson = await txRes.json()
-          setTxData(txJson)
-        }
-
-        if (!taiexRes.ok && !txRes.ok) {
-          throw new Error('無法取得指數資料')
-        }
-      } catch (err) {
-        console.error('Failed to fetch:', err)
-        setError('尚無指數資料，請先執行資料收集')
-      } finally {
-        setLoading(false)
-      }
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      // 同時取得加權指數和台指期資料
+      const [taiexRes, txRes] = await Promise.all([
+        fetch('/api/market-index/TAIEX'),
+        fetch('/api/market-index/TX'),
+      ])
+      if (taiexRes.ok) setTaiexData(await taiexRes.json())
+      if (txRes.ok) setTxData(await txRes.json())
+      if (!taiexRes.ok && !txRes.ok) throw new Error('無法取得指數資料')
+    } catch (err) {
+      console.error('Failed to fetch:', err)
+      setError('尚無指數資料，請先執行資料收集')
+    } finally {
+      setLoading(false)
     }
-    fetchData()
   }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl text-gray-500">載入中...</div>
+      <div className="min-h-screen bg-gray-50">
+        <PageHeader title="台股指數分析" />
+        <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="h-40 bg-white rounded-lg shadow-sm animate-pulse" />
+            <div className="h-40 bg-white rounded-lg shadow-sm animate-pulse" />
+          </div>
+          <ChartSkeleton height={600} />
+        </div>
       </div>
     )
   }
@@ -112,18 +112,9 @@ export default function Home() {
   if (error || (!taiexData && !txData)) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 py-4">
-            <h1 className="text-xl font-bold text-gray-800 pl-12 md:pl-0">台股指數分析</h1>
-          </div>
-        </header>
+        <PageHeader title="台股指數分析" />
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-            <div className="text-gray-500 mb-4">{error || '資料更新中'}</div>
-            <div className="text-sm text-gray-400">
-              <p>指數資料正在準備，請稍候片刻後重新整理。</p>
-            </div>
-          </div>
+          <ErrorState message={error || '指數資料正在準備，請稍候片刻後重新載入。'} onRetry={load} />
         </div>
       </div>
     )
@@ -133,12 +124,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold text-gray-800 pl-12 md:pl-0">台股指數分析</h1>
-        </div>
-      </header>
+      <PageHeader title="台股指數分析" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 指數資訊卡片區 */}

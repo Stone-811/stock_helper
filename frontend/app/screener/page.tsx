@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import StockCard from '../../components/StockCard'
 import { StrongStock } from '../../lib/firebase'
+import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
 
 interface ScreenerResponse {
   stocks: StrongStock[]
@@ -19,6 +20,8 @@ const SELECT = 'border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focu
 export default function ScreenerPage() {
   const [data, setData] = useState<ScreenerResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
   const [date, setDate] = useState('')
   const [macd, setMacd] = useState('')
   const [foreignStreakMin, setForeignStreakMin] = useState(0)
@@ -40,16 +43,17 @@ export default function ScreenerPage() {
     if (sort) params.set('sort', sort)
 
     setLoading(true)
+    setError(false)
     fetch(`/api/screener?${params.toString()}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error('http'); return r.json() })
       .then((d: ScreenerResponse) => {
         setData(d)
         if (!date && d.latestDate) setDate(d.latestDate)
       })
-      .catch((e) => console.error('Screener fetch failed:', e))
+      .catch((e) => { console.error('Screener fetch failed:', e); setError(true) })
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort])
+  }, [date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort, reloadNonce])
 
   const stocks = data?.stocks || []
   const industries = data?.industries || []
@@ -57,12 +61,7 @@ export default function ScreenerPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold text-gray-800">自訂選股</h1>
-        </div>
-      </header>
+      <PageHeader title="自訂選股" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 條件卡 */}
@@ -145,9 +144,11 @@ export default function ScreenerPage() {
 
         {/* 結果 */}
         {loading ? (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">載入中...</div>
+          <CardGridSkeleton />
+        ) : error ? (
+          <ErrorState message="選股資料載入失敗" onRetry={() => setReloadNonce((n) => n + 1)} />
         ) : stocks.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">沒有符合條件的股票，試著放寬條件</div>
+          <EmptyState icon="🔍" title="沒有符合條件的股票" description="試著放寬條件，或移除部分篩選" />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
             {stocks.map((stock) => <StockCard key={stock.stock_id} stock={stock} />)}
