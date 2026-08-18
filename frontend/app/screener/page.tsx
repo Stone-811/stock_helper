@@ -17,6 +17,14 @@ interface ScreenerResponse {
 
 const SELECT = 'border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
 
+// 快速策略：一鍵帶入現有條件（突破/爆量等需個股 history，暫以成交量/連買近似）
+const QUICK_STRATEGIES = [
+  { icon: '📈', label: '趨勢多頭', macd: '多', foreignStreakMin: 0, trustStreakMin: 0, foreignBuy: false, volumeMin: 1000, sort: 'volume' },
+  { icon: '💰', label: '法人佈局', macd: '', foreignStreakMin: 3, trustStreakMin: 2, foreignBuy: false, volumeMin: 1000, sort: 'foreign_streak' },
+  { icon: '🚀', label: '爆量', macd: '', foreignStreakMin: 0, trustStreakMin: 0, foreignBuy: false, volumeMin: 10000, sort: 'volume' },
+  { icon: '💎', label: '技術+法人雙多', macd: '多', foreignStreakMin: 0, trustStreakMin: 0, foreignBuy: true, volumeMin: 1000, sort: 'foreign_buy' },
+] as const
+
 export default function ScreenerPage() {
   const [data, setData] = useState<ScreenerResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,11 +67,48 @@ export default function ScreenerPage() {
   const industries = data?.industries || []
   const availableDates = data?.availableDates || []
 
+  const applyPreset = (s: typeof QUICK_STRATEGIES[number]) => {
+    setMacd(s.macd)
+    setForeignStreakMin(s.foreignStreakMin)
+    setTrustStreakMin(s.trustStreakMin)
+    setForeignBuy(s.foreignBuy)
+    setVolumeMin(s.volumeMin)
+    setSort(s.sort)
+    setIndustry('')
+  }
+  const clearAll = () => {
+    setMacd(''); setForeignStreakMin(0); setTrustStreakMin(0); setForeignBuy(false); setVolumeMin(0); setIndustry('')
+  }
+  // 已套用條件 → 可單獨移除的 chips
+  const chips: { key: string; label: string; clear: () => void }[] = []
+  if (macd) chips.push({ key: 'macd', label: `MACD ${macd === '多' ? '多頭' : '空頭'}`, clear: () => setMacd('') })
+  if (foreignStreakMin > 0) chips.push({ key: 'fs', label: `外資連買≥${foreignStreakMin}日`, clear: () => setForeignStreakMin(0) })
+  if (trustStreakMin > 0) chips.push({ key: 'ts', label: `投信連買≥${trustStreakMin}日`, clear: () => setTrustStreakMin(0) })
+  if (foreignBuy) chips.push({ key: 'fb', label: '外資買超', clear: () => setForeignBuy(false) })
+  if (volumeMin > 0) chips.push({ key: 'vol', label: `量≥${volumeMin.toLocaleString()}張`, clear: () => setVolumeMin(0) })
+  if (industry) chips.push({ key: 'ind', label: `產業:${industry}`, clear: () => setIndustry('') })
+
   return (
     <div className="min-h-screen bg-gray-50">
       <PageHeader title="自訂選股" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* 快速策略 */}
+        <div className="mb-4">
+          <div className="text-sm text-gray-500 mb-2">快速策略</div>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_STRATEGIES.map((s) => (
+              <button
+                key={s.label}
+                onClick={() => applyPreset(s)}
+                className="inline-flex items-center gap-1 px-3 min-h-[40px] rounded-full border border-gray-300 bg-white text-sm text-gray-700 hover:border-blue-400 hover:text-blue-600 transition-colors"
+              >
+                <span aria-hidden="true">{s.icon}</span> {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* 條件卡 */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div className="flex flex-wrap gap-x-4 gap-y-3 items-center">
@@ -141,6 +186,19 @@ export default function ScreenerPage() {
             <span className="text-gray-500">當日：<span className="font-medium text-gray-700">{data?.totalCount ?? 0}</span> 檔</span>
           </div>
         </div>
+
+        {/* 已套用條件 chips */}
+        {chips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {chips.map((c) => (
+              <span key={c.key} className="inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full bg-blue-50 text-blue-700 text-sm border border-blue-200">
+                {c.label}
+                <button onClick={c.clear} className="flex items-center justify-center w-6 h-6 text-blue-400 hover:text-blue-700" aria-label={`移除 ${c.label}`}>✕</button>
+              </span>
+            ))}
+            <button onClick={clearAll} className="text-sm text-gray-500 hover:text-gray-700 underline">清除全部</button>
+          </div>
+        )}
 
         {/* 結果 */}
         {loading ? (

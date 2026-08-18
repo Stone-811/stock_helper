@@ -13,6 +13,14 @@ interface StrongStocksResponse {
   dataMissing?: boolean
 }
 
+// 快速篩選（突破/爆量需個股 history，暫以成交量近似）
+const QUICK_FILTERS = [
+  { key: 'all', label: '全部', macd: 'all', minVolume: 0, foreignBuy: false },
+  { key: 'tech', label: '技術多頭', macd: '多', minVolume: 0, foreignBuy: false },
+  { key: 'foreign', label: '法人買超', macd: 'all', minVolume: 0, foreignBuy: true },
+  { key: 'volume', label: '爆量', macd: 'all', minVolume: 10000, foreignBuy: false },
+] as const
+
 export default function StrongStocksPage() {
   const [data, setData] = useState<StrongStocksResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -22,6 +30,7 @@ export default function StrongStocksPage() {
     macd: 'all',
     minVolume: 0,
     industry: 'all',
+    foreignBuy: false,
   })
 
   // 取得所有產業類別
@@ -67,6 +76,7 @@ export default function StrongStocksPage() {
     if (filter.macd !== 'all' && stock.macd_status !== filter.macd) return false
     if (filter.minVolume > 0 && stock.volume < filter.minVolume) return false
     if (filter.industry !== 'all' && stock.industry !== filter.industry) return false
+    if (filter.foreignBuy && !(stock.foreign_buy > 0)) return false
     return true
   }) || []
 
@@ -95,6 +105,22 @@ export default function StrongStocksPage() {
       <PageHeader title="強勢股列表" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* 快速篩選 */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {QUICK_FILTERS.map((q) => {
+            const active = filter.macd === q.macd && filter.minVolume === q.minVolume && filter.foreignBuy === q.foreignBuy
+            return (
+              <button
+                key={q.key}
+                onClick={() => setFilter((f) => ({ ...f, macd: q.macd, minVolume: q.minVolume, foreignBuy: q.foreignBuy }))}
+                className={`px-3 min-h-[40px] rounded-full text-sm border transition-colors ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'}`}
+              >
+                {q.label}
+              </button>
+            )
+          })}
+        </div>
+
         {/* 日期資訊卡片 */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">

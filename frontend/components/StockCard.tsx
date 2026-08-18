@@ -28,8 +28,8 @@ export default function StockCard({ stock }: StockCardProps) {
   const dayTradingRatio = stock.volume > 0 ? ((stock.day_trading_volume || 0) / stock.volume) * 100 : 0
 
   return (
-    <Link href={`/stock/${stock.stock_id}`}>
-      <div className="bg-white rounded-lg shadow-md p-3 md:p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200">
+    <Link href={`/stock/${stock.stock_id}`} className="block h-full">
+      <div className="bg-white rounded-lg shadow-md p-3 md:p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 h-full flex flex-col">
         {/* 股票代碼和名稱 */}
         <div className="flex justify-between items-start mb-2">
           <div className="min-w-0 flex-1 mr-2">
@@ -82,7 +82,7 @@ export default function StockCard({ stock }: StockCardProps) {
         )}
 
         {/* 三大法人 */}
-        <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
+        <div className="mt-auto pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
           <div className="text-center">
             <div className="text-gray-400">外資</div>
             <div className={stock.foreign_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
