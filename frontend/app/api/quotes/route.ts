@@ -21,16 +21,25 @@ export async function GET(request: Request) {
     const latestDate = await getLatestDate()
     const dayStocks = latestDate ? await getStocksByDate(latestDate) : []
     const idSet = new Set(ids)
-    const quotes: Record<string, { stock_id: string; stock_name: string; open: number; close: number; volume: number }> = {}
+    const quotes: Record<string, {
+      stock_id: string; stock_name: string; open: number; close: number; volume: number
+      macd_status?: string; foreign_streak?: number; trust_streak?: number; foreign_buy?: number
+    }> = {}
 
-    for (const s of dayStocks as Array<{ stock_id: string; stock_name: string; open: number; close: number; volume: number }>) {
-      if (idSet.has(s.stock_id)) {
-        quotes[s.stock_id] = {
-          stock_id: s.stock_id,
-          stock_name: s.stock_name,
-          open: s.open,
-          close: s.close,
-          volume: s.volume,
+    // daily_data 聚合本就含這些欄位，多帶出來供「自選訊號」用（不需額外查詢）
+    for (const s of dayStocks as Array<Record<string, unknown>>) {
+      const id = String(s.stock_id ?? '')
+      if (idSet.has(id)) {
+        quotes[id] = {
+          stock_id: id,
+          stock_name: String(s.stock_name ?? ''),
+          open: Number(s.open ?? 0),
+          close: Number(s.close ?? 0),
+          volume: Number(s.volume ?? 0),
+          macd_status: s.macd_status ? String(s.macd_status) : undefined,
+          foreign_streak: Number(s.foreign_streak ?? 0),
+          trust_streak: Number(s.trust_streak ?? 0),
+          foreign_buy: Number(s.foreign_buy ?? 0),
         }
       }
     }

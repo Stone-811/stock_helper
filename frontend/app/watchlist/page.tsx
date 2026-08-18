@@ -11,6 +11,7 @@ import {
   WatchlistItem
 } from '../../lib/firebase'
 import { PageHeader, CardGridSkeleton, EmptyState } from '../../components/states'
+import { computeSignals } from '../../lib/signals'
 
 interface Quote {
   stock_id: string
@@ -18,6 +19,9 @@ interface Quote {
   open: number
   close: number
   volume: number
+  macd_status?: string
+  foreign_streak?: number
+  trust_streak?: number
 }
 
 interface WatchlistStock extends WatchlistItem {
@@ -117,6 +121,16 @@ export default function WatchlistPage() {
           <span className="text-gray-500"> 檔</span>
         </div>
 
+        {/* 今日訊號提醒 */}
+        {(() => {
+          const n = stocks.filter((s) => computeSignals(s.latestData).length > 0).length
+          return n > 0 ? (
+            <div className="mb-4 flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 text-sm text-orange-800">
+              <span aria-hidden="true">🔔</span>今日有 <span className="font-bold">{n}</span> 支自選股出現訊號
+            </div>
+          ) : null
+        })()}
+
         {/* 股票列表 */}
         {stocks.length === 0 ? (
           <EmptyState
@@ -165,6 +179,16 @@ export default function WatchlistPage() {
                         </div>
                       </div>
                     </div>
+                    {(() => {
+                      const sigs = computeSignals(stock.latestData)
+                      return sigs.length ? (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {sigs.map((s, i) => (
+                            <span key={i} className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{s.icon} {s.text}</span>
+                          ))}
+                        </div>
+                      ) : null
+                    })()}
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                       <span className="text-sm text-gray-500">
                         成交量 {stock.latestData?.volume.toLocaleString() || '-'}

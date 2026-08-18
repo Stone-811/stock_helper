@@ -37,6 +37,24 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
     [history]
   )
 
+  // 籌碼摘要 badges（insight first：連買/連賣或當日買賣超；🟢=偏多、🔴=偏空）
+  const instBadges: { dot: string; text: string }[] = []
+  if (latest.foreign_buy !== null) {
+    const fs = latest.foreign_streak ?? 0
+    if (fs > 0) instBadges.push({ dot: '🟢', text: `外資連買${fs}日` })
+    else if (fs < 0) instBadges.push({ dot: '🔴', text: `外資連賣${Math.abs(fs)}日` })
+    else if ((latest.foreign_buy ?? 0) > 0) instBadges.push({ dot: '🟢', text: '外資買超' })
+    else if ((latest.foreign_buy ?? 0) < 0) instBadges.push({ dot: '🔴', text: '外資賣超' })
+    const ts = latest.trust_streak ?? 0
+    if (ts > 0) instBadges.push({ dot: '🟢', text: `投信連買${ts}日` })
+    else if (ts < 0) instBadges.push({ dot: '🔴', text: `投信連賣${Math.abs(ts)}日` })
+    else if ((latest.trust_buy ?? 0) > 0) instBadges.push({ dot: '🟢', text: '投信買超' })
+    else if ((latest.trust_buy ?? 0) < 0) instBadges.push({ dot: '🔴', text: '投信賣超' })
+    const db = latest.dealer_buy ?? 0
+    if (db > 0) instBadges.push({ dot: '🟢', text: '自營買超' })
+    else if (db < 0) instBadges.push({ dot: '🔴', text: '自營賣超' })
+  }
+
   return (
     <main className="min-h-screen bg-gray-50">
       {/* 個股 Header：名稱醒目 + 代碼 + 加入自選 / 提醒 */}
@@ -124,6 +142,16 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 {showInst ? '收合 ▲' : '展開 ▼'}
               </button>
             </div>
+            {/* 籌碼摘要（insight first；明細收合時仍顯示） */}
+            {instBadges.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {instBadges.map((b, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-xs md:text-sm px-2 py-1 rounded-full bg-gray-100 text-gray-700">
+                    <span aria-hidden="true">{b.dot}</span>{b.text}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className={`${showInst ? 'grid' : 'hidden'} md:grid grid-cols-3 md:grid-cols-6 gap-4`}>
               {([
                 { label: '外資', v: latest.foreign_buy, kind: 'buy', streak: latest.foreign_streak },

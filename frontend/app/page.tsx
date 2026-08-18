@@ -13,6 +13,7 @@ import {
   signInWithGoogle,
 } from '../lib/firebase'
 import { PageHeader, ChartSkeleton, CardGridSkeleton, ErrorState, EmptyState } from '../components/states'
+import { computeSignals } from '../lib/signals'
 
 interface IndexResponse {
   index_id: string
@@ -39,6 +40,9 @@ interface Quote {
   open: number
   close: number
   volume: number
+  macd_status?: string
+  foreign_streak?: number
+  trust_streak?: number
 }
 interface WatchRow extends WatchlistItem {
   q?: Quote
@@ -263,6 +267,16 @@ export default function Home() {
                     <div className="text-xs text-gray-500 truncate">{w.stock_name}</div>
                     <div className={`mt-1 text-lg font-bold tabular-nums ${up ? 'text-red-600' : 'text-green-600'}`}>{q ? q.close.toFixed(2) : '—'}</div>
                     <div className={`text-xs tabular-nums ${up ? 'text-red-500' : 'text-green-500'}`}>{q ? `${up ? '▲' : '▼'} ${up ? '+' : ''}${pct.toFixed(2)}%` : ''}</div>
+                    {(() => {
+                      const sigs = computeSignals(q)
+                      return sigs.length ? (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {sigs.slice(0, 2).map((s, i) => (
+                            <span key={i} className="text-[10px] px-1 py-0.5 rounded bg-orange-50 text-orange-600">{s.icon}{s.text}</span>
+                          ))}
+                        </div>
+                      ) : null
+                    })()}
                   </Link>
                 )
               })}

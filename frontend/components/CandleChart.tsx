@@ -68,6 +68,8 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   const [showVolume, setShowVolume] = useState(true)
   const [moreOpen, setMoreOpen] = useState(false) // 手機版：圖表設定（版面/疊加）收合
   const [crosshairTime, setCrosshairTime] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fsHeight, setFsHeight] = useState(0)
 
   const chartData = useMemo(() => convertToTimeFrame(data, timeFrame), [data, timeFrame])
 
@@ -85,13 +87,28 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
 
   const activeIndicators = useMemo(() => [indicator] as Indicator[], [indicator])
 
+  // 全螢幕：鎖背景捲動、依視窗算高、監聽旋轉/resize（橫向自動適配）
+  useEffect(() => {
+    if (!isFullscreen) return
+    const compute = () => setFsHeight(Math.max(320, window.innerHeight - 132))
+    compute()
+    window.addEventListener('resize', compute)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('resize', compute)
+      document.body.style.overflow = ''
+    }
+  }, [isFullscreen])
+
+  const effHeight = isFullscreen && fsHeight ? fsHeight : height
+
   useEffect(() => {
     if (!priceRef.current || chartData.length === 0) return
 
     const numInd = activeIndicators.length
     const pRatio = priceRatio(numInd, preset)
-    const priceH = numInd === 0 ? height : Math.round(height * pRatio)
-    const indH = numInd === 0 ? 0 : Math.floor((height - priceH) / numInd)
+    const priceH = numInd === 0 ? effHeight : Math.round(effHeight * pRatio)
+    const indH = numInd === 0 ? 0 : Math.floor((effHeight - priceH) / numInd)
 
     const layout = { background: { type: ColorType.Solid, color: BG }, textColor: TEXT, fontSize: 12 }
     const grid = { vertLines: { color: GRID }, horzLines: { color: GRID } }
@@ -231,7 +248,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       volRef.current = null
       charts.forEach((c) => c.remove())
     }
-  }, [chartData, height, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chartData, effHeight, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 顯示/隱藏（免重建）
   useEffect(() => { maRefs.current.ma5?.applyOptions({ visible: showMA5 }) }, [showMA5])
@@ -256,7 +273,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     `px-2.5 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[44px] md:min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
 
   return (
-    <div className="bg-[#131722] rounded-lg p-2 md:p-3">
+    <div className={`bg-[#131722] p-2 md:p-3 ${isFullscreen ? 'fixed inset-0 z-[70] rounded-none overflow-auto' : 'rounded-lg'}`}>
       {/* 控制列 */}
       <div className="flex flex-col gap-2 mb-2">
         {/* 常駐：週期 + 區間（＋手機版「圖表設定」切換版面/疊加）*/}
@@ -271,7 +288,17 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
               <button key={p} onClick={() => setDatePeriod(p)} className={btn(datePeriod === p)}>{p}</button>
             ))}
           </div>
-          <button onClick={() => setMoreOpen((v) => !v)} className={`md:hidden ml-auto ${btn(moreOpen)}`}>⚙️ 圖表設定</button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button onClick={() => setMoreOpen((v) => !v)} className={`md:hidden ${btn(moreOpen)}`}>⚙️ 圖表設定</button>
+            <button
+              onClick={() => setIsFullscreen((v) => !v)}
+              className={btn(false)}
+              aria-label={isFullscreen ? '離開全螢幕' : '全螢幕'}
+              title={isFullscreen ? '離開全螢幕' : '全螢幕'}
+            >
+              {isFullscreen ? '✕' : '⛶'}
+            </button>
+          </div>
         </div>
 
         {/* 常駐：技術指標（單選 Tabs） */}
