@@ -45,6 +45,16 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
   - 首頁 `IndexCard`：`p-4 md:p-6`、值 `text-2xl md:text-3xl`。
 - **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
 
+### P0 UI/UX 改版（2026-08-18，已上線；以下取代上方部分 2026-08-13 慣例）
+- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、首頁/強勢/選股/自選、safe-area、active 藍、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
+- **Header 去雙層**：舊「全域 `TopBar` + 每頁 `<header bg-white shadow-sm>`」= 雙層。各頁改用 `states.tsx` 的 **`PageHeader`**（輕量標題、非白底 shadow bar）；`TopBar` 降高去 shadow、移除浮動漢堡的 `pl-16`。
+- **搜尋**：`StockSearchOptimized` 已是 instant（debounce/dropdown/鍵盤/點外關閉），**移除了「查詢」按鈕**。
+- **個股頁 header**：`← [名稱大] [代碼灰] … [☆加入自選] [🔔到價提醒]`；`WatchlistButton`（**原死碼、現已啟用**）接既有 `user_watchlists` 後端。股價階層：大字價格 `text-4xl md:text-5xl` + `▲▼` 漲跌 + 次要「日期·成交量」；金融數字加 `tabular-nums`。
+- **CandleChart**：① 區間加 `1M`；②「⚙️ 更多」→「⚙️ 圖表設定」；③ 指標改**單選底線 Tabs**（`indicator` 單值，非陣列；`MAX_INDICATORS`/`toggleIndicator`/多選已移除）；④ **當沖移出技術圖**（`Indicator` 不再有 `daytrade`）。觸控 `min-h-[44px]`。
+- **當沖改屬籌碼**：`InstitutionalChart` 新增 `Mode='daytrade'` +「當沖」tab，資料由 `StockDetailClient` 用 K 線 history 算出 `dayTrade=[{date,ratio}]` 傳入（籌碼圖本身不 fetch 當沖）；`hasDayTrade` 才顯示該 tab。
+- **狀態元件**（`components/states.tsx`）：`PageHeader` / `CardGridSkeleton` / `ChartSkeleton` / `EmptyState` / `ErrorState(onRetry)`。首頁/強勢/選股/自選：載入→骨架、空→EmptyState、錯→ErrorState+重新載入（各頁補了 `error` state；screener 用 `reloadNonce` 重觸發 useEffect）。
+- **仍未做（P1/後續）**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Chart Fullscreen、強勢原因/Quick Filter/Screener Quick Strategy、Design tokens（§33/41）。
+
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。
 2. **資料源日期不一致**：個股頁 K 線用 FinMind、法人用 Firestore，兩者「最新日」可能差一天 → 收盤與法人不同日。已修：法人改抓「與 K 線同一天」。
