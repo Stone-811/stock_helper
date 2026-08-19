@@ -20,9 +20,12 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
   const { latest, history } = data
   const hasName = !!(data.stock_name && data.stock_name !== data.stock_id)
   const displayName = hasName ? data.stock_name : data.stock_id
-  const isPositive = latest.close >= latest.open
-  const priceChange = latest.close - latest.open
-  const priceChangePct = ((priceChange / latest.open) * 100).toFixed(2)
+  // 漲跌幅基準＝前一交易日收盤（台股慣例）；history 已載入，直接取倒數第二根
+  const prevClose = history.length >= 2 ? history[history.length - 2].close : latest.open
+  const base = prevClose > 0 ? prevClose : latest.open
+  const isPositive = latest.close >= base
+  const priceChange = latest.close - base
+  const priceChangePct = base > 0 ? ((priceChange / base) * 100).toFixed(2) : '0.00'
   const priceColor = isPositive ? 'text-red-600' : 'text-green-600'
   // 當日當沖比例 = 當沖量 / 成交量
   const dayTradeRatio =

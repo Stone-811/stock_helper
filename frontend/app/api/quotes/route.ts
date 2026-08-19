@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getLatestDate, getStocksByDate } from '../../../lib/firebase-admin'
+import { getLatestDate, getStocksByDate, getPrevCloseMap } from '../../../lib/firebase-admin'
 
 /**
  * 批次報價：一次讀當日 Firestore 聚合，回多股最新報價。
@@ -20,9 +20,10 @@ export async function GET(request: Request) {
   try {
     const latestDate = await getLatestDate()
     const dayStocks = latestDate ? await getStocksByDate(latestDate) : []
+    const prevClose = latestDate ? await getPrevCloseMap(latestDate) : {}
     const idSet = new Set(ids)
     const quotes: Record<string, {
-      stock_id: string; stock_name: string; open: number; close: number; volume: number
+      stock_id: string; stock_name: string; open: number; close: number; volume: number; prev_close?: number
       macd_status?: string; foreign_streak?: number; trust_streak?: number; foreign_buy?: number
     }> = {}
 
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
           open: Number(s.open ?? 0),
           close: Number(s.close ?? 0),
           volume: Number(s.volume ?? 0),
+          prev_close: prevClose[id],
           macd_status: s.macd_status ? String(s.macd_status) : undefined,
           foreign_streak: Number(s.foreign_streak ?? 0),
           trust_streak: Number(s.trust_streak ?? 0),

@@ -18,9 +18,11 @@ function formatTradingValue(value: number): string {
 }
 
 export default function StockCard({ stock }: StockCardProps) {
-  const isPositive = stock.close >= stock.open
-  const priceChange = stock.close - stock.open
-  const priceChangePct = ((priceChange / stock.open) * 100).toFixed(2)
+  // 漲跌幅基準＝前一交易日收盤（台股慣例）；無前一日資料時退回當日開盤
+  const base = stock.prev_close && stock.prev_close > 0 ? stock.prev_close : stock.open
+  const isPositive = stock.close >= base
+  const priceChange = stock.close - base
+  const priceChangePct = base > 0 ? ((priceChange / base) * 100).toFixed(2) : '0.00'
 
   // 計算成交額和當沖額（volume 是張數，每張 1000 股）
   const tradingValue = stock.volume * stock.close * 1000

@@ -4,6 +4,8 @@
 export interface QuoteLite {
   open: number
   close: number
+  /** 前一交易日收盤（漲跌幅基準）；缺值時退回 open */
+  prev_close?: number
   macd_status?: string
   foreign_streak?: number
   trust_streak?: number
@@ -18,7 +20,8 @@ export interface Signal {
 export function computeSignals(q?: QuoteLite): Signal[] {
   if (!q) return []
   const out: Signal[] = []
-  const chgPct = q.open > 0 ? ((q.close - q.open) / q.open) * 100 : 0
+  const base = q.prev_close && q.prev_close > 0 ? q.prev_close : q.open
+  const chgPct = base > 0 ? ((q.close - base) / base) * 100 : 0
   if (chgPct >= 5) out.push({ icon: '🔥', text: '今日大漲', tone: 'up' })
   if (q.macd_status === '多') out.push({ icon: '📈', text: 'MACD多頭', tone: 'up' })
   const fs = q.foreign_streak ?? 0

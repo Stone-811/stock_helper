@@ -278,6 +278,8 @@ export interface DailyStock {
 }
 
 export interface StrongStock extends DailyStock {
+  /** 前一交易日收盤（漲跌幅基準，由 API 補；舊資料可能沒有）*/
+  prev_close?: number
   strong_count?: number
 }
 

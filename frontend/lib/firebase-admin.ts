@@ -304,3 +304,29 @@ export async function getStrongCountForStocks(stockIds: string[], days: number =
     return {}
   }
 }
+
+/**
+ * 取「前一交易日收盤價」對照表（stock_id → close）。
+ * 台股漲跌幅慣例是對前一日收盤，但 daily_data 每日文件沒有此欄位，
+ * 故從 available_dates 找出 targetDate 的前一天、讀該日聚合資料組成 map。
+ * 找不到前一日（例如 daily_data 只保留近幾天、targetDate 已是最舊）時回空 map，
+ * 呼叫端應 fallback 回當日開盤價。
+ */
+export async function getPrevCloseMap(targetDate: string): Promise<Record<string, number>> {
+  try {
+    const dates = await getAvailableDates(30)
+    const sorted = [...dates].sort().reverse() // 由新到舊
+    const idx = sorted.indexOf(targetDate)
+    const prevDate = idx >= 0 ? sorted[idx + 1] : sorted.find((d) => d < targetDate)
+    if (!prevDate) return {}
+    const prevStocks = await getStocksByDate(prevDate)
+    const map: Record<string, number> = {}
+    for (const s of prevStocks as Array<{ stock_id?: string; close?: number }>) {
+      if (s.stock_id && typeof s.close === 'number') map[s.stock_id] = s.close
+    }
+    return map
+  } catch (e) {
+    console.error('getPrevCloseMap failed:', e)
+    return {}
+  }
+}

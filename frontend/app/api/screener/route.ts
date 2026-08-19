@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getStocksByDate, getLatestDate, getAvailableDates, getStrongCountForStocks } from '../../../lib/firebase-admin'
+import { getStocksByDate, getLatestDate, getAvailableDates, getStrongCountForStocks, getPrevCloseMap } from '../../../lib/firebase-admin'
 
 /**
  * 自訂多條件選股：server 端讀當日全市場明細（getStocksByDate）後過濾，
@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     const targetDate = dateParam && dates.includes(dateParam) ? dateParam : defaultDate
 
     const all = await getStocksByDate(targetDate)
+    const prevClose = await getPrevCloseMap(targetDate)
     const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
 
     const filtered = all.filter((s: Record<string, unknown>) => {
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
     const top = filtered.slice(0, 200)
     const ids = top.map((s: Record<string, unknown>) => String(s.stock_id))
     const countMap = ids.length ? await getStrongCountForStocks(ids, 7) : {}
-    const stocks = top.map((s: Record<string, unknown>) => ({ ...s, strong_count: countMap[String(s.stock_id)] || 0 }))
+    const stocks = top.map((s: Record<string, unknown>) => ({ ...s, strong_count: countMap[String(s.stock_id)] || 0, prev_close: prevClose[String(s.stock_id)] }))
 
     // 產業下拉選項：從當日全市場實際出現的產業抽出
     const industries = Array.from(

@@ -19,6 +19,7 @@ interface Quote {
   open: number
   close: number
   volume: number
+  prev_close?: number
   macd_status?: string
   foreign_streak?: number
   trust_streak?: number
@@ -178,12 +179,11 @@ export default function WatchlistPage() {
             {/* 手機版：卡片式佈局 */}
             <div className="md:hidden space-y-3">
               {stocks.map((stock) => {
-                const change = stock.latestData
-                  ? stock.latestData.close - stock.latestData.open
+                const base = stock.latestData
+                  ? (stock.latestData.prev_close && stock.latestData.prev_close > 0 ? stock.latestData.prev_close : stock.latestData.open)
                   : 0
-                const changePercent = stock.latestData && stock.latestData.open > 0
-                  ? (change / stock.latestData.open) * 100
-                  : 0
+                const change = stock.latestData ? stock.latestData.close - base : 0
+                const changePercent = base > 0 ? (change / base) * 100 : 0
                 const isPositive = change >= 0
 
                 return (
@@ -246,12 +246,11 @@ export default function WatchlistPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {stocks.map((stock) => {
-                    const change = stock.latestData
-                      ? stock.latestData.close - stock.latestData.open
+                    const base = stock.latestData
+                      ? (stock.latestData.prev_close && stock.latestData.prev_close > 0 ? stock.latestData.prev_close : stock.latestData.open)
                       : 0
-                    const changePercent = stock.latestData && stock.latestData.open > 0
-                      ? (change / stock.latestData.open) * 100
-                      : 0
+                    const change = stock.latestData ? stock.latestData.close - base : 0
+                    const changePercent = base > 0 ? (change / base) * 100 : 0
                     const isPositive = change >= 0
 
                     return (

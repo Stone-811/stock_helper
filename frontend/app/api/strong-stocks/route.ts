@@ -4,7 +4,8 @@ import {
   getStrongStocksByDate,
   getStocksByDate,
   getStrongCountForStocks,
-  getLatestDate
+  getLatestDate,
+  getPrevCloseMap
 } from '../../../lib/firebase-admin'
 
 export async function GET(request: Request) {
@@ -55,10 +56,14 @@ export async function GET(request: Request) {
     // 使用優化函數計算近 N 日強勢次數
     const countMap = await getStrongCountForStocks(stockIds, days)
 
+    // 前一交易日收盤（台股漲跌幅基準）
+    const prevClose = await getPrevCloseMap(targetDate)
+
     // 合併資料
     const result = stockDetails.map((stock) => ({
       ...stock,
-      strong_count: countMap[stock.stock_id as string] || 0
+      strong_count: countMap[stock.stock_id as string] || 0,
+      prev_close: prevClose[stock.stock_id as string]
     }))
 
     // 按強勢次數排序

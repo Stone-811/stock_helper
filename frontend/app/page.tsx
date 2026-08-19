@@ -40,6 +40,7 @@ interface Quote {
   open: number
   close: number
   volume: number
+  prev_close?: number
   macd_status?: string
   foreign_streak?: number
   trust_streak?: number
@@ -113,7 +114,8 @@ export default function Home() {
       if (strongRes.ok) {
         const sj = await strongRes.json()
         const list: StrongStock[] = (sj.stocks || []).slice()
-        list.sort((a, b) => (b.open ? (b.close - b.open) / b.open : 0) - (a.open ? (a.close - a.open) / a.open : 0))
+        const pct = (x: StrongStock) => { const b = x.prev_close && x.prev_close > 0 ? x.prev_close : x.open; return b > 0 ? (x.close - b) / b : 0 }
+        list.sort((a, b) => pct(b) - pct(a))
         setStrong(list)
       }
       if (!taiexRes.ok && !txRes.ok) throw new Error('無法取得指數資料')
@@ -252,8 +254,9 @@ export default function Home() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {watch.slice(0, 8).map((w) => {
                 const q = w.q
-                const chg = q ? q.close - q.open : 0
-                const pct = q && q.open > 0 ? (chg / q.open) * 100 : 0
+                const qBase = q ? (q.prev_close && q.prev_close > 0 ? q.prev_close : q.open) : 0
+                const chg = q ? q.close - qBase : 0
+                const pct = qBase > 0 ? (chg / qBase) * 100 : 0
                 const up = chg >= 0
                 return (
                   <Link key={w.stock_id} href={`/stock/${w.stock_id}`} className="bg-white rounded-lg shadow-sm p-3 hover:shadow-md transition-shadow">
