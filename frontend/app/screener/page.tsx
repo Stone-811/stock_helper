@@ -30,6 +30,7 @@ export default function ScreenerPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
+  const [ready, setReady] = useState(false) // 還原完成前不抓，避免用預設條件多抓一次
   const [date, setDate] = useState('')
   const [macd, setMacd] = useState('')
   const [foreignStreakMin, setForeignStreakMin] = useState(0)
@@ -39,7 +40,31 @@ export default function ScreenerPage() {
   const [industry, setIndustry] = useState('')
   const [sort, setSort] = useState('foreign_buy')
 
+  // 還原上次篩選（sessionStorage）→ 從個股頁返回時條件保留
   useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('screener-filters')
+      if (saved) {
+        const f = JSON.parse(saved)
+        if (typeof f.date === 'string') setDate(f.date)
+        if (typeof f.macd === 'string') setMacd(f.macd)
+        if (typeof f.foreignStreakMin === 'number') setForeignStreakMin(f.foreignStreakMin)
+        if (typeof f.trustStreakMin === 'number') setTrustStreakMin(f.trustStreakMin)
+        if (typeof f.foreignBuy === 'boolean') setForeignBuy(f.foreignBuy)
+        if (typeof f.volumeMin === 'number') setVolumeMin(f.volumeMin)
+        if (typeof f.industry === 'string') setIndustry(f.industry)
+        if (typeof f.sort === 'string') setSort(f.sort)
+      }
+    } catch {}
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    try {
+      sessionStorage.setItem('screener-filters', JSON.stringify({ date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort }))
+    } catch {}
+
     const params = new URLSearchParams()
     if (date) params.set('date', date)
     if (macd) params.set('macd', macd)
@@ -61,7 +86,7 @@ export default function ScreenerPage() {
       .catch((e) => { console.error('Screener fetch failed:', e); setError(true) })
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort, reloadNonce])
+  }, [ready, date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort, reloadNonce])
 
   const stocks = data?.stocks || []
   const industries = data?.industries || []
@@ -141,6 +166,7 @@ export default function ScreenerPage() {
               <select value={trustStreakMin} onChange={(e) => setTrustStreakMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1">≥1 天</option>
+                <option value="2">≥2 天</option>
                 <option value="3">≥3 天</option>
                 <option value="5">≥5 天</option>
               </select>

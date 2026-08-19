@@ -25,6 +25,7 @@ export default function StrongStocksPage() {
   const [data, setData] = useState<StrongStocksResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [ready, setReady] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [filter, setFilter] = useState({
     macd: 'all',
@@ -61,9 +62,32 @@ export default function StrongStocksPage() {
     }
   }
 
+  // 還原上次篩選 + 日期（sessionStorage）→ 從個股頁返回時保留
   useEffect(() => {
-    fetchData()
+    let savedDate: string | undefined
+    try {
+      const saved = sessionStorage.getItem('strong-filters')
+      if (saved) {
+        const f = JSON.parse(saved)
+        if (f.filter && typeof f.filter === 'object') setFilter((prev) => ({ ...prev, ...f.filter }))
+        if (typeof f.selectedDate === 'string' && f.selectedDate) {
+          savedDate = f.selectedDate
+          setSelectedDate(f.selectedDate)
+        }
+      }
+    } catch {}
+    fetchData(savedDate)
+    setReady(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 條件/日期變動即存
+  useEffect(() => {
+    if (!ready) return
+    try {
+      sessionStorage.setItem('strong-filters', JSON.stringify({ filter, selectedDate }))
+    } catch {}
+  }, [ready, filter, selectedDate])
 
   // 切換日期
   const handleDateChange = (date: string) => {
