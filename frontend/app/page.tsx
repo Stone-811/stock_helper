@@ -48,33 +48,27 @@ interface WatchRow extends WatchlistItem {
   q?: Quote
 }
 
-// 指數詳情卡片（指數走勢區塊用）
-function IndexCard({ data, showOpenInterest = false }: { data: IndexResponse; showOpenInterest?: boolean }) {
+// 指數數據列（跟著「指數走勢」分頁走；加權的收盤/漲跌已在上方「今日市場」，此處只補明細）
+function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexResponse; showOpenInterest?: boolean }) {
   const isPositive = data.change >= 0
   const color = isPositive ? 'text-red-600' : 'text-green-600'
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2 md:gap-4">
-        <div>
-          <h3 className="text-lg md:text-xl font-bold text-gray-800">{data.index_name}</h3>
-          <p className="text-sm text-gray-500">資料日期：{data.latest.date}</p>
-        </div>
-        <div className="text-right">
-          <div className={`text-2xl md:text-3xl font-bold tabular-nums ${color}`}>{data.latest.close.toLocaleString()}</div>
-          <div className={`text-base md:text-lg tabular-nums ${color}`}>
-            {isPositive ? '▲' : '▼'} {isPositive ? '+' : ''}{data.change.toFixed(2)} ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
-          </div>
-        </div>
-      </div>
-      <div className={`grid ${showOpenInterest ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'} gap-x-4 gap-y-2 md:gap-4 mt-3 md:mt-4 pt-3 md:pt-4 border-t border-gray-100`}>
-        <div><span className="text-sm text-gray-500">開盤</span><div className="font-medium text-gray-900 tabular-nums">{data.latest.open.toLocaleString()}</div></div>
-        <div><span className="text-sm text-gray-500">最高</span><div className="font-medium text-red-600 tabular-nums">{data.latest.high.toLocaleString()}</div></div>
-        <div><span className="text-sm text-gray-500">最低</span><div className="font-medium text-green-600 tabular-nums">{data.latest.low.toLocaleString()}</div></div>
-        <div><span className="text-sm text-gray-500">成交量</span><div className="font-medium text-gray-900 tabular-nums">{data.latest.volume.toLocaleString()}</div></div>
-        {showOpenInterest && (
-          <div><span className="text-sm text-gray-500">未平倉量</span><div className="font-medium text-gray-900 tabular-nums">{(data.latest.open_interest || 0).toLocaleString()}</div></div>
-        )}
-      </div>
+    <div className="bg-white rounded-lg shadow-sm px-4 py-3 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+      <span className="font-medium text-gray-800">{data.index_name}</span>
+      <span className={`font-bold tabular-nums ${color}`}>
+        {data.latest.close.toLocaleString()}
+        <span className="ml-1.5 font-medium">
+          {isPositive ? '▲' : '▼'} {isPositive ? '+' : ''}{data.change.toFixed(2)} ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
+        </span>
+      </span>
+      <span className="text-gray-500">開 <span className="text-gray-900 tabular-nums">{data.latest.open.toLocaleString()}</span></span>
+      <span className="text-gray-500">高 <span className="text-red-600 tabular-nums">{data.latest.high.toLocaleString()}</span></span>
+      <span className="text-gray-500">低 <span className="text-green-600 tabular-nums">{data.latest.low.toLocaleString()}</span></span>
+      <span className="text-gray-500">量 <span className="text-gray-900 tabular-nums">{data.latest.volume.toLocaleString()}</span></span>
+      {showOpenInterest && (
+        <span className="text-gray-500">未平倉 <span className="text-gray-900 tabular-nums">{(data.latest.open_interest || 0).toLocaleString()}</span></span>
+      )}
+      <span className="text-gray-400 ml-auto">{data.latest.date}</span>
     </div>
   )
 }
@@ -287,10 +281,6 @@ export default function Home() {
         {/* 指數走勢 */}
         <section>
           <h2 className="text-lg font-bold text-gray-900 mb-3">指數走勢</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
-            {taiexData && <IndexCard data={taiexData} />}
-            {txData && <IndexCard data={txData} showOpenInterest />}
-          </div>
           <div className="flex gap-2 mb-4">
             {taiexData && (
               <button onClick={() => setActiveTab('TAIEX')} className={`px-5 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'TAIEX' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'}`}>加權指數</button>
@@ -299,6 +289,7 @@ export default function Home() {
               <button onClick={() => setActiveTab('TX')} className={`px-5 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'TX' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'}`}>台指期</button>
             )}
           </div>
+          {activeData && <IndexStatStrip data={activeData} showOpenInterest={activeTab === 'TX'} />}
           {activeData && (
             <div className="bg-white rounded-lg shadow-sm overflow-hidden">
               <IndexChart data={activeData.history} indexId={activeData.index_id} height={600} />

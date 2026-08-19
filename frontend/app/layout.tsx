@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // 不設 maximumScale／userScalable：允許手機雙指放大（WCAG 1.4.4）
   themeColor: "#1a1a2e",
 };
 

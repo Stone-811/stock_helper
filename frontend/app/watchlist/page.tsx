@@ -10,7 +10,7 @@ import {
   onAuthChange,
   WatchlistItem
 } from '../../lib/firebase'
-import { PageHeader, CardGridSkeleton, EmptyState } from '../../components/states'
+import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
 import { computeSignals } from '../../lib/signals'
 
 interface Quote {
@@ -32,18 +32,28 @@ export default function WatchlistPage() {
   const [stocks, setStocks] = useState<WatchlistStock[]>([])
   const [loading, setLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [error, setError] = useState(false)
 
   const fetchWatchlist = async () => {
-    const data = await getWatchlist()
+    setError(false)
+    let data
+    try {
+      data = await getWatchlist()
+    } catch (e) {
+      console.error('Failed to load watchlist:', e)
+      setError(true)
+      return
+    }
     if (data.length === 0) {
       setStocks([])
       return
     }
 
-    // 一次批次取多股報價（取代逐股呼叫 /api/stock，消除 N+1）
+    // 一次批次取多股報價（取代逐股呼叫 /api/stock，消除 N+1）；報價失敗仍顯示清單（僅缺價格）
     try {
       const ids = data.map((d) => d.stock_id).join(',')
       const res = await fetch(`/api/quotes?ids=${ids}`)
+      if (!res.ok) throw new Error('http')
       const { quotes } = await res.json()
       setStocks(data.map((item) => ({ ...item, latestData: quotes[item.stock_id] })))
     } catch {
@@ -103,6 +113,23 @@ export default function WatchlistPage() {
                 Google 登入
               </button>
             }
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <PageHeader title="自選股" />
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <ErrorState
+            message="無法取得自選股清單"
+            onRetry={() => {
+              setLoading(true)
+              fetchWatchlist().finally(() => setLoading(false))
+            }}
           />
         </div>
       </div>
