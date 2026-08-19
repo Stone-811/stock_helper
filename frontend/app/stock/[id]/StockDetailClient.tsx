@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import StockChart from '../../../components/StockChart'
 import InstitutionalChart from '../../../components/InstitutionalChart'
 import AlertButton from '../../../components/AlertButton'
+import StockSignals from '../../../components/StockSignals'
 import WatchlistButton from '../../../components/WatchlistButton'
 import type { StockDetailData } from '../../../lib/stock-data'
 
@@ -182,6 +183,11 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 今日訊號（前端用已載入的 history 即時判讀，零額外 API）*/}
+      <div className="max-w-7xl mx-auto px-4 mb-6">
+        <StockSignals history={history} />
       </div>
 
       {/* 技術分析圖表 - 全幅 */}

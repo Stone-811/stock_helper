@@ -61,7 +61,9 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-filters`，掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
 - **圖表全螢幕**：`CandleChart` 的 `isFullscreen` → 容器 `fixed inset-0 z-[70]`、高度由 `window.innerHeight-132` 算（監聽 resize 支援旋轉）、鎖 `body.overflow`，控制列保留、✕ 離開。注意圖表高度要用 `effHeight`（全螢幕時覆寫 `height` prop）並列入 chart useEffect 依賴。
 - **訊號**：`lib/signals.ts` 的 `computeSignals()`（今日大漲≥5%／MACD多頭／外資·投信連買）供自選股頁 banner「今日 N 支出現訊號」＋卡片 chips、首頁我的自選 chips。**`/api/quotes` 已多帶 `macd_status`/`foreign_streak`/`trust_streak`/`foreign_buy`**（同一份 daily_data 讀取、零額外查詢）。個股頁另有「籌碼摘要」badge（🟢連買/買超、🔴連賣/賣超；手機明細收合時仍顯示）。
-- **仍未做**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Design tokens（§33/41）、B2 個股頁 Signal Engine（§37，前端用現有 history 即可算突破/爆量/均線排列/MACD金叉）、B1 清單「強勢原因」chips（§18，需收集器算 flag 存 daily_data，見待辦）。
+- **B2 個股頁 Signal Engine 已完成（2026-08-19）**：`components/StockSignals.tsx` 用個股頁已載入的 `history` 前端即時判讀「今日訊號」（零額外 API）：今日大漲/大跌(對**前一日收盤**)、突破/跌破近20日高低、爆量/量縮(對前5日均量)、均線多/空頭排列、今日站上/跌破 MA20、MACD 金叉死叉、KD 交叉與超買超賣、RSI 超買超賣、當沖比例≥40%。**刻意只列「事件型」訊號**（今天才發生的交叉/突破），避免每天亮同樣的燈；tone: up=紅/down=綠/warn=琥珀。
+- **⚠️ 漲跌幅基準不一致（待決）**：個股頁 header／`StockCard`／自選卡都用 **`close - open`（當日開→收）**，但台股慣例漲跌幅是**對前一日收盤**；`StockSignals` 用的是正確的前一日收盤，同一頁會出現兩個不同百分比（實例 6141：header +14.10% vs 訊號 +7.88%）。清單頁的 daily_data 沒有前一日收盤欄位，要統一需補資料或改由 history 算。
+- **仍未做**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Design tokens（§33/41）、B1 清單「強勢原因」chips（§18，需收集器算 flag 存 daily_data，見待辦）。
 
 ### UI 結構盤點結論（2026-08-19，勿誤刪）
 - **`Sidebar` 不可刪**：桌機它仍是**唯一主導覽**（`TopBar` 只有搜尋）。P0 後手機版主導覽才改由 `MobileBottomNav` 承擔（Sidebar 的 `nav` 是 `hidden md:block`）。
