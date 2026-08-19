@@ -53,7 +53,22 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **CandleChart**：① 區間加 `1M`；②「⚙️ 更多」→「⚙️ 圖表設定」；③ 指標改**單選底線 Tabs**（`indicator` 單值，非陣列；`MAX_INDICATORS`/`toggleIndicator`/多選已移除）；④ **當沖移出技術圖**（`Indicator` 不再有 `daytrade`）。觸控 `min-h-[44px]`。
 - **當沖改屬籌碼**：`InstitutionalChart` 新增 `Mode='daytrade'` +「當沖」tab，資料由 `StockDetailClient` 用 K 線 history 算出 `dayTrade=[{date,ratio}]` 傳入（籌碼圖本身不 fetch 當沖）；`hasDayTrade` 才顯示該 tab。
 - **狀態元件**（`components/states.tsx`）：`PageHeader` / `CardGridSkeleton` / `ChartSkeleton` / `EmptyState` / `ErrorState(onRetry)`。首頁/強勢/選股/自選：載入→骨架、空→EmptyState、錯→ErrorState+重新載入（各頁補了 `error` state；screener 用 `reloadNonce` 重觸發 useEffect）。
-- **仍未做（P1/後續）**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Chart Fullscreen、強勢原因/Quick Filter/Screener Quick Strategy、Design tokens（§33/41）。
+### 首頁 Dashboard 與 P1（2026-08-18/19，已上線）
+- **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數＋漲跌家數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（原本的 加權·台指期 `IndexCard`＋`IndexChart`）。
+- **⚠️ 漲跌家數只能靠 TWSE，FinMind 沒有**：新 route `app/api/market-breadth/route.ts` 抓 `https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date=YYYYMMDD&type=MS`，解析標題含「漲跌」的表、取**「股票」欄**（非「整體市場」，後者含 ETF/權證），值形如 `4,572(148)` = 家數(其中漲/跌停) 需正則拆。快取 300s；**TWSE 失敗一律回 `{available:false}` 讓首頁降級顯示「漲跌家數暫無資料」**，不可讓首頁壞掉。與補成交量的 FMTQIK 同家族（見地雷 #12）。
+- **`StockCard` 等高**：卡片內容行數不一（有無「當沖額」那列）會讓同排卡片高矮不齊 → `Link` 加 `block h-full`、卡片 `h-full flex flex-col`、底部三大法人區 `mt-auto`。新增卡片內容時保持這個結構。
+- **快速策略/篩選（近似值，非真訊號）**：選股頁 `QUICK_STRATEGIES`（趨勢多頭/法人佈局/爆量/技術+法人雙多，一鍵帶入條件）＋**已套用條件 Chips**（可單獨移除、清除全部）；強勢股頁 `QUICK_FILTERS`（全部/技術多頭/法人買超/爆量）。⚠️ **「突破」「爆量」目前是用 MACD/連買/成交量近似**，因真正的突破/爆量需個股 history（見下方 B1 待辦）。
+- **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-filters`，掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
+- **圖表全螢幕**：`CandleChart` 的 `isFullscreen` → 容器 `fixed inset-0 z-[70]`、高度由 `window.innerHeight-132` 算（監聽 resize 支援旋轉）、鎖 `body.overflow`，控制列保留、✕ 離開。注意圖表高度要用 `effHeight`（全螢幕時覆寫 `height` prop）並列入 chart useEffect 依賴。
+- **訊號**：`lib/signals.ts` 的 `computeSignals()`（今日大漲≥5%／MACD多頭／外資·投信連買）供自選股頁 banner「今日 N 支出現訊號」＋卡片 chips、首頁我的自選 chips。**`/api/quotes` 已多帶 `macd_status`/`foreign_streak`/`trust_streak`/`foreign_buy`**（同一份 daily_data 讀取、零額外查詢）。個股頁另有「籌碼摘要」badge（🟢連買/買超、🔴連賣/賣超；手機明細收合時仍顯示）。
+- **仍未做**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Design tokens（§33/41）、B2 個股頁 Signal Engine（§37，前端用現有 history 即可算突破/爆量/均線排列/MACD金叉）、B1 清單「強勢原因」chips（§18，需收集器算 flag 存 daily_data，見待辦）。
+
+### UI 結構盤點結論（2026-08-19，勿誤刪）
+- **`Sidebar` 不可刪**：桌機它仍是**唯一主導覽**（`TopBar` 只有搜尋）。P0 後手機版主導覽才改由 `MobileBottomNav` 承擔（Sidebar 的 `nav` 是 `hidden md:block`）。
+- **手機抽屜目前只剩帳號**：`Sidebar` 手機態＝標題＋spacer＋`AuthButton`＋「資料來源 FinMind」。若日後仍無 設定/說明/關於 等次要頁，可考慮「移除手機抽屜＋☰、把登入移進 TopBar」再簡化一層（尚未做，需權衡未來擴充）。
+- **無死碼**：`WatchlistButton` 已啟用（個股頁 ☆）；`Sidebar`/`MainContent`/`MobileBottomNav` 由 `layout.tsx` 以**雙引號** import（用 `grep "from '.*X'"` 單引號搜會誤判成 0 refs）。`states.tsx` 五個元件皆有使用。舊漢堡留下的 `pl-12/pl-16` 位移 class 已清乾淨。
+- **已知小重複**：首頁「今日市場」與「指數走勢」都顯示加權指數收盤/漲跌（前者摘要、後者含 OHLC 明細）——目前**刻意保留**（用途不同），若要精簡可把「指數走勢」的加權卡收掉。
+- **a11y 待辦**：`layout.tsx` 的 `viewport.maximumScale: 1` 會**禁止手機雙指放大**（違反 WCAG 1.4.4），建議移除；`watchlist` 頁尚無 `ErrorState`。
 
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。
@@ -78,6 +93,9 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **C3 增量回補中間缺口**：`get_missing_dates`（daily_collector.py:85-101）只從 `latest_date+1` 往後找，中間某天失敗後補不回；且 `get_latest_date_from_db` 查的是**舊架構** collection（`daily_stocks` / `market_index_daily`，Python 已不寫入）。修法：改用「過去 N 天交易日全集 − 已存在日期集合」，並改查新架構 `daily_data` / `market_index` 的日期。
 - **A1 列表 vs 個股 MACD 完全統一**：C7 後 Firestore `macd_status` 已有值（列表可用），但個股頁仍前端算，資料源不同、極臨界日可能小差異。要完全一致需二選一單一來源。
 - **安全**：`service-account.json` 私鑰會被 bundle 進 `.next`（本機建置產物，已 gitignore）；建議輪替金鑰、production 一律用環境變數 `FIREBASE_SERVICE_ACCOUNT_KEY` 注入而非 `require` 讀檔。
+- **「為什麼強」兩條路（2026-08-19 規劃，皆未做）**——共同前提：突破/爆量/站上MA20/MACD金叉都要**逐檔歷史**才算得出來。
+  - **B2 個股頁 Signal Engine（§37；便宜、建議先做）**：個股頁**本來就載入該檔完整 K 線 history、也已算好 MA/MACD/KD/RSI**（畫圖用）→ 直接在前端判斷即可，**零額外 API、純前端**。做一個「今日訊號」區塊列出：突破近20日高、量為5日均量 N 倍、MA5>MA10>MA20、MACD 金叉、KD/RSI 超買超賣，每條附白話解讀。**限制：只服務個股頁，清單卡片吃不到。**
+  - **B1 清單「強勢原因」chips（§18；動後端）**：強勢股清單一次 40+ 檔，前端逐檔打 FinMind 會慢又撞免費額度（600/hr）→ 必須由收集器算好。步驟：① 在 collector 用**年度檔**（就是算 MACD 那套、零 API）多算 flag（突破20日高／量÷5日均量／站上MA20／MACD 今日空→多）；② 寫進 `daily_data` 每檔（`firebase_writer._convert_stock_row` 加欄位，如 `reasons: string[]`）；③ **`gcloud run jobs deploy stock-collector --source=.` 重建 image**（改 collector 不會自動部署，見運維地雷）；④ `--date` 回補近幾天（daily_data 只留 ~16 天）；⑤ 前端 `StockCard`/強勢股/首頁讀 `reasons` 顯示 chips，並把 Quick Filter 的「突破/爆量」從近似值改為真 flag。
 
 ## 運維現況（2026-08 排查結論）
 - **GitHub Actions 沒有斷**：2026-07-24 才從 Supabase 遷 Firebase 並首次加 Actions，7/24 初設失敗 2 次（依賴/憑證）當天修好，7/27 起 cron 每交易日穩定成功。**上半年缺資料是因為當時根本沒這套系統**，非中斷。
