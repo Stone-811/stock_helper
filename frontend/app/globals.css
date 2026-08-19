@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 :root {
+  /* 本站版面為固定淺色（bg-white / bg-gray-50）：鎖定 light，避免系統深色模式
+     把未指定顏色的文字變成近白、以及原生下拉選單變深 */
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -8,19 +11,30 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* 中文一律黑體：原本 body 用 Arial（無中文字），中文會 fallback 成襯線/細體不易閱讀 */
+  --font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei",
+    "Heiti TC", "Hiragino Sans GB", sans-serif;
+  --font-mono: var(--font-geist-mono), "PingFang TC", "Microsoft JhengHei", monospace;
+
+  /* 無障礙（視力不佳者）：整體字級放大約 10–14%、行高放寬 */
+  --text-xs: 0.85rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.95rem;
+  --text-sm--line-height: 1.55;
+  --text-base: 1.1rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.5;
+  --text-xl: 1.4rem;
+  --text-xl--line-height: 1.45;
+  --text-2xl: 1.7rem;
+  --text-2xl--line-height: 1.35;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }

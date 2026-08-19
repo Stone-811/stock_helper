@@ -110,7 +110,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     const priceH = numInd === 0 ? effHeight : Math.round(effHeight * pRatio)
     const indH = numInd === 0 ? 0 : Math.floor((effHeight - priceH) / numInd)
 
-    const layout = { background: { type: ColorType.Solid, color: BG }, textColor: TEXT, fontSize: 12 }
+    const layout = { background: { type: ColorType.Solid, color: BG }, textColor: TEXT, fontSize: 14 }
     const grid = { vertLines: { color: GRID }, horzLines: { color: GRID } }
     const crosshair = {
       mode: 1 as const,
@@ -311,7 +311,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
                 onClick={() => setIndicator(ind)}
                 aria-selected={active}
                 role="tab"
-                className={`relative py-2 text-sm font-medium min-h-[44px] md:min-h-[36px] transition-colors ${active ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                className={`relative py-2 text-sm font-medium min-h-[44px] md:min-h-[36px] transition-colors ${active ? 'text-white' : 'text-gray-300 hover:text-gray-200'}`}
               >
                 {INDICATOR_LABELS[ind]}
                 {active && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-blue-500 rounded-full" />}
@@ -323,14 +323,14 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         {/* 版面 + 疊加：手機收合（⚙️ 圖表設定）、桌機常駐 */}
         <div className={`${moreOpen ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-x-3 gap-y-1`}>
           <div className="flex items-center gap-1">
-            <span className="text-gray-400 text-xs">版面</span>
+            <span className="text-gray-300 text-xs font-medium">版面</span>
             <select value={preset} onChange={(e) => setPreset(e.target.value as LayoutPreset)} className="bg-[#232733] text-gray-200 text-sm rounded px-2 py-1 border border-[#2d323f] min-h-[44px] md:min-h-[34px]">
               <option value="price">價格為主</option>
               <option value="balanced">均衡</option>
               <option value="indicator">指標為主</option>
             </select>
           </div>
-          <span className="text-gray-400 text-xs md:ml-2">疊加</span>
+          <span className="text-gray-300 text-xs font-medium md:ml-2">疊加</span>
           {([['MA5', showMA5, setShowMA5, 'text-amber-400'], ['MA10', showMA10, setShowMA10, 'text-blue-400'], ['MA20', showMA20, setShowMA20, 'text-pink-400'], ['MA60', showMA60, setShowMA60, 'text-purple-400']] as [string, boolean, (v: boolean) => void, string][]).map(([label, on, set, color]) => (
             <label key={label} className="flex items-center gap-1 cursor-pointer min-h-[44px] md:min-h-[30px]">
               <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
@@ -343,7 +343,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
           </label>
           <label className="flex items-center gap-1 cursor-pointer min-h-[44px] md:min-h-[30px]">
             <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="w-4 h-4 md:w-3.5 md:h-3.5" />
-            <span className="text-gray-300 text-xs">量</span>
+            <span className="text-gray-300 text-xs font-medium">量</span>
           </label>
         </div>
       </div>
@@ -353,7 +353,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         {cur && (
           <div className="absolute top-1 left-2 z-10 text-xs md:text-sm font-mono bg-[#131722]/85 px-2 py-0.5 rounded pointer-events-none">
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-300">
-              <span className="text-gray-400">{cur.date}</span>
+              <span className="text-gray-300">{cur.date}</span>
               <span>收 <span className={up ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span>
                 <span className={up ? 'text-red-400' : 'text-green-400'}> {up ? '+' : ''}{chg.toFixed(2)} ({up ? '+' : ''}{chgPct.toFixed(2)}%)</span>
               </span>
@@ -366,13 +366,13 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
                 {(showMA60 && ma.ma60[curIndex] != null) && <span className="text-purple-400">MA60 {ma.ma60[curIndex]!.toFixed(1)}</span>}
                 {(showBB && bb[curIndex]) && <span className="text-fuchsia-300">BB {bb[curIndex]!.upper.toFixed(0)}/{bb[curIndex]!.middle.toFixed(0)}/{bb[curIndex]!.lower.toFixed(0)}</span>}
                 {indicator === 'macd' && macd[curIndex] && (
-                  <span><span className="text-gray-500">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
+                  <span><span className="text-gray-300">MACD</span> <span className="text-blue-400">{macd[curIndex]!.dif.toFixed(2)}</span> <span className="text-orange-400">{macd[curIndex]!.macd.toFixed(2)}</span> <span className={macd[curIndex]!.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{macd[curIndex]!.histogram.toFixed(2)}</span></span>
                 )}
                 {indicator === 'kd' && kd[curIndex] && (
-                  <span><span className="text-gray-500">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
+                  <span><span className="text-gray-300">KD</span> <span className="text-blue-400">{kd[curIndex]!.k.toFixed(1)}</span> <span className="text-orange-400">{kd[curIndex]!.d.toFixed(1)}</span></span>
                 )}
                 {indicator === 'rsi' && rsi[curIndex] != null && (
-                  <span><span className="text-gray-500">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
+                  <span><span className="text-gray-300">RSI</span> <span className="text-purple-400">{rsi[curIndex]!.toFixed(1)}</span></span>
                 )}
               </span>
             </div>

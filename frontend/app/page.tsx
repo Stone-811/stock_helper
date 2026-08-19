@@ -61,14 +61,14 @@ function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexRespons
           {isPositive ? '▲' : '▼'} {isPositive ? '+' : ''}{data.change.toFixed(2)} ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
         </span>
       </span>
-      <span className="text-gray-500">開 <span className="text-gray-900 tabular-nums">{data.latest.open.toLocaleString()}</span></span>
-      <span className="text-gray-500">高 <span className="text-red-600 tabular-nums">{data.latest.high.toLocaleString()}</span></span>
-      <span className="text-gray-500">低 <span className="text-green-600 tabular-nums">{data.latest.low.toLocaleString()}</span></span>
-      <span className="text-gray-500">量 <span className="text-gray-900 tabular-nums">{data.latest.volume.toLocaleString()}</span></span>
+      <span className="text-gray-700">開 <span className="text-gray-900 tabular-nums">{data.latest.open.toLocaleString()}</span></span>
+      <span className="text-gray-700">高 <span className="text-red-600 tabular-nums">{data.latest.high.toLocaleString()}</span></span>
+      <span className="text-gray-700">低 <span className="text-green-600 tabular-nums">{data.latest.low.toLocaleString()}</span></span>
+      <span className="text-gray-700">量 <span className="text-gray-900 tabular-nums">{data.latest.volume.toLocaleString()}</span></span>
       {showOpenInterest && (
-        <span className="text-gray-500">未平倉 <span className="text-gray-900 tabular-nums">{(data.latest.open_interest || 0).toLocaleString()}</span></span>
+        <span className="text-gray-700">未平倉 <span className="text-gray-900 tabular-nums">{(data.latest.open_interest || 0).toLocaleString()}</span></span>
       )}
-      <span className="text-gray-400 ml-auto">{data.latest.date}</span>
+      <span className="text-gray-600 ml-auto">{data.latest.date}</span>
     </div>
   )
 }
@@ -78,9 +78,9 @@ function BreadthTile({ label, value, sub, tone }: { label: string; value: number
   const color = tone === 'up' ? 'text-red-600' : tone === 'down' ? 'text-green-600' : 'text-gray-700'
   return (
     <div className="text-center md:text-right">
-      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xs text-gray-700 font-medium">{label}</div>
       <div className={`text-2xl font-bold tabular-nums ${color}`}>{value.toLocaleString()}</div>
-      {sub && <div className="text-xs text-gray-400 tabular-nums">{sub}</div>}
+      {sub && <div className="text-xs text-gray-600 font-medium tabular-nums">{sub}</div>}
     </div>
   )
 }
@@ -185,7 +185,7 @@ export default function Home() {
           <section className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="text-sm text-gray-500">加權指數 · {taiexData.latest.date}</div>
+                <div className="text-sm text-gray-700">加權指數 · {taiexData.latest.date}</div>
                 <div className={`text-3xl md:text-4xl font-bold tabular-nums ${taiexUp ? 'text-red-600' : 'text-green-600'}`}>
                   {taiexData.latest.close.toLocaleString()}
                 </div>
@@ -201,7 +201,7 @@ export default function Home() {
                   <BreadthTile label="跌停" value={breadth.limitDown || 0} tone="down" />
                 </div>
               ) : (
-                <div className="text-sm text-gray-400 self-center">漲跌家數暫無資料</div>
+                <div className="text-sm text-gray-600 self-center">漲跌家數暫無資料</div>
               )}
             </div>
           </section>
@@ -258,7 +258,7 @@ export default function Home() {
                 return (
                   <Link key={w.stock_id} href={`/stock/${w.stock_id}`} className="bg-white rounded-lg shadow-sm p-3 hover:shadow-md transition-shadow">
                     <div className="font-bold text-gray-900">{w.stock_id}</div>
-                    <div className="text-xs text-gray-500 truncate">{w.stock_name}</div>
+                    <div className="text-xs text-gray-700 font-medium truncate">{w.stock_name}</div>
                     <div className={`mt-1 text-lg font-bold tabular-nums ${up ? 'text-red-600' : 'text-green-600'}`}>{q ? q.close.toFixed(2) : '—'}</div>
                     <div className={`text-xs tabular-nums ${up ? 'text-red-500' : 'text-green-500'}`}>{q ? `${up ? '▲' : '▼'} ${up ? '+' : ''}${pct.toFixed(2)}%` : ''}</div>
                     {(() => {
@@ -266,7 +266,7 @@ export default function Home() {
                       return sigs.length ? (
                         <div className="flex flex-wrap gap-1 mt-1.5">
                           {sigs.slice(0, 2).map((s, i) => (
-                            <span key={i} className="text-[10px] px-1 py-0.5 rounded bg-orange-50 text-orange-600">{s.icon}{s.text}</span>
+                            <span key={i} className="text-xs px-1 py-0.5 rounded bg-orange-50 text-orange-600">{s.icon}{s.text}</span>
                           ))}
                         </div>
                       ) : null

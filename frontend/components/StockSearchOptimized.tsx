@@ -137,7 +137,7 @@ export default function StockSearchOptimized() {
               }`}
             >
               <span className="font-medium text-gray-800">{stock.stock_id}</span>
-              <span className="text-gray-500 text-sm">{stock.stock_name}</span>
+              <span className="text-gray-700 text-sm">{stock.stock_name}</span>
             </button>
           ))}
         </div>
@@ -145,7 +145,7 @@ export default function StockSearchOptimized() {
 
       {/* 無結果提示 */}
       {query && !isPending && results.length === 0 && (
-        <div className="absolute z-50 w-full md:w-64 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 text-gray-500 text-sm">
+        <div className="absolute z-50 w-full md:w-64 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 text-gray-700 text-sm">
           找不到符合的股票
         </div>
       )}

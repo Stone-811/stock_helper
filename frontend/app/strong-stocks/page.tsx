@@ -149,16 +149,16 @@ export default function StrongStocksPage() {
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
             <div>
-              <span className="text-sm text-gray-500">當前日期</span>
+              <span className="text-sm text-gray-700">當前日期</span>
               <div className="text-2xl font-bold text-gray-800">{selectedDate}</div>
             </div>
             <div className="border-l border-gray-200 pl-4">
-              <span className="text-sm text-gray-500">可選範圍</span>
+              <span className="text-sm text-gray-700">可選範圍</span>
               <div className="text-sm text-gray-700">
                 {data?.availableDates && data.availableDates.length > 0 && (
                   <>
                     {data.availableDates[data.availableDates.length - 1]} ~ {data.availableDates[0]}
-                    <span className="text-gray-400 ml-2">({data.availableDates.length} 個交易日)</span>
+                    <span className="text-gray-600 ml-2">({data.availableDates.length} 個交易日)</span>
                   </>
                 )}
               </div>
@@ -172,7 +172,7 @@ export default function StrongStocksPage() {
             {/* 左側：日期 + 篩選 */}
             <div className="flex flex-wrap gap-4 items-center">
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-sm">切換日期</span>
+                <span className="text-gray-700 text-sm">切換日期</span>
                 <select
                   value={selectedDate}
                   onChange={(e) => handleDateChange(e.target.value)}
@@ -186,7 +186,7 @@ export default function StrongStocksPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-sm">MACD</span>
+                <span className="text-gray-700 text-sm">MACD</span>
                 <select
                   value={filter.macd}
                   onChange={(e) => setFilter({ ...filter, macd: e.target.value })}
@@ -198,7 +198,7 @@ export default function StrongStocksPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-sm">成交量</span>
+                <span className="text-gray-700 text-sm">成交量</span>
                 <select
                   value={filter.minVolume}
                   onChange={(e) => setFilter({ ...filter, minVolume: parseInt(e.target.value) })}
@@ -212,7 +212,7 @@ export default function StrongStocksPage() {
               </div>
               {industries.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500 text-sm">產業</span>
+                  <span className="text-gray-700 text-sm">產業</span>
                   <select
                     value={filter.industry}
                     onChange={(e) => setFilter({ ...filter, industry: e.target.value })}
@@ -230,10 +230,10 @@ export default function StrongStocksPage() {
             </div>
             {/* 右側：統計 */}
             <div className="flex items-center gap-4 text-sm">
-              <span className="text-gray-500">
+              <span className="text-gray-700">
                 篩選：<span className="font-medium text-gray-700">{filteredStocks.length}</span> 檔
               </span>
-              <span className="text-gray-500">
+              <span className="text-gray-700">
                 當日：<span className="font-bold text-orange-500">{data?.totalCount || 0}</span> 檔
               </span>
             </div>

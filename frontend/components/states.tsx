@@ -11,7 +11,7 @@ export function PageHeader({ title, subtitle }: { title: string; subtitle?: Reac
   return (
     <div className="max-w-7xl mx-auto px-4 pt-5 pb-1">
       <h1 className="text-xl md:text-2xl font-bold text-gray-900">{title}</h1>
-      {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+      {subtitle && <p className="text-sm text-gray-700 mt-0.5">{subtitle}</p>}
     </div>
   )
 }
@@ -70,7 +70,7 @@ export function EmptyState({
     <div className="bg-white rounded-lg shadow-sm p-8 text-center">
       <div className="text-5xl mb-3" aria-hidden="true">{icon}</div>
       <h2 className="text-lg font-bold text-gray-800 mb-1">{title}</h2>
-      {description && <div className="text-gray-500 text-sm mb-4">{description}</div>}
+      {description && <div className="text-gray-700 text-sm mb-4">{description}</div>}
       {action}
     </div>
   )
@@ -89,7 +89,7 @@ export function ErrorState({
     <div className="bg-white rounded-lg shadow-sm p-8 text-center">
       <div className="text-5xl mb-3" aria-hidden="true">⚠️</div>
       <h2 className="text-lg font-bold text-gray-800 mb-1">{title}</h2>
-      {message && <div className="text-gray-500 text-sm mb-4">{message}</div>}
+      {message && <div className="text-gray-700 text-sm mb-4">{message}</div>}
       {onRetry && (
         <button
           onClick={onRetry}

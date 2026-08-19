@@ -143,9 +143,9 @@ export default function WatchlistPage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 統計資訊 */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <span className="text-gray-500">自選股數量：</span>
+          <span className="text-gray-700">自選股數量：</span>
           <span className="font-bold text-blue-600">{stocks.length}</span>
-          <span className="text-gray-500"> 檔</span>
+          <span className="text-gray-700"> 檔</span>
         </div>
 
         {/* 今日訊號提醒 */}
@@ -191,7 +191,7 @@ export default function WatchlistPage() {
                     <div className="flex justify-between items-start mb-2">
                       <Link href={`/stock/${stock.stock_id}`} className="flex-1">
                         <div className="font-bold text-gray-900">{stock.stock_id}</div>
-                        <div className="text-sm text-gray-500 truncate max-w-[120px]">{stock.stock_name}</div>
+                        <div className="text-sm text-gray-700 truncate max-w-[120px]">{stock.stock_name}</div>
                       </Link>
                       <div className="text-right">
                         <div className={`text-lg font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
@@ -211,13 +211,13 @@ export default function WatchlistPage() {
                       return sigs.length ? (
                         <div className="flex flex-wrap gap-1 mb-2">
                           {sigs.map((s, i) => (
-                            <span key={i} className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{s.icon} {s.text}</span>
+                            <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{s.icon} {s.text}</span>
                           ))}
                         </div>
                       ) : null
                     })()}
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-gray-700">
                         成交量 {stock.latestData?.volume.toLocaleString() || '-'}
                       </span>
                       <button
@@ -237,11 +237,11 @@ export default function WatchlistPage() {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">股票</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">收盤價</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">漲跌</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">成交量</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">操作</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">股票</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">收盤價</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">漲跌</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">成交量</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -262,7 +262,7 @@ export default function WatchlistPage() {
                             className="hover:text-blue-600"
                           >
                             <div className="font-medium text-gray-900">{stock.stock_name}</div>
-                            <div className="text-sm text-gray-500">{stock.stock_id}</div>
+                            <div className="text-sm text-gray-700">{stock.stock_id}</div>
                           </Link>
                         </td>
                         <td className="px-4 py-3 text-right">

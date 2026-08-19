@@ -63,19 +63,19 @@ export default function StockCard({ stock }: StockCardProps) {
         </div>
 
         {/* 成交額和當沖額 */}
-        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 font-medium">
           <div>
-            <span className="text-gray-400">成交額</span>
+            <span className="text-gray-600">成交額</span>
             <span className="ml-1 font-medium">{formatTradingValue(tradingValue)}</span>
           </div>
           <div>
-            <span className="text-gray-400">強勢</span>
+            <span className="text-gray-600">強勢</span>
             <span className="ml-1 font-medium text-orange-500">{stock.strong_count || 0} 日</span>
           </div>
         </div>
         {dayTradingValue > 0 && (
-          <div className="mt-1 text-xs text-gray-600">
-            <span className="text-gray-400">當沖額</span>
+          <div className="mt-1 text-xs text-gray-600 font-medium">
+            <span className="text-gray-600">當沖額</span>
             <span className="ml-1 font-medium text-cyan-600">{formatTradingValue(dayTradingValue)}</span>
             <span className="ml-1 text-cyan-500">({dayTradingRatio.toFixed(1)}%)</span>
           </div>
@@ -84,29 +84,29 @@ export default function StockCard({ stock }: StockCardProps) {
         {/* 三大法人 */}
         <div className="mt-auto pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
           <div className="text-center">
-            <div className="text-gray-400">外資</div>
+            <div className="text-gray-600">外資</div>
             <div className={stock.foreign_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.foreign_buy >= 0 ? '+' : ''}{stock.foreign_buy}
             </div>
             {!!stock.foreign_streak && (
-              <div className={`text-[10px] ${stock.foreign_streak > 0 ? 'text-red-400' : 'text-green-400'}`}>
+              <div className={`text-xs ${stock.foreign_streak > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {stock.foreign_streak > 0 ? `連買${stock.foreign_streak}` : `連賣${Math.abs(stock.foreign_streak)}`}
               </div>
             )}
           </div>
           <div className="text-center">
-            <div className="text-gray-400">投信</div>
+            <div className="text-gray-600">投信</div>
             <div className={stock.trust_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.trust_buy >= 0 ? '+' : ''}{stock.trust_buy}
             </div>
             {!!stock.trust_streak && (
-              <div className={`text-[10px] ${stock.trust_streak > 0 ? 'text-red-400' : 'text-green-400'}`}>
+              <div className={`text-xs ${stock.trust_streak > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {stock.trust_streak > 0 ? `連買${stock.trust_streak}` : `連賣${Math.abs(stock.trust_streak)}`}
               </div>
             )}
           </div>
           <div className="text-center">
-            <div className="text-gray-400">自營</div>
+            <div className="text-gray-600">自營</div>
             <div className={stock.dealer_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.dealer_buy >= 0 ? '+' : ''}{stock.dealer_buy}
             </div>

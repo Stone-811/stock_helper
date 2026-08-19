@@ -65,7 +65,7 @@ export default function WatchlistButton({ stockId, stockName, className = '' }: 
       <button
         disabled
         aria-label="自選股載入中"
-        className={`inline-flex items-center justify-center min-h-[40px] px-3 rounded-lg text-gray-400 bg-gray-100 ${className}`}
+        className={`inline-flex items-center justify-center min-h-[40px] px-3 rounded-lg text-gray-600 bg-gray-100 ${className}`}
       >
         …
       </button>

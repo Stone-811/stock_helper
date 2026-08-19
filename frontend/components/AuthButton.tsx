@@ -50,7 +50,7 @@ export default function AuthButton({ isCollapsed = false }: AuthButtonProps) {
         <div className="w-8 h-8 rounded-full bg-gray-700 animate-pulse" />
       </div>
     ) : (
-      <div className="px-4 py-2 text-sm text-gray-400">
+      <div className="px-4 py-2 text-sm text-gray-300">
         載入中...
       </div>
     )

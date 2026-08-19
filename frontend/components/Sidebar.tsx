@@ -78,7 +78,7 @@ export default function Sidebar() {
             ) : (
               <>
                 <h1 className="text-white text-xl font-bold">台股分析系統</h1>
-                <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
+                <p className="text-gray-300 text-sm mt-1">Taiwan Stock Analysis</p>
               </>
             )}
           </div>
@@ -86,13 +86,13 @@ export default function Sidebar() {
           {/* 手機版 */}
           <div className="md:hidden">
             <h1 className="text-white text-xl font-bold">台股分析系統</h1>
-            <p className="text-gray-500 text-sm mt-1">Taiwan Stock Analysis</p>
+            <p className="text-gray-300 text-sm mt-1">Taiwan Stock Analysis</p>
           </div>
 
           {/* 桌面版縮排按鈕 */}
           <button
             onClick={toggleCollapse}
-            className="hidden md:block absolute top-4 right-4 p-2 text-gray-400 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors"
+            className="hidden md:block absolute top-4 right-4 p-2 text-gray-300 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors"
             title={isCollapsed ? '展開側邊欄' : '收合側邊欄'}
           >
             <svg
@@ -108,7 +108,7 @@ export default function Sidebar() {
           {/* 手機版關閉按鈕 */}
           <button
             onClick={() => setIsOpen(false)}
-            className="md:hidden absolute top-4 right-4 flex items-center justify-center w-11 h-11 text-gray-400 hover:text-white rounded-lg"
+            className="md:hidden absolute top-4 right-4 flex items-center justify-center w-11 h-11 text-gray-300 hover:text-white rounded-lg"
             aria-label="關閉選單"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -132,7 +132,7 @@ export default function Sidebar() {
                 ${
                   isActive(item.href)
                     ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:bg-[#2a2a3e] hover:text-white'
+                    : 'text-gray-300 hover:bg-[#2a2a3e] hover:text-white'
                 }
               `}
             >
@@ -151,11 +151,11 @@ export default function Sidebar() {
         {/* 底部資訊 */}
         {isCollapsed ? (
           <div className="hidden md:block p-2 border-t border-[#2a2a3e]">
-            <p className="text-gray-500 text-xs text-center" title="資料來源：FinMind">📈</p>
+            <p className="text-gray-300 text-xs text-center" title="資料來源：FinMind">📈</p>
           </div>
         ) : (
           <div className="p-4 border-t border-[#2a2a3e]">
-            <p className="text-gray-500 text-xs text-center">資料來源：FinMind</p>
+            <p className="text-gray-300 text-xs text-center">資料來源：FinMind</p>
           </div>
         )}
       </aside>

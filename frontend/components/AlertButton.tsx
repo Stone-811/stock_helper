@@ -128,14 +128,14 @@ export default function AlertButton({ stockId, stockName }: { stockId: string; s
                 </div>
 
                 <div className="border-t border-gray-100 pt-2">
-                  <div className="text-xs text-gray-500 mb-1">已設定的提醒</div>
+                  <div className="text-xs text-gray-700 mb-1">已設定的提醒</div>
                   {alerts.length === 0 ? (
-                    <p className="text-sm text-gray-400 py-2">尚無提醒</p>
+                    <p className="text-sm text-gray-600 py-2">尚無提醒</p>
                   ) : (
                     <ul className="space-y-1 max-h-48 overflow-y-auto">
                       {alerts.map((a) => (
                         <li key={a.id} className="flex items-center justify-between text-sm py-1">
-                          <span className={a.enabled ? 'text-gray-700' : 'text-gray-400 line-through'}>
+                          <span className={a.enabled ? 'text-gray-700' : 'text-gray-600 line-through'}>
                             {labelFor(a)}
                             {!a.enabled && <span className="ml-1 text-xs text-green-600 no-underline">已觸發</span>}
                           </span>
@@ -148,7 +148,7 @@ export default function AlertButton({ stockId, stockName }: { stockId: string; s
                   )}
                 </div>
 
-                <p className="text-xs text-gray-400 mt-2">達成時會 Email 通知 {user.email}（每日收盤後檢查）</p>
+                <p className="text-xs text-gray-600 mt-2">達成時會 Email 通知 {user.email}（每日收盤後檢查）</p>
               </>
             )}
           </div>

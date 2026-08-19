@@ -120,7 +120,7 @@ export default function ScreenerPage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* 快速策略 */}
         <div className="mb-4">
-          <div className="text-sm text-gray-500 mb-2">快速策略</div>
+          <div className="text-sm text-gray-700 mb-2">快速策略</div>
           <div className="flex flex-wrap gap-2">
             {QUICK_STRATEGIES.map((s) => (
               <button
@@ -138,13 +138,13 @@ export default function ScreenerPage() {
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div className="flex flex-wrap gap-x-4 gap-y-3 items-center">
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 text-sm">日期</span>
+              <span className="text-gray-700 text-sm">日期</span>
               <select value={date} onChange={(e) => setDate(e.target.value)} className={SELECT}>
                 {availableDates.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 text-sm">MACD</span>
+              <span className="text-gray-700 text-sm">MACD</span>
               <select value={macd} onChange={(e) => setMacd(e.target.value)} className={SELECT}>
                 <option value="">全部</option>
                 <option value="多">多頭</option>
@@ -152,7 +152,7 @@ export default function ScreenerPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 text-sm">外資連買</span>
+              <span className="text-gray-700 text-sm">外資連買</span>
               <select value={foreignStreakMin} onChange={(e) => setForeignStreakMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1">≥1 天</option>
@@ -162,7 +162,7 @@ export default function ScreenerPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 text-sm">投信連買</span>
+              <span className="text-gray-700 text-sm">投信連買</span>
               <select value={trustStreakMin} onChange={(e) => setTrustStreakMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1">≥1 天</option>
@@ -172,7 +172,7 @@ export default function ScreenerPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 text-sm">成交量</span>
+              <span className="text-gray-700 text-sm">成交量</span>
               <select value={volumeMin} onChange={(e) => setVolumeMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1000">1000張+</option>
@@ -182,7 +182,7 @@ export default function ScreenerPage() {
             </div>
             {industries.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-sm">產業</span>
+                <span className="text-gray-700 text-sm">產業</span>
                 <select value={industry} onChange={(e) => setIndustry(e.target.value)} className={`${SELECT} max-w-[150px]`}>
                   <option value="">全部產業</option>
                   {industries.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
@@ -194,7 +194,7 @@ export default function ScreenerPage() {
               僅外資買超
             </label>
             <div className="flex items-center gap-2 ml-auto">
-              <span className="text-gray-500 text-sm">排序</span>
+              <span className="text-gray-700 text-sm">排序</span>
               <select value={sort} onChange={(e) => setSort(e.target.value)} className={SELECT}>
                 <option value="foreign_buy">外資買超</option>
                 <option value="trust_buy">投信買超</option>
@@ -205,11 +205,11 @@ export default function ScreenerPage() {
           </div>
           {/* 統計 */}
           <div className="flex items-center gap-4 text-sm mt-3 pt-3 border-t border-gray-100">
-            <span className="text-gray-500">
+            <span className="text-gray-700">
               符合：<span className="font-bold text-orange-500">{data?.count ?? 0}</span> 檔
-              {data && data.returned < data.count && <span className="text-gray-400 ml-1">（顯示前 {data.returned}）</span>}
+              {data && data.returned < data.count && <span className="text-gray-600 ml-1">（顯示前 {data.returned}）</span>}
             </span>
-            <span className="text-gray-500">當日：<span className="font-medium text-gray-700">{data?.totalCount ?? 0}</span> 檔</span>
+            <span className="text-gray-700">當日：<span className="font-medium text-gray-700">{data?.totalCount ?? 0}</span> 檔</span>
           </div>
         </div>
 
@@ -222,7 +222,7 @@ export default function ScreenerPage() {
                 <button onClick={c.clear} className="flex items-center justify-center w-6 h-6 text-blue-400 hover:text-blue-700" aria-label={`移除 ${c.label}`}>✕</button>
               </span>
             ))}
-            <button onClick={clearAll} className="text-sm text-gray-500 hover:text-gray-700 underline">清除全部</button>
+            <button onClick={clearAll} className="text-sm text-gray-700 hover:text-gray-700 underline">清除全部</button>
           </div>
         )}
 

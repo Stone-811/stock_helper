@@ -64,14 +64,14 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             <button
               onClick={handleBack}
               aria-label="返回"
-              className="flex items-center justify-center w-11 h-11 -ml-2 shrink-0 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg text-xl"
+              className="flex items-center justify-center w-11 h-11 -ml-2 shrink-0 text-gray-700 hover:text-gray-800 hover:bg-gray-100 rounded-lg text-xl"
             >
               ←
             </button>
             <h1 className="min-w-0 flex-1 flex items-baseline gap-2">
               <span className="text-lg md:text-2xl font-bold text-gray-900 truncate">{displayName}</span>
               {hasName && (
-                <span className="text-sm md:text-base font-medium text-gray-400 shrink-0 tabular-nums">{data.stock_id}</span>
+                <span className="text-sm md:text-base font-medium text-gray-600 shrink-0 tabular-nums">{data.stock_id}</span>
               )}
             </h1>
             <WatchlistButton stockId={data.stock_id} stockName={data.stock_name} className="shrink-0" />
@@ -95,7 +95,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 <span>{isPositive ? '+' : ''}{priceChange.toFixed(2)}</span>
                 <span>({isPositive ? '+' : ''}{priceChangePct}%)</span>
               </div>
-              <div className="mt-1.5 text-sm text-gray-500 tabular-nums">
+              <div className="mt-1.5 text-sm text-gray-700 tabular-nums">
                 {latest.date} · 成交量 {latest.volume.toLocaleString()} 張
               </div>
             </div>
@@ -103,24 +103,24 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             {/* 次要指標：MACD / 當沖 / 近7日強勢 */}
             <div className="flex items-start gap-5 md:gap-8">
               <div>
-                <div className="text-gray-500 text-xs md:text-sm">MACD</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">MACD</div>
                 <div className={`text-lg md:text-xl font-bold ${latest.macd_status === '多' ? 'text-red-600' : 'text-green-600'}`}>
                   {latest.macd_status === '多' ? '多頭' : '空頭'}
                 </div>
               </div>
               <div>
-                <div className="text-gray-500 text-xs md:text-sm">當日當沖</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">當日當沖</div>
                 {dayTradeRatio === null ? (
-                  <div className="text-lg md:text-xl font-bold text-gray-400">—</div>
+                  <div className="text-lg md:text-xl font-bold text-gray-600">—</div>
                 ) : (
                   <div className="text-lg md:text-xl font-bold text-cyan-600 tabular-nums">{dayTradeRatio.toFixed(1)}%</div>
                 )}
               </div>
               <div>
-                <div className="text-gray-500 text-xs md:text-sm">近7日強勢</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">近7日強勢</div>
                 <div className="text-lg md:text-xl font-bold text-orange-500 tabular-nums">
                   {data.recentStrongDays}
-                  <span className="text-sm font-normal text-gray-500 ml-0.5">天</span>
+                  <span className="text-sm font-normal text-gray-700 ml-0.5">天</span>
                 </div>
               </div>
             </div>
@@ -132,12 +132,12 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
               <div className="text-gray-900 text-base font-medium">
                 三大法人買賣超（張）
                 {latest.foreign_buy === null && (
-                  <span className="text-sm font-normal text-gray-400 ml-2">當日資料尚未提供</span>
+                  <span className="text-sm font-normal text-gray-600 ml-2">當日資料尚未提供</span>
                 )}
               </div>
               <button
                 onClick={() => setShowInst((v) => !v)}
-                className="md:hidden text-gray-500 text-sm px-2 py-1 -mr-2 whitespace-nowrap"
+                className="md:hidden text-gray-700 text-sm px-2 py-1 -mr-2 whitespace-nowrap"
               >
                 {showInst ? '收合 ▲' : '展開 ▼'}
               </button>
@@ -164,7 +164,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 <div key={label}>
                   <div className="text-gray-800 text-sm font-medium">{label}</div>
                   {v === null ? (
-                    <div className="text-lg font-medium text-gray-400">—</div>
+                    <div className="text-lg font-medium text-gray-600">—</div>
                   ) : kind === 'buy' ? (
                     <div className={`text-lg font-bold tabular-nums ${v >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {v >= 0 ? '+' : ''}{v.toLocaleString()}

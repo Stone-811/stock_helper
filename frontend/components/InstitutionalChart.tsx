@@ -151,7 +151,7 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
       <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-3">
         <div className="flex items-center gap-2">
           <span className="text-white text-sm md:text-base font-medium">{title}</span>
-          <span className="text-gray-400 text-xs">{subtitle}</span>
+          <span className="text-gray-300 text-xs font-medium">{subtitle}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1 md:gap-2 md:ml-auto">
           {/* 模式切換 */}
@@ -171,7 +171,7 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
       {/* 圖例 + 讀值 */}
       {view && legendDate && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-sm font-mono">
-          {hoverTime === legendDate && <span className="text-gray-400">{legendDate}</span>}
+          {hoverTime === legendDate && <span className="text-gray-300">{legendDate}</span>}
           {view.mode === 'flow' ? (
             <>
               <span className="text-blue-400">外資 {fmtLots(view.points.get(legendDate)!.foreign)}</span>
@@ -188,11 +188,11 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
         </div>
       )}
 
-      {mode !== 'daytrade' && raw === null && !error && <div className="text-gray-400 text-sm py-12 text-center">載入中…</div>}
-      {mode !== 'daytrade' && error && <div className="text-gray-400 text-sm py-12 text-center">法人資料載入失敗</div>}
-      {mode === 'flow' && raw && raw.length === 0 && <div className="text-gray-400 text-sm py-12 text-center">無三大法人資料</div>}
-      {holdingUnavailable && <div className="text-gray-400 text-sm py-12 text-center">此股無外資持股申報資料</div>}
-      {daytradeUnavailable && <div className="text-gray-400 text-sm py-12 text-center">無當沖資料</div>}
+      {mode !== 'daytrade' && raw === null && !error && <div className="text-gray-300 text-sm py-12 text-center">載入中…</div>}
+      {mode !== 'daytrade' && error && <div className="text-gray-300 text-sm py-12 text-center">法人資料載入失敗</div>}
+      {mode === 'flow' && raw && raw.length === 0 && <div className="text-gray-300 text-sm py-12 text-center">無三大法人資料</div>}
+      {holdingUnavailable && <div className="text-gray-300 text-sm py-12 text-center">此股無外資持股申報資料</div>}
+      {daytradeUnavailable && <div className="text-gray-300 text-sm py-12 text-center">無當沖資料</div>}
       <div ref={chartRef} style={{ display: view ? 'block' : 'none' }} />
     </div>
   )

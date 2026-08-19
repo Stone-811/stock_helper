@@ -35,8 +35,8 @@ export default function MobileBottomNav() {
               key={item.href}
               href={item.href}
               aria-current={active ? 'page' : undefined}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[56px] text-[11px] font-medium transition-colors ${
-                active ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[56px] text-xs font-medium transition-colors ${
+                active ? 'text-blue-600' : 'text-gray-700 hover:text-gray-700'
               }`}
             >
               <span className="text-xl leading-none" aria-hidden="true">
