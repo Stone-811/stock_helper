@@ -23,12 +23,12 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 
 ## 個股頁功能與全站搜尋（2026-08 擴充，皆前端；收集器/排程未動）
 個股頁 `app/stock/[id]/`（`StockDetailClient.tsx`）：
-- **當日當沖比例**：資訊卡片一格，= `day_trading_volume / volume`（當沖量早已由 collector 抓 `TaiwanStockDayTrading` 存進 daily_data）。技術圖「指標」下拉多一項 **當沖比例**（子圖畫每日 %）；歷史當沖量由 `lib/finmind.ts` 的 `fetchStockDayTrading()` 抓 FinMind、在 `stock-data.ts` 併入 K 線 `history`。大盤圖無此欄位 → `CandleChart` 以 `hasDayTrade` 自動隱藏該選項。
+- **當日當沖比例**：資訊卡片一格，= `day_trading_volume / volume`（當沖量早已由 collector 抓 `TaiwanStockDayTrading` 存進 daily_data）。歷史當沖量由 `lib/finmind.ts` 的 `fetchStockDayTrading()` 抓 FinMind、在 `stock-data.ts` 併入 K 線 `history`，由 `StockDetailClient` 算成 `[{date,ratio}]` 傳給**籌碼圖的「當沖」分頁**（2026-08-18 起當沖已移出技術圖，見下方 P0 改版）。
 - **三大法人趨勢圖**：`components/InstitutionalChart.tsx`（獨立 lightweight-charts 折線，**刻意不併進 K 線子圖**以避開多子圖 priceScale 對齊坑）。資料 client 端 lazy 打 `app/api/stock/[id]/institutional/route.ts`（回 `{ data, holdings }`）。**兩模式切換**：
   - **買賣超**：`fetchInstitutionalHistory()`（FinMind `TaiwanStockInstitutionalInvestorsBuySell`）累計買賣超。定義**比照收集器**：外資=`Foreign_Investor`、投信=`Investment_Trust`、自營=`Dealer_self`+`Dealer_Hedging`，`(buy−sell)/1000` 後 **`Math.trunc`**（對齊 `_process_institutional_data`+firebase_writer `.astype(int)`；用 `Math.round` 會差 1 張）。
   - **外資持股**：`fetchForeignShareholding()`（FinMind `TaiwanStockShareholding.ForeignInvestmentShares÷1000`）畫**外資實際持股張數**（官方申報的絕對持有量，非買賣超累加）。⚠️ **只有外資有逐檔官方持股**，投信/自營無此資料 → 不做「持股」模式，只在買賣超顯示。
 - **技術分析圖 `CandleChart.tsx`（2026-08 大改；`StockChart`個股·張 / `IndexChart`大盤·億/口 共用）**：
-  - **架構**：不再是「三張獨立 chart 疊 + 動態同步右軸寬」的舊脆弱做法。改為 **1 張主圖（K線+MA+布林+成交量半透明疊底）＋ 每個指標各一張同步子圖**（指標**多選 ≤2**）。對齊靠 **固定右軸寬 68px（`AXIS_WIDTH`）+ 邏輯範圍同步（`subscribeVisibleLogicalRangeChange`）+ 十字線同步** → 天生對齊，**已移除 requestAnimationFrame/ResizeObserver 喬寬的舊 hack**。
+  - **架構**：不再是「三張獨立 chart 疊 + 動態同步右軸寬」的舊脆弱做法。改為 **1 張主圖（K線+MA+布林+成交量半透明疊底）＋ 每個指標各一張同步子圖**（指標**單選**，見下方 P0 改版；2026-08-18 前為多選 ≤2）。對齊靠 **固定右軸寬 68px（`AXIS_WIDTH`）+ 邏輯範圍同步（`subscribeVisibleLogicalRangeChange`）+ 十字線同步** → 天生對齊，**已移除 requestAnimationFrame/ResizeObserver 喬寬的舊 hack**。
   - ⚠️ **各子圖系列必須保留完整時間軸**（暖身期 null 用 whitespace `{time}` 佔位，用 `toLineWS`／histogram 亦然；**勿用會濾 null 的 `toLineData` 或 `.filter`**）。否則 MACD 等指標系列從第 ~33 根才開始 → 子圖時間軸起點與主圖不一致 → 用 logical index 同步時錯位 → **K 棒與 MACD 柱水平對不上**（2026-08-13 踩到並修）。主圖有 K 線錨定完整範圍故 MA/BB 可濾；指標子圖沒錨定，務必用 whitespace。
   - **互動**：開啟 `handleScroll/handleScale`（滾輪縮放 + 拖曳平移）；`3M/6M/1Y/2Y` 改用 `setVisibleLogicalRange`（bar 索引，避開「非交易日字串讓 `setVisibleRange` 失效 → 退回 fitContent 顯示全 5 年」的坑）。全量資料載入、指標用完整資料算，顯示範圍靠邏輯範圍而非 slice。
   - **視覺**：左上讀值整合一份（日期/收含漲跌%/量 + 有開的 MA/布林/各指標值）；最新價水平線 + 價籤；成交量半透明疊主圖底部（`vol` overlay 價軸）；版面 preset（價格為主/均衡/指標為主）調主圖佔比。
@@ -37,12 +37,12 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 
 **全站置頂搜尋列**：`components/TopBar.tsx` 放進 `MainContent`（每頁皆顯示含首頁，手機左側留 hamburger 空間）。搜尋（代碼/名稱，Server Action `app/actions/stocks.ts::searchStocks`，已同時比對 stock_id 與 stock_name）已從各頁 header 移除、集中於此；**各頁 header 一律改為非 sticky**（原 `sticky top-0 z-10`），避免與置頂列（`sticky top-0 z-30`）雙重固定重疊。
 
-## 前端 UI / RWD 慣例（2026-08-13）
+## 前端 UI / RWD 慣例（2026-08-13，⚠️ 多數已被下方 P0 改版取代，僅保留脈絡）
 - **手機版一律用 Tailwind `md:` 斷點做「桌機常駐／手機收合」**（不做 JS 量視窗）：
-  - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值用 `hidden md:contents` 手機隱藏（只留 日期/收/量）。觸控目標 `min-h-[40px] md:min-h-[34/30px]`、checkbox `w-4 h-4 md:w-3.5`。
+  - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（現已更名「⚙️ 圖表設定」）（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值用 `hidden md:contents` 手機隱藏（只留 日期/收/量）。觸控目標（**現已全面改 44px**）、checkbox `w-4 h-4 md:w-3.5`。
   - `StockDetailClient`：三大法人明細手機預設收合（`showInst` state +「展開/收合」鈕 `md:hidden`；grid `${showInst?'grid':'hidden'} md:grid`），卡片 `p-4 md:p-6`。
-  - `Sidebar`：手機標題加 `pl-10` 避開固定在 `top-4 left-4` 的 X 關閉鈕（否則壓到「台」字）。
-  - 首頁 `IndexCard`：`p-4 md:p-6`、值 `text-2xl md:text-3xl`。
+  - ~~`Sidebar` 手機標題 `pl-10`~~：**已失效**——P0 後 ☰ 移到 `TopBar`、抽屜關閉鈕改在抽屜內。
+  - ~~首頁 `IndexCard`~~：**已移除**（重複顯示加權），改為跟著分頁的精簡數據列 `IndexStatStrip`。
 - **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
 
 ### P0 UI/UX 改版（2026-08-18，已上線；以下取代上方部分 2026-08-13 慣例）
@@ -53,8 +53,15 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **CandleChart**：① 區間加 `1M`；②「⚙️ 更多」→「⚙️ 圖表設定」；③ 指標改**單選底線 Tabs**（`indicator` 單值，非陣列；`MAX_INDICATORS`/`toggleIndicator`/多選已移除）；④ **當沖移出技術圖**（`Indicator` 不再有 `daytrade`）。觸控 `min-h-[44px]`。
 - **當沖改屬籌碼**：`InstitutionalChart` 新增 `Mode='daytrade'` +「當沖」tab，資料由 `StockDetailClient` 用 K 線 history 算出 `dayTrade=[{date,ratio}]` 傳入（籌碼圖本身不 fetch 當沖）；`hasDayTrade` 才顯示該 tab。
 - **狀態元件**（`components/states.tsx`）：`PageHeader` / `CardGridSkeleton` / `ChartSkeleton` / `EmptyState` / `ErrorState(onRetry)`。首頁/強勢/選股/自選：載入→骨架、空→EmptyState、錯→ErrorState+重新載入（各頁補了 `error` state；screener 用 `reloadNonce` 重觸發 useEffect）。
+### 無障礙／視力友善（2026-08-19，全站生效）
+- **⚠️ 中文字型**：`globals.css` 的 body 原本是 `font-family: Arial`，**Arial 沒有中文字**，中文全靠系統 fallback（部分裝置變襯線/細體）。已改為 `--font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", ...`（拉丁走 Geist、中文走黑體），body 用 `var(--font-sans)`。**別再把 body font-family 寫死成不含中文的字型。**
+- **字級放大**：用 Tailwind v4 `@theme` 覆寫字級變數（一次影響全站，不必逐檔改）：`--text-xs .85rem / --text-sm .95rem / --text-base 1.1rem / --text-lg 1.25rem / --text-xl 1.4rem / --text-2xl 1.7rem`＋放寬行高。硬寫的 `text-[10px]/[11px]` 已全改 `text-xs`；`CandleChart` 圖表內建 `fontSize` 12→14。
+- **⚠️ 移除深色模式覆寫 + 鎖 `color-scheme: light`**：版面底色是寫死的白/淺灰，但 `@media (prefers-color-scheme: dark)` 會把 `--foreground` 設成 `#ededed`，導致**沒指定顏色的文字在白底上近乎不可見**（實測抓到近白文字），原生 `<select>` 下拉也會變深。**要做深色模式必須連版面底色一起做，不能只換前景變數。**
+- **對比**：淺底 `text-gray-400→600`、`500→700`、紅綠 `400→600`；**深底（側欄/圖表）反向提亮** `500→400`、`400→300`（深底改深會更看不清）；灰色小標籤補 `font-medium`。
+- 觸控目標一律 ≥44px；`viewport` 已移除 `maximumScale: 1`（原本禁止手機雙指放大，違反 WCAG 1.4.4）。
+
 ### 首頁 Dashboard 與 P1（2026-08-18/19，已上線）
-- **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（原本的 加權·台指期 `IndexCard`＋`IndexChart`）。
+- **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（分頁切換 加權/台指期 + `IndexStatStrip` 精簡數據列 + `IndexChart`）。
 - **漲跌家數已移除（2026-08-19，業主表示不需要）**：曾做過 `app/api/market-breadth/route.ts` 抓證交所 `MI_INDEX?type=MS`（FinMind 無此資料）顯示上漲/下跌/漲停/跌停家數，已連同 API route 一併刪除；**若日後要復原，見 git 歷史 commit `ff454c8`（新增）與移除該功能的 commit**。首頁「今日市場」現在只有加權指數收盤與漲跌。
 - **`StockCard` 等高**：卡片內容行數不一（有無「當沖額」那列）會讓同排卡片高矮不齊 → `Link` 加 `block h-full`、卡片 `h-full flex flex-col`、底部三大法人區 `mt-auto`。新增卡片內容時保持這個結構。
 - **快速策略/篩選（近似值，非真訊號）**：選股頁 `QUICK_STRATEGIES`（趨勢多頭/法人佈局/爆量/技術+法人雙多，一鍵帶入條件）＋**已套用條件 Chips**（可單獨移除、清除全部）；強勢股頁 `QUICK_FILTERS`（全部/技術多頭/法人買超/爆量）。⚠️ **「突破」「爆量」目前是用 MACD/連買/成交量近似**，因真正的突破/爆量需個股 history（見下方 B1 待辦）。
