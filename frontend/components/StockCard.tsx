@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { StrongStock as TodayStrongStock } from '../lib/firebase'
+import InfoTip from './InfoTip'
 
 interface StockCardProps {
   stock: TodayStrongStock
@@ -67,17 +68,17 @@ export default function StockCard({ stock }: StockCardProps) {
         {/* 成交額和當沖額 */}
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 font-medium">
           <div>
-            <span className="text-gray-600">成交額</span>
+            <span className="text-gray-600">成交額</span><InfoTip title="成交額">當日成交量（張）× 收盤價 × 1000 股，代表這檔今天的資金流動規模。</InfoTip>
             <span className="ml-1 font-medium">{formatTradingValue(tradingValue)}</span>
           </div>
           <div>
-            <span className="text-gray-600">強勢</span>
+            <span className="text-gray-600">強勢</span><InfoTip title="強勢天數">最近 7 個交易日中被選入「當日強勢股」的天數。</InfoTip>
             <span className="ml-1 font-medium text-orange-500">{stock.strong_count || 0} 日</span>
           </div>
         </div>
         {dayTradingValue > 0 && (
           <div className="mt-1 text-xs text-gray-600 font-medium">
-            <span className="text-gray-600">當沖額</span>
+            <span className="text-gray-600">當沖額</span><InfoTip title="當沖額與比例">當沖成交量 × 收盤價 × 1000 股；括號內為當沖量佔總成交量的百分比，比例高代表短線交易熱絡。</InfoTip>
             <span className="ml-1 font-medium text-cyan-600">{formatTradingValue(dayTradingValue)}</span>
             <span className="ml-1 text-cyan-500">({dayTradingRatio.toFixed(1)}%)</span>
           </div>
@@ -86,7 +87,7 @@ export default function StockCard({ stock }: StockCardProps) {
         {/* 三大法人 */}
         <div className="mt-auto pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
           <div className="text-center">
-            <div className="text-gray-600">外資</div>
+            <div className="text-gray-600">外資<InfoTip title="法人買賣超（張）">當日買進張數 − 賣出張數；正數（紅）買超、負數（綠）賣超。下方「連買 N」為連續買超天數。自營＝自行買賣＋避險。</InfoTip></div>
             <div className={stock.foreign_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
               {stock.foreign_buy >= 0 ? '+' : ''}{stock.foreign_buy}
             </div>

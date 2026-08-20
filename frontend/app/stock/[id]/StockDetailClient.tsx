@@ -6,6 +6,7 @@ import StockChart from '../../../components/StockChart'
 import InstitutionalChart from '../../../components/InstitutionalChart'
 import AlertButton from '../../../components/AlertButton'
 import StockSignals from '../../../components/StockSignals'
+import InfoTip from '../../../components/InfoTip'
 import WatchlistButton from '../../../components/WatchlistButton'
 import type { StockDetailData } from '../../../lib/stock-data'
 
@@ -98,6 +99,10 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 <span aria-hidden="true">{isPositive ? '▲' : '▼'}</span>
                 <span>{isPositive ? '+' : ''}{priceChange.toFixed(2)}</span>
                 <span>({isPositive ? '+' : ''}{priceChangePct}%)</span>
+                <InfoTip title="漲跌如何計算">
+                  漲跌 = 今日收盤 {latest.close.toFixed(2)} − 前一交易日收盤 {base.toFixed(2)}；
+                  百分比 = 漲跌 ÷ 前一交易日收盤 × 100%。台股慣例以前一交易日收盤為基準（非當日開盤）。
+                </InfoTip>
               </div>
               <div className="mt-1.5 text-sm text-gray-700 tabular-nums">
                 {latest.date} · 成交量 {latest.volume.toLocaleString()} 張
@@ -107,13 +112,18 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             {/* 次要指標：MACD / 當沖 / 近7日強勢 */}
             <div className="flex items-start gap-5 md:gap-8">
               <div>
-                <div className="text-gray-700 text-xs font-medium md:text-sm">MACD</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">MACD<InfoTip title="MACD 多頭 / 空頭">
+                  12 日與 26 日 EMA（指數移動平均）相減得 DIF，再取 DIF 的 9 日 EMA 作訊號線；
+                  兩者差（柱狀圖）大於 0 顯示「多頭」，小於 0 顯示「空頭」。
+                </InfoTip></div>
                 <div className={`text-lg md:text-xl font-bold ${latest.macd_status === '多' ? 'text-red-600' : 'text-green-600'}`}>
                   {latest.macd_status === '多' ? '多頭' : '空頭'}
                 </div>
               </div>
               <div>
-                <div className="text-gray-700 text-xs font-medium md:text-sm">當日當沖</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">當日當沖<InfoTip title="當日當沖比例">
+                  當沖成交量 ÷ 當日總成交量 × 100%。比例越高代表當天「買進又賣出」的短線交易越多，股價波動通常較大。
+                </InfoTip></div>
                 {dayTradeRatio === null ? (
                   <div className="text-lg md:text-xl font-bold text-gray-600">—</div>
                 ) : (
@@ -121,7 +131,9 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 )}
               </div>
               <div>
-                <div className="text-gray-700 text-xs font-medium md:text-sm">近7日強勢</div>
+                <div className="text-gray-700 text-xs font-medium md:text-sm">近7日強勢<InfoTip title="近 7 日強勢天數">
+                  最近 7 個交易日中，本檔被系統選入「當日強勢股」的天數；天數越多代表強勢延續性越好。
+                </InfoTip></div>
                 <div className="text-lg md:text-xl font-bold text-orange-500 tabular-nums">
                   {data.recentStrongDays}
                   <span className="text-sm font-normal text-gray-700 ml-0.5">天</span>
@@ -135,6 +147,10 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
             <div className="flex items-center justify-between mb-3">
               <div className="text-gray-900 text-base font-medium">
                 三大法人買賣超（張）
+                <InfoTip title="三大法人買賣超">
+                  當日「買進張數 − 賣出張數」。正數（紅）為買超、負數（綠）為賣超。
+                  外資＝外資及陸資；自營商＝自行買賣＋避險。「連買 N 天」是連續買超的天數。
+                </InfoTip>
                 {latest.foreign_buy === null && (
                   <span className="text-sm font-normal text-gray-600 ml-2">當日資料尚未提供</span>
                 )}
@@ -166,7 +182,12 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 { label: '外資投資上限', v: latest.foreign_limit_ratio, kind: 'pct', streak: null },
               ] as const).map(({ label, v, kind, streak }) => (
                 <div key={label}>
-                  <div className="text-gray-800 text-sm font-medium">{label}</div>
+                  <div className="text-gray-800 text-sm font-medium">
+                    {label}
+                    {label === '外資持股比例' && <InfoTip title="外資持股比例">外資實際持有張數 ÷ 該公司已發行股數 × 100%。比例高代表外資參與深。</InfoTip>}
+                    {label === '外資尚可投資' && <InfoTip title="外資尚可投資比例">依投資上限，外資目前還可以再買進的比例（＝上限 − 已持有）。</InfoTip>}
+                    {label === '外資投資上限' && <InfoTip title="外資投資上限">法規或公司章程訂定的外資持股上限比例，多數上市公司為 100%。</InfoTip>}
+                  </div>
                   {v === null ? (
                     <div className="text-lg font-medium text-gray-600">—</div>
                   ) : kind === 'buy' ? (

@@ -14,6 +14,7 @@ import {
 } from '../lib/firebase'
 import { PageHeader, ChartSkeleton, CardGridSkeleton, ErrorState, EmptyState } from '../components/states'
 import { computeSignals } from '../lib/signals'
+import InfoTip from '../components/InfoTip'
 
 interface IndexResponse {
   index_id: string
@@ -187,7 +188,13 @@ export default function Home() {
           <section className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="text-sm text-gray-700">加權指數 · {taiexData.latest.date}</div>
+                <div className="text-sm text-gray-700">
+                  加權指數 · {taiexData.latest.date}
+                  <InfoTip title="加權指數（TAIEX）">
+                    全體上市股票依市值加權計算的大盤指數，市值越大的股票影響越大。
+                    漲跌以前一交易日收盤為基準。
+                  </InfoTip>
+                </div>
                 <div className={`text-3xl md:text-4xl font-bold tabular-nums ${taiexUp ? 'text-red-600' : 'text-green-600'}`}>
                   {taiexData.latest.close.toLocaleString()}
                 </div>
@@ -197,6 +204,13 @@ export default function Home() {
               </div>
               {breadth?.available ? (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-5 gap-y-3 md:gap-6">
+                  <div className="col-span-2 sm:col-span-4 -mb-1 text-center sm:text-right">
+                    <span className="text-xs text-gray-700 font-medium">漲跌家數</span>
+                    <InfoTip title="漲跌家數怎麼來的">
+                      證交所當日統計的「上市個股」家數（不含 ETF、權證）：收盤高於前一交易日為上漲、
+                      低於為下跌；漲停／跌停是觸及當日漲跌幅上下限的檔數。上漲家數多代表市場普遍偏強。
+                    </InfoTip>
+                  </div>
                   <BreadthTile label="上漲" value={breadth.up || 0} tone="up" />
                   <BreadthTile label="下跌" value={breadth.down || 0} tone="down" />
                   <BreadthTile label="漲停" value={breadth.limitUp || 0} tone="up" />
