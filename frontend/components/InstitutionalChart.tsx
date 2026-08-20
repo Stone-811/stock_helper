@@ -141,6 +141,14 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
   const holdingUnavailable = mode === 'holding' && holdings !== null && holdings.length === 0
   const daytradeUnavailable = mode === 'daytrade' && !hasDayTrade
 
+  const statusMsg =
+    mode !== 'daytrade' && raw === null && !error ? '載入中…'
+    : mode !== 'daytrade' && error ? '法人資料載入失敗'
+    : mode === 'flow' && raw && raw.length === 0 ? '無三大法人資料'
+    : holdingUnavailable ? '此股無外資持股申報資料'
+    : daytradeUnavailable ? '無當沖資料'
+    : null
+
   const title = mode === 'holding' ? '外資持股張數' : mode === 'daytrade' ? '當沖比例' : '三大法人累計買賣超'
   const subtitle = mode === 'holding' ? '（張，實際持有量）' : mode === 'daytrade' ? '（當沖佔成交量 %）' : '（張，區間起點歸零）'
   const tabBtn = (active: boolean, activeColor = 'bg-green-600') =>
@@ -168,9 +176,10 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
         </div>
       </div>
 
-      {/* 圖例 + 讀值 */}
+      {/* 圖例 + 讀值（固定高度，避免切換模式時卡片高度跳動）*/}
+      {!(view && legendDate) && <div className="mb-2 min-h-[3.2rem] md:min-h-[1.6rem]" />}
       {view && legendDate && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-sm font-mono">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-sm font-mono min-h-[3.2rem] md:min-h-[1.6rem]">
           {hoverTime === legendDate && <span className="text-gray-300">{legendDate}</span>}
           {view.mode === 'flow' ? (
             <>
@@ -188,12 +197,15 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
         </div>
       )}
 
-      {mode !== 'daytrade' && raw === null && !error && <div className="text-gray-300 text-sm py-12 text-center">載入中…</div>}
-      {mode !== 'daytrade' && error && <div className="text-gray-300 text-sm py-12 text-center">法人資料載入失敗</div>}
-      {mode === 'flow' && raw && raw.length === 0 && <div className="text-gray-300 text-sm py-12 text-center">無三大法人資料</div>}
-      {holdingUnavailable && <div className="text-gray-300 text-sm py-12 text-center">此股無外資持股申報資料</div>}
-      {daytradeUnavailable && <div className="text-gray-300 text-sm py-12 text-center">無當沖資料</div>}
-      <div ref={chartRef} style={{ display: view ? 'block' : 'none' }} />
+      {/* 圖表區固定高度：狀態訊息改為置中覆蓋，切換模式/區間時卡片高度恆定（不跳動）*/}
+      <div className="relative" style={{ height }}>
+        {statusMsg && (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-sm font-medium">
+            {statusMsg}
+          </div>
+        )}
+        <div ref={chartRef} style={{ display: view ? 'block' : 'none' }} />
+      </div>
     </div>
   )
 }
