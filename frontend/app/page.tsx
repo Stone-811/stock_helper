@@ -25,16 +25,6 @@ interface IndexResponse {
   changePercent: number
 }
 
-interface Breadth {
-  available: boolean
-  date?: string
-  up?: number
-  down?: number
-  unchanged?: number
-  limitUp?: number
-  limitDown?: number
-}
-
 interface Quote {
   stock_id: string
   stock_name: string
@@ -75,22 +65,9 @@ function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexRespons
   )
 }
 
-// 漲跌家數磚
-function BreadthTile({ label, value, sub, tone }: { label: string; value: number; sub?: string; tone: 'up' | 'down' | 'flat' }) {
-  const color = tone === 'up' ? 'text-red-600' : tone === 'down' ? 'text-green-600' : 'text-gray-700'
-  return (
-    <div className="text-center md:text-right">
-      <div className="text-xs text-gray-700 font-medium">{label}</div>
-      <div className={`text-2xl font-bold tabular-nums ${color}`}>{value.toLocaleString()}</div>
-      {sub && <div className="text-xs text-gray-600 font-medium tabular-nums">{sub}</div>}
-    </div>
-  )
-}
-
 export default function Home() {
   const [taiexData, setTaiexData] = useState<IndexResponse | null>(null)
   const [txData, setTxData] = useState<IndexResponse | null>(null)
-  const [breadth, setBreadth] = useState<Breadth | null>(null)
   const [strong, setStrong] = useState<StrongStock[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -120,10 +97,6 @@ export default function Home() {
         setStrong(list)
       }
       if (!taiexRes.ok && !txRes.ok) throw new Error('無法取得指數資料')
-      // 漲跌家數（帶大盤最新日；TWSE 不通不影響其他區塊）
-      if (taiex?.latest?.date) {
-        fetch(`/api/market-breadth?date=${taiex.latest.date}`).then((r) => r.json()).then(setBreadth).catch(() => {})
-      }
     } catch (err) {
       console.error('Failed to fetch:', err)
       setError('尚無指數資料，請先執行資料收集')
@@ -183,7 +156,7 @@ export default function Home() {
       <PageHeader title="今日市場" />
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* 市場摘要：加權指數 + 漲跌家數 */}
+        {/* 市場摘要：加權指數 */}
         {taiexData && (
           <section className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -202,23 +175,6 @@ export default function Home() {
                   {taiexUp ? '▲' : '▼'} {taiexUp ? '+' : ''}{taiexData.change.toFixed(2)} ({taiexUp ? '+' : ''}{taiexData.changePercent.toFixed(2)}%)
                 </div>
               </div>
-              {breadth?.available ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-5 gap-y-3 md:gap-6">
-                  <div className="col-span-2 sm:col-span-4 -mb-1 text-center sm:text-right">
-                    <span className="text-xs text-gray-700 font-medium">漲跌家數</span>
-                    <InfoTip title="漲跌家數怎麼來的">
-                      證交所當日統計的「上市個股」家數（不含 ETF、權證）：收盤高於前一交易日為上漲、
-                      低於為下跌；漲停／跌停是觸及當日漲跌幅上下限的檔數。上漲家數多代表市場普遍偏強。
-                    </InfoTip>
-                  </div>
-                  <BreadthTile label="上漲" value={breadth.up || 0} tone="up" />
-                  <BreadthTile label="下跌" value={breadth.down || 0} tone="down" />
-                  <BreadthTile label="漲停" value={breadth.limitUp || 0} tone="up" />
-                  <BreadthTile label="跌停" value={breadth.limitDown || 0} tone="down" />
-                </div>
-              ) : (
-                <div className="text-sm text-gray-600 self-center">漲跌家數暫無資料</div>
-              )}
             </div>
           </section>
         )}
