@@ -302,11 +302,9 @@ class StockCollector:
         }
         processed = processed.rename(columns=rename_map)
 
-        # 填充缺失值為 0
-        for col in ['foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio']:
-            if col in processed.columns:
-                processed[col] = processed[col].fillna(0)
-
+        # ⚠️ 不要把缺漏補 0：FinMind TaiwanStockShareholding 未涵蓋的股票（多為上櫃/新掛牌），
+        # 補 0 會產生「外資投資上限 0.00%」這種法規上不可能的值，且與籌碼圖「無申報資料」矛盾。
+        # 保持 NaN，一路傳到 Firestore 寫成 null，前端顯示「—」。
         return processed
 
     def _process_day_trading_data(self, day_trading_data):
@@ -387,11 +385,11 @@ class StockCollector:
                 how='left'
             )
 
-        # 填充外資持股欄位的缺失值
+        # 外資持股欄位：沒抓到就是「無資料」，留 NaN（不可補 0，見 _process_shareholding_data 註解）
         for col in ['foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio']:
             if col not in df.columns:
-                df[col] = 0.0
-            df[col] = df[col].fillna(0.0)
+                df[col] = pd.NA
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # 合併當沖資料
         if day_trading_processed is not None and len(day_trading_processed) > 0:
@@ -401,10 +399,11 @@ class StockCollector:
                 how='left'
             )
 
-        # 填充當沖欄位的缺失值
+        # 當沖量：非當沖標的或 FinMind 未涵蓋 → 留 NA（Int64 可空整數），不可補 0。
+        # 補 0 會讓「整批抓取失敗」與「真的沒當沖」無法分辨（前者會讓全市場顯示當沖 0.0%）。
         if 'day_trading_volume' not in df.columns:
-            df['day_trading_volume'] = 0
-        df['day_trading_volume'] = df['day_trading_volume'].fillna(0).astype(int)
+            df['day_trading_volume'] = pd.NA
+        df['day_trading_volume'] = pd.to_numeric(df['day_trading_volume'], errors='coerce').astype('Int64')
 
         # 選擇並排序欄位
         columns = [

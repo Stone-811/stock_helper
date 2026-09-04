@@ -61,9 +61,13 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
   const fsLatest = dayStocks.find((s: { stock_id: string }) => s.stock_id === id) as
     | Record<string, unknown>
     | undefined
-  // B2: 區分「0」與「無資料」——當日 Firestore 查無這檔時，法人欄位回 null（前端顯示「—」）
+  // B2: 區分「0」與「無資料」——兩種情況都回 null（前端顯示「—」）：
+  //   (a) 當日 Firestore 查無這檔；(b) 查得到但該欄位是 null/缺漏（FinMind 該資料集未涵蓋此股）
+  // ⚠️ 早期版本寫 `?? 0`，會把「無資料」變成真的 0，導致「外資投資上限 0.00%」這種不可能值，
+  //    且與下方籌碼圖（直接打 FinMind、會顯示「無申報資料」）互相矛盾。
   const hasInst = !!fsLatest
-  const num = (v: unknown): number | null => (hasInst ? ((v as number) ?? 0) : null)
+  const num = (v: unknown): number | null =>
+    hasInst && v !== null && v !== undefined ? Number(v) : null
 
   // MACD 狀態用 K 線自算
   const macdVals = calculateMACDValues(history)

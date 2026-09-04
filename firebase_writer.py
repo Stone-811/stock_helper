@@ -78,6 +78,27 @@ def get_firestore_client():
     return _db
 
 
+def _opt_num(v, cast):
+    """數值欄位：缺漏（None/NaN/pd.NA/空字串）一律回 None → Firestore 存 null。
+
+    ⚠️ 不可用 `or 0`：那會把「無資料」與「真的是 0」混為一談，前端就再也分不出來
+    （曾造成「外資投資上限 0.00%」這種不可能值，且與籌碼圖「無申報資料」互相矛盾）。
+    """
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, str) and not v.strip():
+        return None
+    try:
+        return cast(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _convert_stock_row(row) -> Dict[str, Any]:
     """將 DataFrame 行轉換為字典"""
     return {
@@ -89,13 +110,13 @@ def _convert_stock_row(row) -> Dict[str, Any]:
         'low': float(row.get('low', 0) or 0),
         'close': float(row.get('close', 0) or 0),
         'volume': int(row.get('volume', 0) or 0),
-        'day_trading_volume': int(row.get('day_trading_volume', 0) or 0),
+        'day_trading_volume': _opt_num(row.get('day_trading_volume'), int),
         'foreign_buy': int(row.get('foreign_buy', 0) or 0),
         'trust_buy': int(row.get('trust_buy', 0) or 0),
         'dealer_buy': int(row.get('dealer_buy', 0) or 0),
-        'foreign_hold_ratio': float(row.get('foreign_hold_ratio', 0) or 0),
-        'foreign_remain_ratio': float(row.get('foreign_remain_ratio', 0) or 0),
-        'foreign_limit_ratio': float(row.get('foreign_limit_ratio', 0) or 0),
+        'foreign_hold_ratio': _opt_num(row.get('foreign_hold_ratio'), float),
+        'foreign_remain_ratio': _opt_num(row.get('foreign_remain_ratio'), float),
+        'foreign_limit_ratio': _opt_num(row.get('foreign_limit_ratio'), float),
         'macd_status': str(row.get('macd_status', '') or ''),
         'foreign_streak': int(row.get('foreign_streak', 0) or 0),
         'trust_streak': int(row.get('trust_streak', 0) or 0),

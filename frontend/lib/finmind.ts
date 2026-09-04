@@ -4,7 +4,8 @@
  * 取單一股票完整歷史 K 線，取代掃全市場的 getStockHistory。
  * 認證用 FINMIND_API_TOKEN（App Hosting secret）。
  *
- * FinMind 欄位對應：max→high、min→low、Trading_Volume(股)→volume(張，÷1000)
+ * FinMind 欄位對應：max→high、min→low、Trading_Volume(股)→volume(張，÷1000 向零取整）
+ * ⚠️ 單位換算一律用 Math.trunc，比照收集器 (x/1000).astype(int)；用 Math.round 會與 Firestore 差 1 張
  */
 
 import { Candle } from './indicators'
@@ -56,7 +57,7 @@ export async function fetchStockKline(stockId: string, startDate: string): Promi
       high: d.max,
       low: d.min,
       close: d.close,
-      volume: Math.round(d.Trading_Volume / 1000), // 股 → 張
+      volume: Math.trunc(d.Trading_Volume / 1000), // 股 → 張（用 trunc 對齊收集器 (v/1000).astype(int)）
     }))
     .filter((c) => c.close > 0)
 }
@@ -69,7 +70,7 @@ interface FinMindDayTradingRow {
 
 /**
  * 取單一股票的當沖量歷史（張）
- * FinMind dataset：TaiwanStockDayTrading（Volume 為股數，÷1000 轉張）
+ * FinMind dataset：TaiwanStockDayTrading（Volume 為股數，÷1000 轉張，向零取整同收集器）
  * @returns [{ date, day_trading_volume }]，失敗回空陣列
  */
 export async function fetchStockDayTrading(
@@ -95,7 +96,7 @@ export async function fetchStockDayTrading(
 
   return (json.data as FinMindDayTradingRow[]).map((d) => ({
     date: d.date,
-    day_trading_volume: Math.round(d.Volume / 1000), // 股 → 張
+    day_trading_volume: Math.trunc(d.Volume / 1000), // 股 → 張（用 trunc 對齊收集器）
   }))
 }
 
@@ -210,7 +211,7 @@ export async function fetchForeignShareholding(
   return (json.data as FinMindShareholdingRow[])
     .map((d) => ({
       date: d.date,
-      shares: Math.round(d.ForeignInvestmentShares / 1000),
+      shares: Math.trunc(d.ForeignInvestmentShares / 1000),
       ratio: d.ForeignInvestmentSharesRatio,
     }))
     .filter((d) => d.shares > 0)
