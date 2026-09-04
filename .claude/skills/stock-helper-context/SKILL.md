@@ -147,3 +147,40 @@ cd frontend && npm run build
 npx firebase-tools deploy --only firestore:rules,firestore:indexes --project stock-analysis-b5602
 ```
 查 Firestore 現況：用 `frontend/service-account.json` + `firebase-admin` 寫小 script（metadata/latest_date、daily_data/{date}/chunks）。
+
+## 「無資料」與「真的是 0」必須分開（2026-09-04 修正）
+
+**症狀**：個股頁上方顯示「外資投資上限 0.00%」（法規上不可能）、「當日當沖 0.0%」，
+但同一頁**下方籌碼圖**顯示「此股無外資持股申報資料」／「無當沖資料」——上下打架。
+實例 5297 廣化：當日外資買超 61 張，持股比例卻是 0%。
+
+**根因**：`daily_data` 的雙軌資料源 + 四層補 0
+- 上方數字讀 **Firestore**（缺漏一路被補成 0）；下方圖表**直接打 FinMind**（看得見「沒有」）。
+- 補 0 發生在四個地方：`_process_shareholding_data` 的 `fillna(0)`、`_merge_data` 的
+  `fillna(0.0)` / `fillna(0).astype(int)`、`firebase_writer` 的 `or 0`、前端 `stock-data.ts` 的 `?? 0`。
+  只要有一層補 0，下游就永遠分不出來。
+
+**現在的正確做法**
+- 收集器缺漏一律留 `NaN`／`pd.NA`（當沖量用 `Int64` 可空整數），`firebase_writer._opt_num()`
+  轉成 `None` → Firestore 存 null。**但價量與法人買賣超維持補 0**（那裡 0 多半是真的，
+  樣本中投信有 78% 當天真的沒買賣）。
+- 前端 `stock-data.ts` 的 `num()` 保留 null，UI 顯示「—」。
+- ⚠️ 判斷缺資料**不要用啟發式**（例如「limit_ratio==0 就當缺」）。權威做法是向 FinMind 取
+  該日整批清單，比對 stock_id 是否在集合內。
+
+**FinMind 資料集覆蓋率（實測 2026-09-03，全市場 2343 檔）**
+- `TaiwanStockShareholding`：363 檔沒有（約 15%）
+- `TaiwanStockDayTrading`：619 檔沒有（約 26%），另有 140 檔有列入但當天真的是 0
+- 缺的多為上櫃／新掛牌（`3xxx`/`5xxx`/`6xxx`/`7xxx`）。**強勢股頁受害最重（43%）**，
+  因為強勢股本來就多是中小型股。
+
+**股→張換算：一律 `Math.trunc`**
+收集器是 `(x/1000).astype(int)`（向零取整）。前端若用 `Math.round` 會差 1 張
+（實測 8 檔中 3 檔不一致，如 5297 顯示 2273 但 Firestore 是 2272）。`finmind.ts` 全檔已統一
+`Math.trunc`。這個坑先前只在法人數字修過一次，成交量/當沖量漏掉。
+
+**回補工具**：`scripts/backfill_null_vs_zero.py`（預設 dry-run，`--write` 才寫；
+只改目前值為 0 者；FinMind 該日抓不到就整日跳過，避免誤清全市場；自動備份到
+`logs/backfill_backup/`）。2026-09-04 已對 daily_data 全 30 天執行完畢。
+**注意 `strong_stocks` 只存 stock_id/stock_name，所有數值都在 `daily_data`（保留約 30 天），
+所以回補範圍就只有這些。**
