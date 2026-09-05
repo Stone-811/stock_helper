@@ -55,3 +55,8 @@ data/strong_stock_matrix/*.csv
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 收集器產出的資料檔（權威來源是 GCS gs://stock-analysis-b5602-archive/archive/）
+# 曾有 82MB 的年度檔進版控，且在 2026-09-05 修 ETF 前導零後與 GCS 版本不一致，
+# 變成一份會誤導人的過期副本。本機需要時用 gcloud storage cp 從 GCS 取。
+data/
