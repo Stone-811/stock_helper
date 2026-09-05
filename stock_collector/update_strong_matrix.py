@@ -112,7 +112,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
     for file in all_files:
         try:
-            df = pd.read_csv(file, low_memory=False)
+            df = pd.read_csv(file, low_memory=False, dtype={'stock_id': str})
             df = calculate_strong(df)
 
             # 取需要的欄位

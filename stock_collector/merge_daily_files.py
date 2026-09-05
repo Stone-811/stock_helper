@@ -82,7 +82,7 @@ def merge_daily_files(input_dir='data/daily_reports', output_file=None, start_da
 
     for idx, filepath in enumerate(filtered_files, 1):
         try:
-            df = pd.read_csv(filepath)
+            df = pd.read_csv(filepath, dtype={'stock_id': str})
             dfs.append(df)
 
             if idx % 50 == 0:

@@ -99,10 +99,20 @@ def _opt_num(v, cast):
         return None
 
 
+def _norm_stock_id(v) -> str:
+    """台股代碼一律補滿 4 碼：0050 曾被 pandas 讀成整數 50，導致 /stock/0050 查不到法人資料。
+
+    根因是 read_csv 未指定 dtype（已修），這裡是第二道防線。台股上市櫃代碼最短 4 碼
+    （ETF 可能 5-6 碼，不會被補），故 len<4 一律視為掉了前導零。
+    """
+    sid = str(v).strip()
+    return sid.zfill(4) if 0 < len(sid) < 4 else sid
+
+
 def _convert_stock_row(row) -> Dict[str, Any]:
     """將 DataFrame 行轉換為字典"""
     return {
-        'stock_id': str(row.get('stock_id', '')),
+        'stock_id': _norm_stock_id(row.get('stock_id', '')),
         'stock_name': str(row.get('stock_name', '')),
         'industry': str(row.get('industry', '')),
         'open': float(row.get('open', 0) or 0),
@@ -266,7 +276,7 @@ def write_strong_stocks(df: pd.DataFrame, date: str) -> int:
     strong_stocks = []
     for _, row in df.iterrows():
         strong_stocks.append({
-            'stock_id': str(row.get('stock_id', '')),
+            'stock_id': _norm_stock_id(row.get('stock_id', '')),
             'stock_name': str(row.get('stock_name', '')),
         })
 
@@ -314,7 +324,7 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
         records = []
 
         for _, row in df.iterrows():
-            stock_id = str(row['stock_id'])
+            stock_id = _norm_stock_id(row['stock_id'])
             stock_name = str(row.get('stock_name', ''))
 
             for date_col in date_columns:
@@ -338,7 +348,7 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
         if date not in by_date:
             by_date[date] = []
         by_date[date].append({
-            'stock_id': str(row['stock_id']),
+            'stock_id': _norm_stock_id(row['stock_id']),
             'stock_name': str(row.get('stock_name', ''))
         })
 

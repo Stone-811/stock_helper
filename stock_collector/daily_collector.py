@@ -121,7 +121,7 @@ class DailyCollector:
 
         if filepath:
             # 讀取 CSV 檔案進行驗證
-            df = pd.read_csv(filepath, low_memory=False)  # 年度檔含 macd_status/industry 空值→避免 mixed-type 警告
+            df = pd.read_csv(filepath, low_memory=False, dtype={'stock_id': str})  # dtype 必要：否則 0050→50；年度檔含空值故 low_memory=False
             # C2: filepath 可能是年度檔（含多日），驗證只針對「當日切片」，
             # 否則 len>=2000 恆真、防呆完全失效（就算今天只抓到 10 檔或全 0 也會通過）
             target = date or datetime.now().strftime('%Y-%m-%d')

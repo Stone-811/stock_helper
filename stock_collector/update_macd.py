@@ -24,7 +24,7 @@ def add_macd_from_archive(df, target_date, data_dir):
     year = str(target_date)[:4]
     archive = Path(data_dir) / 'archive' / f'stocks_{year}.csv'
     if archive.exists():
-        hist = pd.read_csv(archive, usecols=['stock_id', 'date', 'close'])
+        hist = pd.read_csv(archive, usecols=['stock_id', 'date', 'close'], dtype={'stock_id': str})
         hist['stock_id'] = hist['stock_id'].astype(str)
         hist['date'] = hist['date'].astype(str)
         frames.append(hist)
