@@ -184,3 +184,45 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sto
 `logs/backfill_backup/`）。2026-09-04 已對 daily_data 全 30 天執行完畢。
 **注意 `strong_stocks` 只存 stock_id/stock_name，所有數值都在 `daily_data`（保留約 30 天），
 所以回補範圍就只有這些。**
+
+## ETF 代碼前導零：pandas 的隱形殺手（2026-09-05 修正）
+
+`pd.read_csv()` 未指定 `dtype={'stock_id': str}` → `0050` 被讀成整數 `50`。而寫 Firestore
+的 DataFrame 正是從 CSV 讀回來的（`daily_collector.py:124`），於是 **11 檔 ETF（0050 元大台灣50、
+0056 元大高股息…）在 Firestore 與年度檔全部掉零**。個股頁用 `0050` 查不到 → 三大法人／
+外資持股／當沖整區顯示「—」與「當日資料尚未提供」，中的是台股最熱門的 ETF，卻沒人發現。
+
+- **所有 `read_csv` 都要帶 `dtype={'stock_id': str}`**（專案內共 8 處，已全補）。
+- `firebase_writer._norm_stock_id()` 是第二道防線：台股代碼最短 4 碼，`len<4` 一律 `zfill(4)`
+  （ETF 的 5-6 碼不受影響）。套用於 daily_data／strong_stocks／strong matrix 三個寫入點。
+- 修既有資料用 `scripts/fix_stock_id_leading_zero.py`。CSV 採**逐位元組處理**
+  （`split(b',', 2)` 只改第 2 欄，date 欄無逗號故位置可靠），驗證方式是
+  「位元組增量 == 受影響列數 × 2」＋逐行比對確認 stock_id 以外 0 差異。
+- 這類問題**用「值對不對」是看不出來的**，要比對「兩邊的 stock_id 集合差異」才會現形。
+
+## Firestore 只有 4 個 collection（2026-09-05 清理後）
+
+`daily_data`（約 31 天熱資料，分片每片 500 檔）、`strong_stocks`（每日聚合，886 天）、
+`market_index`（TAIEX/TX 各一份文件，history 陣列）、`metadata`（latest_date／available_dates）。
+
+**已刪除的舊架構**：`strong_stock_matrix`（19,000 文件，停在 2024-07-03）、
+`market_index_daily`（520 文件，停在 2026-07-23）。兩者的日期都被現行結構 100% 涵蓋，
+備份在 `logs/legacy_backup/`。
+
+`firebase-admin.ts` 原本有 **5 段永遠不會執行的備援**，其中 3 個 collection
+（`stocks_by_date`、`daily_stocks`、`strong_stocks_by_date`）**根本不存在**。
+`strong_stock_matrix` 那段更是潛在 bug——會在主來源偶然缺漏時默默回傳 14 個月前的舊資料。
+**寫「多層備援」前先確認那些 collection 真的存在且有在更新**，否則只是把過期資料變成隱形地雷。
+
+## 效能：個股頁的瓶頸是 FinMind 不是 Firestore
+
+`getStocksByDate()` 一次讀 1 summary + 5 chunks（約 0.9 MB／2,343 檔），但個股頁只用其中
+1 檔的十幾個欄位。已加跨請求快取（TTL 5 分鐘、最多 4 天，`firebase-admin.ts` 的 `dayCache`）——
+React 的 `cache()` 只在單一請求內有效，跨請求仍會重讀。
+
+實測：個股頁中位數 0.72 秒 → 0.54 秒（約 -25%）；各 API 皆 0.12~0.26 秒。
+**剩下的時間主要是 FinMind 抓 5 年 K 線的外部呼叫**，再優化 Firestore 收益有限；
+若要再快，方向是縮短首載的 K 線範圍（目前內嵌 1,214 點、HTML 184 KB，但預設只顯示 3 個月）。
+
+⚠️ `dayCache` 回傳的陣列由呼叫端共用，呼叫端只能用 filter/map 產生新陣列，**不可就地修改**
+（現有呼叫端已逐一確認：`screener` 的 `filtered.sort()` 排的是 `filter()` 產生的新陣列）。
