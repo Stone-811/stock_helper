@@ -17,8 +17,11 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **CLI**：`firebase` 未全域安裝，用 `npx firebase-tools`
 
 ## 資料流
-1. GitHub Actions 每交易日 → `daily_collector` 抓 FinMind（股價 / 三大法人 / 外資持股 / 當沖 / 指數）
-2. 寫 Firestore：`daily_data/{date}/chunks`（每日全市場，**只保留近幾天**）、`strong_stocks/{date}`（~100 天）、`market_index/{TAIEX,TX}`（history 陣列）、`metadata/{latest_date, available_dates}`
+1. **Cloud Run Job + Cloud Scheduler**（工作日台灣 17:00／22:00 兩班）→ `daily_collector` 抓 FinMind（股價 / 三大法人 / 外資持股 / 當沖 / 指數）。
+   GitHub Actions 的 `daily-collect.yml` **排程已停用**（只留 `workflow_dispatch` 手動備援），避免重複收集。
+2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**31 天**，每日全市場約 2,343 檔、分片每片 500）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列）、`metadata/{latest_date, available_dates}`。
+   **就這 4 個 collection**——舊架構 `strong_stock_matrix`／`market_index_daily` 已於 2026-09-05 刪除。
+   ⚠️ 數值欄位全在 `daily_data`，所以任何回補的範圍上限就是那 31 天。
 3. 前端讀 Firestore；**但個股 K 線改打 FinMind REST（`lib/finmind.ts`，單股完整歷史，繞過 Firestore）**、MACD 由前端 `lib/indicators.ts` 自算
 
 ## 個股頁功能與全站搜尋（2026-08 擴充，皆前端；收集器/排程未動）
@@ -143,9 +146,9 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 **已清理死碼**：`utils.py`（844 行舊 Streamlit 死碼）→ 精簡成 `stock_collector/indicators.py`（只 get_macd_status）；`update_macd.py` 逐檔打 API 舊版；`firebase_writer.py` 3 個死讀取器；前端 `getStockHistory`/`verifyIdToken`/`getPopularStocks`/`getAllStocks`/`getUser`；requirements 的 `ta`/`tqdm`/`loguru`。
 **待模組化（大重構，建議在乾淨 session 做 + 充分測試）**：
 - `stock_collector/stock_collector.py`（618 行）→ 拆 `transforms.py`（純 DataFrame 轉換，可單元測試）、`fetchers.py`（4 支批次 API）、`archive.py`（年度歸檔，與 merge_daily_files 重疊可整併）
-- `firebase-admin.ts`（396 行）→ 拆 init 與 queries/（stocks/strong/index 分組）
+- `firebase-admin.ts`（清理死碼後 **299 行**）→ 可拆 init 與 queries/（stocks/strong/index 分組）
 - `firebase_writer.py` → 拆 `firestore_client.py` 與 `writers.py`
-**待清理（中信心，需先確認）**：`merge_daily_files.py`（已被 _append_to_yearly_archive 取代，若不再手動回補可刪）；`WatchlistButton.tsx`（孤兒元件，但可能是「加入自選」待辦）；`firebase-admin.ts` 舊架構 fallback（需確認舊 collection 已清空）。DailyStock interface **不可刪**（StrongStock 繼承它）。
+**待清理（中信心，需先確認）**：`merge_daily_files.py`（已被 _append_to_yearly_archive 取代，若不再手動回補可刪）；`WatchlistButton.tsx`（孤兒元件，但可能是「加入自選」待辦）；~~`firebase-admin.ts` 舊架構 fallback~~ **✅ 2026-09-05 已完成**（移除 5 段，其中 3 個 collection 根本不存在）。DailyStock interface **不可刪**（StrongStock 繼承它）。
 
 ## 常用指令
 ```bash
@@ -159,9 +162,13 @@ python3 scripts/backfill_index_volume_from_twse.py --write    # 實際補
 # 前端建置
 cd frontend && npm run build
 # 部署 Firestore rules/indexes（前端部署走 App Hosting 自動 rollout）
+# 註：2026-09-05 起 firestore.indexes.json 的 indexes 為空、線上也已無複合索引，兩邊一致，
+#     這段目前等同只部署 rules。新增 where+orderBy 查詢時才需要補索引。
 npx firebase-tools deploy --only firestore:rules,firestore:indexes --project stock-analysis-b5602
 ```
-查 Firestore 現況：用 `frontend/service-account.json` + `firebase-admin` 寫小 script（metadata/latest_date、daily_data/{date}/chunks）。
+查 Firestore 現況：寫小 script 用 `firebase_writer.get_firestore_client()`（Python）或 `firebase-admin`（TS），
+讀 `metadata/latest_date`、`daily_data/{date}/chunks`。憑證目前吃 `frontend/service-account.json`，
+但**建議改用 `gcloud auth application-default login` 走 ADC 後把金鑰刪除**（見上方安全待辦）。
 
 ## 「無資料」與「真的是 0」必須分開（2026-09-04 修正）
 
