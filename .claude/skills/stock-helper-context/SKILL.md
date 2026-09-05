@@ -82,16 +82,17 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **a11y 待辦**：`layout.tsx` 的 `viewport.maximumScale: 1` 會**禁止手機雙指放大**（違反 WCAG 1.4.4），建議移除；`watchlist` 頁尚無 `ErrorState`。
 
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
-1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。
+1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。**（2026-09-04 更新：已不再靜默存 0——缺漏改寫 null，見下方「無資料與真的是 0」章節；但「該有卻沒抓到」仍需重跑補。）**
 2. **資料源日期不一致**：個股頁 K 線用 FinMind、法人用 Firestore，兩者「最新日」可能差一天 → 收盤與法人不同日。已修：法人改抓「與 K 線同一天」。
-3. **「最新日」多來源**：`latest_date`（metadata，由 write_daily_data 寫）vs `available_dates[0]`（由 write_strong_stock_matrix 從強勢矩陣產生）vs FinMind 自己的最後一根，會各說各話。已統一以 `latest_date` 為權威。
+3. **「最新日」多來源**：`latest_date`（metadata，由 write_daily_data 寫）vs `available_dates[0]`（~~由 write_strong_stock_matrix 從強勢矩陣產生~~ **已改由 `update_available_dates()` 以 daily_data 為權威來源寫入**，daily_collector.py:268）vs FinMind 自己的最後一根，會各說各話。已統一以 `latest_date` 為權威。
 4. **遞迴指標暖身**：MACD/KD/RSI 是 EMA 遞迴、對「資料起點」敏感，用短區間算會失真、與卡片對不上。規則：**指標一律用完整資料算**（CandleChart 重構後改為對整個 `chartData` 以 useMemo 計算、顯示範圍靠 `setVisibleLogicalRange` 控制，不再 slice 資料）。
 5. **PWA 快取**：next-pwa 預設把 `/api/*` 快取 24h，使用者會看不到更新的行情。已在 next.config 改成 60s NetworkFirst。改資料相關頁記得使用者可能需硬重新整理載入新 SW。
 6. **daily_data 只保留近幾天**：`available_dates` / `strong_stocks` 有 ~100 天，但 `daily_data` 沒有 → 選較舊日期時明細會空（已回 `dataMissing` 讓前端提示）。
 7. **latest_date 無條件覆蓋**：collector 用 `--date` 補舊資料時會把 latest_date 倒退。已修：只在 `date >= 現值` 時更新（firebase_writer.py）。補多天時**最後一次要跑最新日**，否則 latest_date 會停在最後跑的舊日。
 8. **時間週期換算**：`periodToDays` 是「交易日數」，不可拿去減聚合後的週/月 bar 數。區間篩選用「日曆天門檻」（已修）。
-9. **⚠️ `strong_stock_matrix` 舊架構停更於 2024-07-03**：`getStockStrongHistory`（firebase-admin.ts）原本「先讀 `strong_stock_matrix`、有資料就用」，但該 collection 早已停更 → 「近 N 日強勢」**恆為 0**，且該 `stock_id==` + `orderBy date` 查詢還缺複合索引（噴 `FAILED_PRECONDITION`）。**已改為只讀現行 `strong_stocks/{date}`**（`getAvailableDates` + `getStrongStocksByDate`，才是最新權威來源；元素為 `{stock_id, stock_name}`）。強勢股的權威來源＝`strong_stocks/{date}` + `metadata/available_dates`，**別再用 strong_stock_matrix**。
-10. **firestore.indexes.json 與實際部署有落差**：檔案仍列舊架構 `daily_stocks`/`market_index_daily`（現行架構未用）；已補 `strong_stock_matrix (stock_id,date)` 索引（改用新架構後其實已非必要，留著無害）；另 `stock_analysis_reports` 索引**已部署但不在檔案內** → `firebase deploy --only firestore:indexes --force` 會把它一併刪掉，**勿用 --force**。
+9. **⚠️ `strong_stock_matrix` 舊架構停更於 2024-07-03**：`getStockStrongHistory`（firebase-admin.ts）原本「先讀 `strong_stock_matrix`、有資料就用」，但該 collection 早已停更 → 「近 N 日強勢」**恆為 0**，且該 `stock_id==` + `orderBy date` 查詢還缺複合索引（噴 `FAILED_PRECONDITION`）。**已改為只讀現行 `strong_stocks/{date}`**（`getAvailableDates` + `getStrongStocksByDate`，才是最新權威來源；元素為 `{stock_id, stock_name}`）。強勢股的權威來源＝`strong_stocks/{date}` + `metadata/available_dates`。
+   **（2026-09-05 更新：`strong_stock_matrix` collection 已整個刪除（19,000 文件，備份在 `logs/legacy_backup/`）。當時只修了 `getStockStrongHistory`，`getStrongStocksByDate` 仍留著它當備援——會在主來源偶然缺漏時默默回傳 14 個月前的舊資料，現已一併移除。⚠️ 注意 `firebase_writer.write_strong_stock_matrix()` 函式**名稱是舊的但實際寫入 `strong_stocks`**，別被名字誤導而以為它會重建舊 collection。）**
+10. **firestore.indexes.json 與實際部署有落差**：檔案仍列舊架構 `daily_stocks`/`market_index_daily` 與 `strong_stock_matrix` 的索引——**這三個 collection 現已不存在**（前兩者從來沒建過，後兩者於 2026-09-05 刪除），索引留著無害但已無意義；另 `stock_analysis_reports` 索引**已部署但不在檔案內** → `firebase deploy --only firestore:indexes --force` 會把它一併刪掉，**勿用 --force**。
 11. **`market_index/{id}` 的 history 項目不帶 `index_id`／`index_name`**：(a) `IndexChart` 原本用 `data[0].index_id` 判斷 TAIEX/TX 決定成交量單位（億/口）→ 恆 undefined → `isTaiex` 恆 false → **加權成交量誤標「口」**（應「億」）。已修：**父層 `page.tsx` 明確傳 `indexId` prop**、`data[0]` 只當 fallback。(b) 同理 history 也沒 `index_name` → 首頁卡片 `index_name` 空白。已修：**market-index API route 用代號補中文名**（TAIEX→加權指數、TX→台指期）。**注意 API 有 `s-maxage=300` 快取**，改後舊回應可能還在（dev 亦然），驗證要 `fetch(..., {cache:'no-store'})` 或等 5 分鐘。
 12. **⚠️ FinMind 的 TAIEX 成交量有「整段源頭缺漏」**（2026-08-15 用 TWSE 補過 2026-02 全月 12 天）：`taiwan_stock_daily(stock_id='TAIEX')`（=`TaiwanStockPrice`）某些歷史區間只回指數點位、`Trading_Volume`＝`Trading_money`＝0；collector 忠實照抄 → `market_index/TAIEX` 該段 `volume=0` → **大盤技術圖成交量直方圖空一段**（K棒/均線/MACD 正常，靠 close 算；**個股不受影響**，前端直打 FinMind live）。**重跑 `index_collector` 無效**（FinMind 就是回 0）。**決定不改 collector**（罕見事件、低維運）：需要時跑一次性工具 **`scripts/backfill_index_volume_from_twse.py`**——用證交所 **TWSE FMTQIK**（`exchangeReport/FMTQIK?response=json&date=YYYYMM01`，回整月；欄位『成交股數』＝我方 `volume`、與 FinMind `Trading_Volume` 同單位、量級 ~1e10 股；ROC 日期 +1911；用 TWSE 加權指數收盤與現有 `close` 對帳確認日期無誤）只補 `volume==0` 且 close 對得上的日期。`write_market_index` 是**單 doc + history 陣列、upsert-by-date** → 安全、總筆數/`latest_date` 不變。稽核法：讀 `market_index/{TAIEX,TX}` history 找 `volume==0`（TX 用 FinMind 期貨、通常無此問題）；日期缺口用 **TAIEX vs TX 是否一致**判斷「休市(真)vs 缺資料(假)」。補完前端 API 有 ~5 分鐘快取才反映，**資料層即時、無需重新部署**。
 
@@ -99,13 +100,22 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 **前端**：A2 週/月K 區間鈕單位、A3 月K MACD 暖身（K 線抓 5 年）、B1 個股頁日期錯位、B2 找不到時假 0（改顯示「—」）、B3 強勢股 dataMissing 提示、B4 最新日統一、MACD 卡片 vs 圖表一致（指標用完整資料算）、PWA 快取 24h→60s。
 **後端**：C1 輔助資料整批 0 警示、C2 驗證改當日切片、C3 latest_date 不倒退、C4 Firestore 寫入失敗醒目、C6 指數 upsert、C7 MACD 改本地年度檔計算（`add_macd_from_archive`，零 API）。
 
+## 已修 bug 清單（2026-09-04/05 session，均已部署驗證）
+1. **「無資料」被寫成 0**（外資持股三欄＋當沖量）→ 收集器改留 NaN、`firebase_writer._opt_num()` 寫 None、前端 `num()` 保留 null。歷史用 `scripts/backfill_null_vs_zero.py` 回補 30 天（0→null 共 52,917 格）。詳見下方專章。
+2. **股→張換算前後端不一致**（`Math.round` vs `astype(int)`，實測 8 檔中 3 檔差 1 張）→ `finmind.ts` 全檔統一 `Math.trunc`。
+3. **ETF 代碼掉前導零**（`0050`→`50`，中的是最熱門 ETF）→ 8 處 `read_csv` 補 `dtype`、`_norm_stock_id()` 第二道防線、`scripts/fix_stock_id_leading_zero.py` 修 7,098 列 CSV + 252 筆 Firestore。詳見下方專章。
+4. **5 段永遠不會執行的舊架構備援**（其中 3 個 collection 根本不存在）→ 全部移除；`strong_stock_matrix` 那段是潛在 bug（會回傳 14 個月前舊資料）。
+5. **個股頁跨請求重讀 0.9 MB** → 加 `dayCache`（TTL 5 分鐘），中位數 0.72→0.54 秒。
+
+## GCP 成本（2026-08-29 稽核）
+帳單報表是**整個計費帳戶**（3 個專案共用），不是單一專案。Secret Manager 的 `automatic` 複寫會逐地區計費、每個版本約 $0.68/月（牌價 11 倍），**停用仍計費、只有銷毀才免費**。已設 AR cleanup policy（保留最新 3 份）；`firebaseapphosting-images` 由 App Hosting 自管（30 分鐘清一次），不要自己插手。GCS 兩個 bucket 都有 **7 天軟刪除**，刪了要等一週才看得到帳單下降。`minInstances: 0` 千萬別改 1（+$10~15/月）。細節見 memory `stock-helper-cost`。
+
 ## 待辦（尚未修，附具體修法）
-- **C5 available_dates 以 daily_data 為準**：目前由 `write_strong_stock_matrix` 從強勢矩陣日期產生（firebase_writer.py:307-311），與 daily_data 覆蓋天數不一致，且「某日 0 強勢股」會讓該日消失。修法：改由 `daily_data` 實際存在日期產生，或取交集；允許「0 強勢股但有資料」的日期列入。
-- **C3 增量回補中間缺口**：`get_missing_dates`（daily_collector.py:85-101）只從 `latest_date+1` 往後找，中間某天失敗後補不回；且 `get_latest_date_from_db` 查的是**舊架構** collection（`daily_stocks` / `market_index_daily`，Python 已不寫入）。修法：改用「過去 N 天交易日全集 − 已存在日期集合」，並改查新架構 `daily_data` / `market_index` 的日期。
+- **C3 `run_incremental` 已失效（但不影響排程）**：`get_missing_dates` → `get_latest_date_from_db` 查的是 `daily_stocks` / `market_index_daily`，**這兩個 collection 現已不存在** → 一律回 None。所幸**排程走的是 `run_daily`**（Cloud Run Job 無傳參數，Dockerfile ENTRYPOINT `python -m stock_collector.daily_collector` → argparse 落到 else 分支），`run_incremental` 只在手動加 `--incremental` 時才跑。**要補缺口請改用 `--backfill-gaps`**（`get_gap_dates()`，用「交易日全集 − 已存在日期集合」，是正確做法）。若要修 `run_incremental`，就是把它改成呼叫 `get_gap_dates()`。
 - **A1 列表 vs 個股 MACD 完全統一**：C7 後 Firestore `macd_status` 已有值（列表可用），但個股頁仍前端算，資料源不同、極臨界日可能小差異。要完全一致需二選一單一來源。
 - **安全**：`service-account.json` 私鑰會被 bundle 進 `.next`（本機建置產物，已 gitignore）；建議輪替金鑰、production 一律用環境變數 `FIREBASE_SERVICE_ACCOUNT_KEY` 注入而非 `require` 讀檔。
 - **「為什麼強」兩條路（2026-08-19 規劃，皆未做）**——共同前提：突破/爆量/站上MA20/MACD金叉都要**逐檔歷史**才算得出來。
-  - **B2 個股頁 Signal Engine（§37；便宜、建議先做）**：個股頁**本來就載入該檔完整 K 線 history、也已算好 MA/MACD/KD/RSI**（畫圖用）→ 直接在前端判斷即可，**零額外 API、純前端**。做一個「今日訊號」區塊列出：突破近20日高、量為5日均量 N 倍、MA5>MA10>MA20、MACD 金叉、KD/RSI 超買超賣，每條附白話解讀。**限制：只服務個股頁，清單卡片吃不到。**
+  - **~~B2 個股頁 Signal Engine~~（§37）✅ 已完成（`frontend/components/StockSignals.tsx`，132 行，掛在 StockDetailClient.tsx:214）**：個股頁**本來就載入該檔完整 K 線 history、也已算好 MA/MACD/KD/RSI**（畫圖用）→ 直接在前端判斷即可，**零額外 API、純前端**。做一個「今日訊號」區塊列出：突破近20日高、量為5日均量 N 倍、MA5>MA10>MA20、MACD 金叉、KD/RSI 超買超賣，每條附白話解讀。**限制：只服務個股頁，清單卡片吃不到。**
   - **B1 清單「強勢原因」chips（§18；動後端）**：強勢股清單一次 40+ 檔，前端逐檔打 FinMind 會慢又撞免費額度（600/hr）→ 必須由收集器算好。步驟：① 在 collector 用**年度檔**（就是算 MACD 那套、零 API）多算 flag（突破20日高／量÷5日均量／站上MA20／MACD 今日空→多）；② 寫進 `daily_data` 每檔（`firebase_writer._convert_stock_row` 加欄位，如 `reasons: string[]`）；③ **`gcloud run jobs deploy stock-collector --source=.` 重建 image**（改 collector 不會自動部署，見運維地雷）；④ `--date` 回補近幾天（daily_data 只留 ~16 天）；⑤ 前端 `StockCard`/強勢股/首頁讀 `reasons` 顯示 chips，並把 Quick Filter 的「突破/爆量」從近似值改為真 flag。
 
 ## 運維現況（2026-08 排查結論）
