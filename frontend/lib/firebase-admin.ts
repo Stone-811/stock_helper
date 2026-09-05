@@ -84,53 +84,58 @@ function dedupeByStockId(stocks: any[]): any[] {
   })
 }
 
+// 當日全市場資料的跨請求快取。
+// getStocksByDate 一次要讀 1 個 summary + 5 個 chunk（約 0.9 MB／2,343 檔），但個股頁
+// 只用其中 1 檔的十幾個欄位；React 的 cache() 只在「單一請求內」有效，跨請求仍會重讀。
+// 資料每天只在 17:00／22:00 更新兩次，故短 TTL 既安全又能吃到大部分命中。
+// 注意：回傳的陣列由呼叫端共用，呼叫端只做 map/filter 產生新物件，不可就地修改。
+const DAY_CACHE_TTL_MS = 5 * 60 * 1000
+const DAY_CACHE_MAX = 4
+const dayCache = new Map<string, { at: number; data: any[] }>()
+
+function readDayCache(date: string): any[] | null {
+  const hit = dayCache.get(date)
+  if (hit && Date.now() - hit.at < DAY_CACHE_TTL_MS) return hit.data
+  if (hit) dayCache.delete(date)
+  return null
+}
+
+function writeDayCache(date: string, data: any[]) {
+  if (!data.length) return            // 不快取空結果，避免資料剛產生時被擋 5 分鐘
+  dayCache.set(date, { at: Date.now(), data })
+  while (dayCache.size > DAY_CACHE_MAX) {
+    const oldest = [...dayCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+    dayCache.delete(oldest[0])
+  }
+}
+
 export async function getStocksByDate(date: string): Promise<any[]> {
+  const cached = readDayCache(date)
+  if (cached) return cached
+
   try {
-    // 1. 優先從新架構讀取（分片）
     const summaryRef = db.collection('daily_data').doc(date)
     const summaryDoc = await summaryRef.get()
+    if (!summaryDoc.exists) return []
 
-    if (summaryDoc.exists) {
-      const summary = summaryDoc.data()
-      const chunkCount = summary?.chunk_count || 0
+    const chunkCount = summaryDoc.data()?.chunk_count || 0
+    if (chunkCount <= 0) return []
 
-      if (chunkCount > 0) {
-        // 並行讀取所有分片
-        const chunkPromises = []
-        for (let i = 0; i < chunkCount; i++) {
-          chunkPromises.push(
-            summaryRef.collection('chunks').doc(`chunk_${i}`).get()
-          )
-        }
+    // 並行讀取所有分片
+    const chunkDocs = await Promise.all(
+      Array.from({ length: chunkCount }, (_, i) =>
+        summaryRef.collection('chunks').doc(`chunk_${i}`).get()
+      )
+    )
 
-        const chunkDocs = await Promise.all(chunkPromises)
-        const allStocks: any[] = []
-
-        for (const chunkDoc of chunkDocs) {
-          if (chunkDoc.exists) {
-            const chunkData = chunkDoc.data()
-            allStocks.push(...(chunkData?.stocks || []))
-          }
-        }
-
-        return dedupeByStockId(allStocks)
-      }
+    const allStocks: any[] = []
+    for (const chunkDoc of chunkDocs) {
+      if (chunkDoc.exists) allStocks.push(...(chunkDoc.data()?.stocks || []))
     }
 
-    // 2. 備用：舊架構 stocks_by_date（單一聚合文件）
-    const aggregateRef = db.collection('stocks_by_date').doc(date)
-    const aggregateDoc = await aggregateRef.get()
-
-    if (aggregateDoc.exists) {
-      return dedupeByStockId(aggregateDoc.data()?.stocks || [])
-    }
-
-    // 3. 最後備用：逐筆查詢 daily_stocks
-    const snapshot = await db.collection('daily_stocks')
-      .where('date', '==', date)
-      .get()
-
-    return dedupeByStockId(snapshot.docs.map(doc => doc.data()))
+    const result = dedupeByStockId(allStocks)
+    writeDayCache(date, result)
+    return result
   } catch (error) {
     console.error('取得股票資料失敗:', error)
     return []
@@ -145,28 +150,12 @@ export async function getStocksByDate(date: string): Promise<any[]> {
  */
 export async function getStrongStocksByDate(date: string): Promise<any[]> {
   try {
-    // 1. 優先從新架構讀取
-    const newRef = db.collection('strong_stocks').doc(date)
-    const newDoc = await newRef.get()
-
-    if (newDoc.exists) {
-      return newDoc.data()?.stocks || []
-    }
-
-    // 2. 備用：舊架構 strong_stocks_by_date
-    const aggregateRef = db.collection('strong_stocks_by_date').doc(date)
-    const aggregateDoc = await aggregateRef.get()
-
-    if (aggregateDoc.exists) {
-      return aggregateDoc.data()?.stocks || []
-    }
-
-    // 3. 最後備用：逐筆查詢 strong_stock_matrix
-    const snapshot = await db.collection('strong_stock_matrix')
-      .where('date', '==', date)
-      .get()
-
-    return snapshot.docs.map(doc => doc.data())
+    // strong_stocks/{date} 是唯一來源。
+    // 舊架構 strong_stock_matrix 已於 2024-07-03 停止更新，若留作備援會在
+    // strong_stocks 偶然缺漏時默默回傳 14 個月前的舊資料（同樣的坑在
+    // getStockStrongHistory 踩過一次，見該函式註解），故一併移除。
+    const doc = await db.collection('strong_stocks').doc(date).get()
+    return doc.exists ? (doc.data()?.stocks || []) : []
   } catch (error) {
     console.error('取得強勢股失敗:', error)
     return []
@@ -195,17 +184,7 @@ export async function getAvailableDates(limitCount: number = 20): Promise<string
       .limit(limitCount)
       .get()
 
-    if (!newSnapshot.empty) {
-      return newSnapshot.docs.map(doc => doc.id)
-    }
-
-    // 3. 最後備用：舊架構 stocks_by_date
-    const snapshot = await db.collection('stocks_by_date')
-      .orderBy('date', 'desc')
-      .limit(limitCount)
-      .get()
-
-    return snapshot.docs.map(doc => doc.id)
+    return newSnapshot.empty ? [] : newSnapshot.docs.map(doc => doc.id)
   } catch (error) {
     console.error('取得日期列表失敗:', error)
     return []
@@ -221,22 +200,10 @@ export async function getAvailableDates(limitCount: number = 20): Promise<string
  */
 export async function getMarketIndex(indexId: string): Promise<any[]> {
   try {
-    // 1. 優先從新架構讀取（聚合歷史）
-    const newRef = db.collection('market_index').doc(indexId)
-    const newDoc = await newRef.get()
-
-    if (newDoc.exists) {
-      const data = newDoc.data()
-      return data?.history || []
-    }
-
-    // 2. 備用：舊架構 market_index_daily（逐筆查詢）
-    const snapshot = await db.collection('market_index_daily')
-      .where('index_id', '==', indexId)
-      .orderBy('date', 'asc')
-      .get()
-
-    return snapshot.docs.map(doc => doc.data())
+    // market_index/{indexId} 的 history 陣列是唯一來源（1 次讀取涵蓋完整歷史）。
+    // 舊架構 market_index_daily 已停止更新且範圍較窄，移除以免回傳過期資料。
+    const doc = await db.collection('market_index').doc(indexId).get()
+    return doc.exists ? (doc.data()?.history || []) : []
   } catch (error) {
     console.error('取得指數資料失敗:', error)
     return []
