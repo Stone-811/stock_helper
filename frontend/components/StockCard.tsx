@@ -3,19 +3,10 @@
 import Link from 'next/link'
 import { StrongStock as TodayStrongStock } from '../lib/firebase'
 import InfoTip from './InfoTip'
+import { fmtTradingValue } from '../lib/format'
 
 interface StockCardProps {
   stock: TodayStrongStock
-}
-
-// 格式化成交金額（億、萬）
-function formatTradingValue(value: number): string {
-  if (value >= 1e8) {
-    return (value / 1e8).toFixed(2) + '億'
-  } else if (value >= 1e4) {
-    return (value / 1e4).toFixed(0) + '萬'
-  }
-  return value.toFixed(0)
 }
 
 export default function StockCard({ stock }: StockCardProps) {
@@ -69,7 +60,7 @@ export default function StockCard({ stock }: StockCardProps) {
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 font-medium">
           <div>
             <span className="text-gray-600">成交額</span><InfoTip title="成交額">當日成交量（張）× 收盤價 × 1000 股，代表這檔今天的資金流動規模。</InfoTip>
-            <span className="ml-1 font-medium">{formatTradingValue(tradingValue)}</span>
+            <span className="ml-1 font-medium">{fmtTradingValue(tradingValue)}</span>
           </div>
           <div>
             <span className="text-gray-600">強勢</span><InfoTip title="強勢天數">最近 7 個交易日中被選入「當日強勢股」的天數。</InfoTip>
@@ -79,7 +70,7 @@ export default function StockCard({ stock }: StockCardProps) {
         {dayTradingValue > 0 && (
           <div className="mt-1 text-xs text-gray-600 font-medium">
             <span className="text-gray-600">當沖額</span><InfoTip title="當沖額與比例">當沖成交量 × 收盤價 × 1000 股；括號內為當沖量佔總成交量的百分比，比例高代表短線交易熱絡。</InfoTip>
-            <span className="ml-1 font-medium text-cyan-600">{formatTradingValue(dayTradingValue)}</span>
+            <span className="ml-1 font-medium text-cyan-600">{fmtTradingValue(dayTradingValue)}</span>
             <span className="ml-1 text-cyan-500">({dayTradingRatio.toFixed(1)}%)</span>
           </div>
         )}

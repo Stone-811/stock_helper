@@ -14,6 +14,9 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/', label: '首頁', icon: '📊' },
   { href: '/strong-stocks', label: '強勢股', icon: '🔥' },
+  // ⚠️ 路徑刻意不以 '/strong-stocks' 開頭：下方 isActive 是 pathname.startsWith(href)，
+  //    取名 /strong-stocks-table 或 /strong-stocks/table 都會讓「強勢股」與本項同時亮起。
+  { href: '/strong-table', label: '強勢總表', icon: '📋' },
   { href: '/screener', label: '選股', icon: '🔍' },
   { href: '/watchlist', label: '自選股', icon: '⭐' },
 ]

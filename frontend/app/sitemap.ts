@@ -9,6 +9,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
     { url: SITE_URL, priority: 1, changeFrequency: 'daily' },
     { url: `${SITE_URL}/strong-stocks`, priority: 0.8, changeFrequency: 'daily' },
+    { url: `${SITE_URL}/strong-table`, priority: 0.8, changeFrequency: 'daily' },
+    { url: `${SITE_URL}/screener`, priority: 0.7, changeFrequency: 'daily' },
     { url: `${SITE_URL}/watchlist`, priority: 0.5, changeFrequency: 'weekly' },
   ]
 

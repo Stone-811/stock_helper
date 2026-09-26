@@ -35,7 +35,9 @@ export default function MainContent({ children }: { children: React.ReactNode })
   }, [])
 
   return (
-    <main className={`flex-1 transition-all duration-300 pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+    // min-w-0：flex 子項預設 min-width:auto，會用「內容的 min-content 寬」當下限。
+    // 少了它，任何一張寬表格都會把 <main> 撐大 → 整個 body 橫向捲動 → 與 fixed Sidebar 錯位。
+    <main className={`flex-1 min-w-0 transition-all duration-300 pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
       <TopBar />
       {children}
     </main>

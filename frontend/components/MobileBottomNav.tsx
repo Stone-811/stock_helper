@@ -19,8 +19,13 @@ const navItems: NavItem[] = [
 
 export default function MobileBottomNav() {
   const pathname = usePathname()
-  const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href)
+  // /strong-table 是「強勢股」的表格檢視，不在 Bottom Nav 佔格，
+  // 但仍要讓「強勢」亮起，否則手機使用者會四格全暗、失去所在位置（WCAG 2.4.8）。
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/'
+    if (href === '/strong-stocks') return pathname.startsWith('/strong-stocks') || pathname.startsWith('/strong-table')
+    return pathname.startsWith(href)
+  }
 
   return (
     <nav

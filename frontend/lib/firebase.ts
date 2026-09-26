@@ -265,13 +265,17 @@ export interface DailyStock {
   low: number
   close: number
   volume: number
-  day_trading_volume: number
+  /** ⚠️ FinMind 該資料集未涵蓋此股時為 null（不是 0）。渲染必須顯示「—」。 */
+  day_trading_volume: number | null
   foreign_buy: number
   trust_buy: number
   dealer_buy: number
-  foreign_hold_ratio: number
-  foreign_remain_ratio: number
-  foreign_limit_ratio: number
+  /** ⚠️ FinMind 該資料集未涵蓋此股時為 null（不是 0）。渲染必須顯示「—」。 */
+  foreign_hold_ratio: number | null
+  /** ⚠️ FinMind 該資料集未涵蓋此股時為 null（不是 0）。渲染必須顯示「—」。 */
+  foreign_remain_ratio: number | null
+  /** ⚠️ FinMind 該資料集未涵蓋此股時為 null（不是 0）。渲染必須顯示「—」。 */
+  foreign_limit_ratio: number | null
   macd_status: string
   foreign_streak?: number // 外資連續買賣天數（連買 +N、連賣 -N；舊資料可能無此欄位）
   trust_streak?: number   // 投信連續買賣天數

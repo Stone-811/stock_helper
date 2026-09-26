@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import StockCard from '../../components/StockCard'
 import { StrongStock as TodayStrongStock } from '../../lib/firebase'
 import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
@@ -129,6 +130,23 @@ export default function StrongStocksPage() {
       <PageHeader title="強勢股列表" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* 檢視切換：同一份資料的兩種呈現（卡片／表格）。
+            表格頁不進手機底部導覽，靠這裡一鍵過去。 */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span
+            aria-current="page"
+            className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-blue-600 text-white border border-blue-600"
+          >
+            卡片檢視
+          </span>
+          <Link
+            href="/strong-table"
+            className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-white text-gray-700 border border-gray-300 hover:border-blue-400 transition-colors"
+          >
+            表格檢視（全部欄位）
+          </Link>
+        </div>
+
         {/* 快速篩選 */}
         <div className="flex flex-wrap gap-2 mb-4">
           {QUICK_FILTERS.map((q) => {
