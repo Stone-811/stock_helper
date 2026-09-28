@@ -19,9 +19,10 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 ## 資料流
 1. **Cloud Run Job + Cloud Scheduler**（工作日台灣 17:00／22:00 兩班）→ `daily_collector` 抓 FinMind（股價 / 三大法人 / 外資持股 / 當沖 / 指數）。
    GitHub Actions 的 `daily-collect.yml` **排程已停用**（只留 `workflow_dispatch` 手動備援），避免重複收集。
-2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**31 天**，每日全市場約 2,343 檔、分片每片 500）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列）、`metadata/{latest_date, available_dates}`。
+2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**自 2026-07-24 起一直累積、2026-09-28 實測 45 天**——程式裡沒有任何 prune 邏輯，先前記載的「31 天」已過時；但也沒有保留保證，不要依賴）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列）、`metadata/{latest_date, available_dates}`。
    **就這 4 個 collection**——舊架構 `strong_stock_matrix`／`market_index_daily` 已於 2026-09-05 刪除。
-   ⚠️ 數值欄位全在 `daily_data`，所以任何回補的範圍上限就是那 31 天。
+   ⚠️ 數值欄位全在 `daily_data`，所以任何回補（與「強勢月報」的可算月份）上限就是 **2026-07-24**。
+   `metadata/available_dates` 與 `daily_data` 的日期集合實測完全一致（差集兩邊皆空）。
 3. 前端讀 Firestore；**但個股 K 線改打 FinMind REST（`lib/finmind.ts`，單股完整歷史，繞過 Firestore）**、MACD 由前端 `lib/indicators.ts` 自算
 
 ## 個股頁功能與全站搜尋（2026-08 擴充，皆前端；收集器/排程未動）
@@ -83,6 +84,84 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **無死碼**：`WatchlistButton` 已啟用（個股頁 ☆）；`Sidebar`/`MainContent`/`MobileBottomNav` 由 `layout.tsx` 以**雙引號** import（用 `grep "from '.*X'"` 單引號搜會誤判成 0 refs）。`states.tsx` 五個元件皆有使用。舊漢堡留下的 `pl-12/pl-16` 位移 class 已清乾淨。
 - **已知小重複**：首頁「今日市場」與「指數走勢」都顯示加權指數收盤/漲跌（前者摘要、後者含 OHLC 明細）——目前**刻意保留**（用途不同），若要精簡可把「指數走勢」的加權卡收掉。
 - **a11y 待辦**：`layout.tsx` 的 `viewport.maximumScale: 1` 會**禁止手機雙指放大**（違反 WCAG 1.4.4），建議移除；`watchlist` 頁尚無 `ErrorState`。
+
+## 強勢月報 `/strong-monthly`（2026-09-28 新增）
+
+業主每月手工維護的 Word《強勢商品篩選》月報的自動版：一行一檔，12 欄順序與 Word 同構。
+`app/strong-monthly/page.tsx` + `app/api/strong-monthly/route.ts` + **`lib/monthly-report.ts`（彙整層）**。
+
+**欄位定義（業主親自確認的部分）**：日期＝當月**第一次**入選日；收盤價／成交量／籌碼／MA
+一律取當月**最後一次**入選日（已用 81 筆比對：70 筆吻合最後一次、**0 筆**吻合第一次）；
+當月強勢日期＝該檔本月所有入選日的「日」。⚠️ **同一列有兩個基準日**，改動前先確認。
+
+**兩欄「待定義」不可自己猜**：KD、均線型態（四海遊龍/三陽開泰/糾結）。
+UI 用 `TbdCell`（虛線 amber 框「待定義」），**與 null 的「—」在視覺上刻意分開**：
+一個是規則未定、一個是這檔沒這筆資料。
+MACD 欄填現有 `macd_status`（多/空）但標註「業主的 +↗ 記法未確認」、停用排序。
+
+**籌碼(投信) 已於 2026-09-28 從「待定義」改為「近 N 日投信買賣超累計（張）」**（`trust_buy` 加總）。
+⚠️ **語意與業主月報不同**：業主那欄是「累積持股張數」（存量），本表是一段期間的**流量**。
+改的原因：投信持股沒有可靠來源——FinMind 105 個資料集只有外資有逐檔官方持股（外資有投資上限
+須申報，投信沒有）；投信投顧公會月報只揭露每檔基金前十大持股與季占淨值 1% 以上（部分揭露，
+加總只得下限）；商業資料商的數字本身是推估。「錨點＋每日買賣超累加」的漂移實測：台積電一年
++0.89%、聯電 +5.55%，但**宏齊一個月 −43%**、友達半年 −34%，而強勢股正好多是中小型股。
+- 視窗 5/10/20 交易日可切換，**預設 20**（`lib/format.ts` 的 `TRUST_WINDOWS`）。
+  伺服器一次算好三個視窗放進每一列，**前端切換 0 次網路請求**（冷算數十秒，不能為換視窗再等一輪）。
+- 終點＝該檔當月**最後一次強勢日**（與收盤價/成交量/MA 同基準日），往前用交易日軸 index 位移。
+- 某天沒有該檔明細 → **跳過且不計入 days**（不可當 0），`days < window` 時每格顯示
+  「⚠ 資料不足 N 日，實際 M 日」＋頁面上方藍色提示列出檔數。實測 2026-09 N=20 有 10 檔
+  （新掛牌/交易稀少的上櫃股）、2026-08 有 384 檔（8 月初往前真的沒有資料）。
+- 表頭/subHeader/fullName/desc/sr-only **四處都寫明「累計」與期間**，避免被讀成持股。
+- `trust_buy` 在 `firebase_writer` 是 `int(... or 0)`，**永遠不會是 null**，所以 0 一律是真的 0。
+
+**已知規格落差（動工前問過、尚未有答案）**：自動母體「當月曾入選」2026-09 是 **631 檔**
+（8 月 802 檔），業主人工月報只有 **82 筆**，差 7.7 倍。網站條件跑一天平均 72 檔就約等於
+業主整月的量。**頁面選擇誠實顯示 631 列並在 amber 提示框標明差異待確認，刻意不自己補篩選條件。**
+
+**效能（2026-09-28 起窗放大到 37 天：約 241 次文件讀取、~30 MB）**：
+- 兩段式：先並行 `getStrongStocksByDate` 掃當月每一天（18 次、57 KB、0.2 秒）算出
+  first/last/入選日；再掃「最早 last-strong-day 往前 `WINDOW_WARMUP` 個交易日 ~ 月底」的窗算數值。
+- ⚠️ `WINDOW_WARMUP` 從 9（只夠 MA10）改成 **19**（夠近 20 日投信累計）：
+  實測 2026-09 窗 27→37 天、數值段讀取 **162→222 次（+60）**。不放大的話
+  **206/631 = 32.6%** 的列拿不到完整 20 日視窗，而那些資料**明明存在**（available_dates 有 45 天）。
+  少算一個標榜「累計」的數字比多讀 60 份文件（免費額度的 0.12%）嚴重得多。
+  要改回去就得同時把 `TRUST_WINDOWS` 的 20 拿掉，**不可留著 20 卻縮窗**。
+- **每個日期只讀一次 `daily_data`**，每批 6 天讀完**立刻投影成瘦 close map 並釋放整日陣列**
+  （峰值 heap 從 +43 MB 壓到約一天的 2 MB）。
+- ⚠️ **不要為此把 `DAY_CACHE_MAX` 從 4 調大**：27 天全握在記憶體 = +43 MB heap，
+  而 `apphosting.yaml` 是 memoryMiB 512 + concurrency 80 → OOM 會殺掉整個 instance。
+  `getStocksByDate` 已加 **`{ cacheWrite: false }`** 選項，月報用它避免擠掉個股頁的熱快取。
+- 快取做在「整月成品列」（`lib/monthly-report.ts` 的 `reportCache`，key 帶 latest_date 自動失效）
+  ＋ route 的 `s-maxage=1800, stale-while-revalidate=3600`。
+  ⚠️ `minInstances: 0` → 每次冷啟記憶體快取都是空的，**跨 instance 的 HTTP 快取才是主力**。
+- **長遠正解**：讓 collector 每天寫一份 `monthly_strong/{YYYY-MM}` 聚合文件（前端變 1 次讀取），
+  就是本專案對 `strong_stocks`/`market_index` 已做過的「寫入時聚合」。代價是要重建 Cloud Run image。
+
+**MA5/MA10**：新增 `lib/indicators.ts` 的 `maFromCloses(closes, period)`（加法式，**不動**
+`calculateMAValues`——CandleChart 依賴它的暖身/whitespace 行為）。交易日軸用 `available_dates`
+的 **index 位移**取，不可用日曆天加減。序列中缺一格就回 null，**絕不用較少天數的平均充當 MA10**
+（8 月初、7 月全月都會是「—」）。KD 刻意不算：遞迴平滑對起點極敏感，實測同一天用 45 天 vs 12 天
+算，某檔 D 值 77.31→62.82，超買超賣判讀相反；要填應比照 `macd_status` 由 collector 算好。
+
+**`foreign_hold_shares` 的三種缺值**：有值 / `null`（FinMind 未涵蓋，最新日 361 檔 = 15.4%，
+與 `foreign_hold_ratio` 的 null 集合完全一致）/ **`undefined`（2026-08-31 及更早連 key 都沒有，
+第一個有值日是 2026-09-01）**。三者 UI 都是「—」，但整月無值時頁面另有藍色提示說明是
+「資料尚未收集」而非「規則未定」。**任何地方都不可寫 `?? 0`。**
+
+**版面（12 欄天生 1454px，任何常見視窗都溢出）**：橫向＋縱向**一律關在表格自己的捲動容器**
+（`components/table.tsx` 的 `TableScroll`，`overflow-auto` + **`[contain:paint]`**），
+換得表頭可相對容器 `sticky top-0`、左側「日期/商品」兩欄 `sticky left`（靠 `table-fixed` +
+colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 的
+`documentElement.scrollWidth` 全部等於 `clientWidth`。
+⚠️ 少了 `[contain:paint]` Chrome 會把巢狀溢出併進根捲動區 → 整頁橫捲 → fixed Sidebar 蓋住第一欄。
+
+**導覽**：Sidebar 第 6 項（🗓️ 強勢月報），並加了兩個輕量區段小標（「強勢股」/「工具」）把三個
+同前綴的項目收成一組。路由 **不可以 `/strong-stocks` 或 `/strong-table` 開頭**（isActive 是
+`startsWith`，會雙亮）。MobileBottomNav 維持 4 格，只把 isActive 併進「強勢」那顆。
+三者是**同一層**：前兩者是「某一交易日」的兩種呈現，月報是「某一個月」的彙整。
+
+**共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`）與
+`components/table.tsx`（`NullCell`/`TbdCell`/`TableScroll`）由 `/strong-table` 抽出，兩頁共用。
 
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。**（2026-09-04 更新：已不再靜默存 0——缺漏改寫 null，見下方「無資料與真的是 0」章節；但「該有卻沒抓到」仍需重跑補。）**

@@ -105,6 +105,36 @@ export function changeColor(dir: ChangeDir): string {
   return 'text-gray-700'
 }
 
+/**
+ * 「當月強勢日期」的日清單：[4, 10] → "4, 10"。
+ * 月報第 12 欄只列「日」（月份已由報表標題決定）。空陣列回 DASH，**不回 "0"**。
+ */
+export function fmtDayList(days: number[]): string {
+  if (!days.length) return DASH
+  return days.join(', ')
+}
+
+/** 籌碼增減方向。'flat' 是真的持平；null 代表「其中一邊沒有資料」，不可當成未增加 */
+export type HoldDelta = 'up' | 'down' | 'flat' | null
+
+/**
+ * 外資持股張數的增減方向。
+ * ⚠️ cur / prev 為 null（FinMind 未涵蓋）或 undefined（2026-08-31 及更早根本沒這個欄位）
+ * 時一律回 null——「沒有比較基準」與「沒有增加」是兩件事。
+ *
+ * ⚠️ 比較基準（前一交易日 vs 該檔上一個強勢日）屬業主定義，本函式不決定，
+ * 由呼叫端決定要餵哪個 prev 進來。
+ */
+export function holdDeltaDir(
+  cur: number | null | undefined,
+  prev: number | null | undefined
+): HoldDelta {
+  if (isMissing(cur) || isMissing(prev)) return null
+  if (cur > prev) return 'up'
+  if (cur < prev) return 'down'
+  return 'flat'
+}
+
 /** 依數值正負上色（法人買賣超、連買連賣）。null 給中性灰，**不上紅綠** */
 export function signColor(v: number | null | undefined): string {
   if (v === null || v === undefined) return 'text-gray-600'
@@ -134,4 +164,67 @@ export function compareNullLast(
       ? String(av).localeCompare(String(bv))
       : (av as number) - (bv as number)
   return dir === 'desc' ? -c : c
+}
+
+/* ---------------- 近 N 日投信買賣超累計（流量，不是持股） ---------------- *
+ * 強勢月報的「籌碼(投信)」欄。業主手工月報那一欄原本是「投信累積持股張數」，
+ * 但實測確認沒有可靠來源：FinMind 105 個資料集只有外資有逐檔官方持股申報
+ * （外資有投資上限要申報，投信沒有）；投信投顧公會月報只揭露「每檔基金前十大持股」
+ * 與「季占淨值 1% 以上」，加總只得下限；商業資料商的數字本身就是推估。
+ * 用「公會錨點 ＋ 每日買賣超累加」的漂移實測：台積電一年 +0.89%、聯電 +5.55%，
+ * 但宏齊一個月就 −43%、友達半年 −34%——而強勢股正好多是中小型股。
+ *
+ * ⚠️ 所以這一欄改成 100% 準確、語意明確的**流量**指標。
+ * 與持股（存量）是完全不同的東西，任何顯示（表頭、說明、手機展開列）都必須標清楚。
+ * -------------------------------------------------------------------- */
+
+/**
+ * 可選的累計視窗（交易日數）。
+ * ⚠️ 上限刻意壓在 20（約一個月）：daily_data 目前只有 45 個交易日
+ * （2026-07-24 起，只增不減），月報還要往前留 MA 暖身，再大就會有大量列拿不到完整視窗。
+ */
+export const TRUST_WINDOWS = [5, 10, 20] as const
+export type TrustWindow = (typeof TRUST_WINDOWS)[number]
+
+/** 預設 20 個交易日（約一個月），對應業主月報的月度視角 */
+export const DEFAULT_TRUST_WINDOW: TrustWindow = 20
+
+/** 字串（sessionStorage / query）→ 合法視窗；不合法回預設值 */
+export function parseTrustWindow(v: unknown): TrustWindow {
+  const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10)
+  return (TRUST_WINDOWS as readonly number[]).includes(n) ? (n as TrustWindow) : DEFAULT_TRUST_WINDOW
+}
+
+/**
+ * 近 N 個交易日的投信買賣超**累計**（張）。
+ *
+ * ⚠️ 流量（這段期間買進減賣出的淨額），**不是**存量（手上有多少張）。
+ * days < window 代表基準日往前的交易日不足，必須在 UI 明講「實際用 M 日」，
+ * 絕不可默默少算當成完整 N 日。
+ */
+export interface TrustNetSum {
+  /** 要求的視窗（交易日數） */
+  window: number
+  /** 實際累加到的交易日數。0 → 完全沒有明細（sum 為 null） */
+  days: number
+  /** 累計張數。days === 0 → null（顯示「—」）；0 是真的 0（期間淨額為零） */
+  sum: number | null
+  /** 實際納入的最早交易日；days === 0 → null */
+  from: string | null
+  /** 終點：該檔當月最後一次強勢日（與收盤價／成交量／MA 同一基準日） */
+  to: string
+}
+
+/** 這一列的視窗是否被截短（有值、但不足 window 個交易日） */
+export function isTrustShort(t: TrustNetSum | undefined | null): boolean {
+  return !!t && t.days > 0 && t.days < t.window
+}
+
+/**
+ * 欄名第二行用的視窗標籤。
+ * ⚠️ 「累計」兩字固定放在欄名本體（「投信買賣超累計」），這裡只補期間，
+ * 否則會變成「投信買賣超累計 / 近 20 日累計」重複兩次。
+ */
+export function trustWindowLabel(n: number): string {
+  return `近 ${n} 日`
 }

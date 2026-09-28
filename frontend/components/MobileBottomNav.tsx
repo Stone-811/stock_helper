@@ -19,11 +19,18 @@ const navItems: NavItem[] = [
 
 export default function MobileBottomNav() {
   const pathname = usePathname()
-  // /strong-table 是「強勢股」的表格檢視，不在 Bottom Nav 佔格，
+  // /strong-table（表格檢視）與 /strong-monthly（當月彙整）都不在 Bottom Nav 佔格
+  // ——底部四格留給高頻功能，月報是每月才看一次的低頻頁——
   // 但仍要讓「強勢」亮起，否則手機使用者會四格全暗、失去所在位置（WCAG 2.4.8）。
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
-    if (href === '/strong-stocks') return pathname.startsWith('/strong-stocks') || pathname.startsWith('/strong-table')
+    if (href === '/strong-stocks') {
+      return (
+        pathname.startsWith('/strong-stocks') ||
+        pathname.startsWith('/strong-table') ||
+        pathname.startsWith('/strong-monthly')
+      )
+    }
     return pathname.startsWith(href)
   }
 

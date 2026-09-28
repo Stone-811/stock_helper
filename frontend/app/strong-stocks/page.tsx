@@ -147,6 +147,18 @@ export default function StrongStocksPage() {
           </Link>
         </div>
 
+        {/* 月報入口：刻意**不放進上面那組「檢視切換」膠囊**——那組的語意是「同一份資料的
+            兩種呈現」，而月報是不同時間粒度的彙整（一行一檔、跨整月），混進去會誤導。 */}
+        <div className="mb-4">
+          <Link
+            href="/strong-monthly"
+            className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-lg text-sm bg-white text-gray-700 border border-gray-300 hover:border-blue-400 transition-colors"
+          >
+            <span aria-hidden="true">🗓️</span>
+            強勢月報（彙整本月所有入選，取代手工月報）
+          </Link>
+        </div>
+
         {/* 快速篩選 */}
         <div className="flex flex-wrap gap-2 mb-4">
           {QUICK_FILTERS.map((q) => {

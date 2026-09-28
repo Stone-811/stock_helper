@@ -109,7 +109,19 @@ function writeDayCache(date: string, data: any[]) {
   }
 }
 
-export async function getStocksByDate(date: string): Promise<any[]> {
+/**
+ * @param opts.cacheWrite 預設 true（沿用原行為）。傳 false 時「照樣吃快取、但不寫入快取」。
+ *   用途：強勢月報一次要掃約 30 個日期，若全部寫進只有 4 格的 dayCache，會在寫入的當下
+ *   互相淘汰（命中率 0），還會把個股頁熱在快取裡的那幾天全部擠掉
+ *   （個股頁靠它從 0.72 秒降到 0.54 秒）。
+ *   ⚠️ 不要為月報把 DAY_CACHE_MAX 調大：實測 27 天全握在記憶體是 +43 MB heap，
+ *   而 apphosting.yaml 是 memoryMiB 512 + concurrency 80 → 幾個並行請求就 OOM。
+ *   月報改在「整月成品列」那層做快取（幾十 KB）。
+ */
+export async function getStocksByDate(
+  date: string,
+  opts?: { cacheWrite?: boolean }
+): Promise<any[]> {
   const cached = readDayCache(date)
   if (cached) return cached
 
@@ -134,7 +146,7 @@ export async function getStocksByDate(date: string): Promise<any[]> {
     }
 
     const result = dedupeByStockId(allStocks)
-    writeDayCache(date, result)
+    if (opts?.cacheWrite !== false) writeDayCache(date, result)
     return result
   } catch (error) {
     console.error('取得股票資料失敗:', error)

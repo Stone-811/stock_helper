@@ -276,6 +276,17 @@ export interface DailyStock {
   foreign_remain_ratio: number | null
   /** ⚠️ FinMind 該資料集未涵蓋此股時為 null（不是 0）。渲染必須顯示「—」。 */
   foreign_limit_ratio: number | null
+  /**
+   * 外資持股張數（絕對持有量，非買賣超累加）。
+   * ⚠️ 三種值意義不同，但 UI 一律顯示「—」：
+   *   number → 有值
+   *   null   → FinMind TaiwanStockShareholding 未涵蓋此股（約 15%，多為上櫃／新掛牌）
+   *   undefined → 2026-08-31 及更早的 daily_data **連這個 key 都沒有**（collector 2026-09 才加）
+   * 絕對不可寫 `?? 0`。
+   */
+  foreign_hold_shares?: number | null
+  /** 已發行張數。缺值語意同 foreign_hold_shares（null / undefined 皆顯示「—」）。 */
+  shares_issued?: number | null
   macd_status: string
   foreign_streak?: number // 外資連續買賣天數（連買 +N、連賣 -N；舊資料可能無此欄位）
   trust_streak?: number   // 投信連續買賣天數

@@ -59,6 +59,33 @@ export function calculateEMA(data: number[], period: number): number[] {
 }
 
 // ========== MA（簡單移動平均）==========
+/**
+ * 從「收盤價序列」直接算最後一格的 MA（與 calculateMAValues 同定義：最近 period 天的簡單平均）。
+ *
+ * 為什麼另開一支而不呼叫 calculateMAValues：
+ *   (a) 那支要求 `Candle`（date/open/high/low/close/volume 六欄），而 daily_data 的每筆股票
+ *       **根本沒有 date 欄位**（firebase_writer._convert_stock_row 沒寫），硬湊要 as Candle；
+ *   (b) 那支回傳整條 index 對齊陣列，月報每檔只要最後一格；
+ *   (c) 最關鍵：那支假設資料連續無缺口。月報的 per-stock 序列是從交易日軸上撈出來的，
+ *       只要中間有一天該股缺資料（停牌／新掛牌／分片缺），把有值的日子 filter 起來會讓
+ *       MA5 偷偷跨了 7 個交易日卻不報錯。
+ *
+ * 因此本函式的語意是嚴格的：`closes` 必須是「連續 period 個交易日、依時間遞增」的收盤價，
+ * 長度不足或其中任一為 null/undefined/非有限數 → 回 null（UI 顯示「—」，**不是 0**）。
+ *
+ * ⚠️ 刻意不動 calculateMAValues：CandleChart 依賴它的暖身期／whitespace 行為。
+ */
+export function maFromCloses(closes: (number | null | undefined)[], period: number): number | null {
+  if (closes.length < period) return null
+  const win = closes.slice(closes.length - period)
+  let sum = 0
+  for (const c of win) {
+    if (c === null || c === undefined || !Number.isFinite(c)) return null
+    sum += c
+  }
+  return sum / period
+}
+
 export function calculateMAValues<T extends Candle>(data: T[], period: number): (number | null)[] {
   const result: (number | null)[] = new Array(data.length).fill(null)
   for (let i = period - 1; i < data.length; i++) {
