@@ -4,15 +4,17 @@
 
 ## 線上版本
 
-**Vercel 部署**: [https://stock-helper.vercel.app](https://stock-helper.vercel.app)
+**Firebase App Hosting**: https://stock-analysis--stock-analysis-b5602.asia-east1.hosted.app
+
+推送到 GitHub `main` 會自動 rollout（backend `stock-analysis`、region `asia-east1`）。
 
 ## 系統架構
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         使用者介面                               │
-│                    Next.js 15 + Tailwind CSS                    │
-│                      (Vercel / Docker)                          │
+│                  Next.js 16 + React 19 + Tailwind v4             │
+│                    (Firebase App Hosting)                        │
 │                                                                  │
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
@@ -34,7 +36,7 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
-│                   Supabase PostgreSQL                            │
+│                   Firebase Firestore                             │
 │    market_index_daily  │  daily_stocks  │  strong_stock_matrix  │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
@@ -95,12 +97,12 @@
 ### 環境需求
 - Python 3.10+
 - Node.js 20+
-- Supabase 帳號
+- Firebase 專案（Blaze 方案；App Hosting 與 Cloud Run 需要）
 
 ### 1. 安裝 Python 套件
 
 ```bash
-pip install FinMind pandas python-dotenv supabase
+pip install -r requirements.txt   # FinMind, pandas, python-dotenv, firebase-admin, google-cloud-storage, tenacity
 ```
 
 ### 2. 設定環境變數
@@ -115,9 +117,11 @@ cp .env.example .env
 # FinMind API
 FINMIND_API_TOKEN=your_token_here
 
-# Supabase（Python 後端）
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your_service_role_key
+# Firebase（Python 後端，擇一）
+# 方式一：本機放 frontend/service-account.json（建議改用 gcloud auth application-default login 走 ADC）
+# 方式二：環境變數
+FIREBASE_SERVICE_ACCOUNT_KEY='{"type":"service_account","project_id":"stock-analysis-b5602",...}'
+# 雲端（App Hosting / Cloud Run）同專案自動走 ADC，不需設定
 ```
 
 ### 3. 啟動 Next.js 前端
@@ -128,7 +132,7 @@ npm install
 
 # 建立環境變數
 cp .env.example .env.local
-# 編輯 .env.local 設定 Supabase
+# 編輯 .env.local 設定 Firebase（NEXT_PUBLIC_FIREBASE_*）
 
 npm run dev
 ```
@@ -193,8 +197,8 @@ python stock_collector/update_strong_matrix.py
 │   ├── merge_daily_files.py            # 檔案合併工具
 │   └── config.py                       # API 配置
 │
-├── supabase_writer.py                  # Supabase 資料寫入
-├── supabase_schema.sql                 # 資料庫 Schema
+├── firebase_writer.py                  # Firestore 寫入（分片，每日僅約 9 次寫入）
+├── gcs_archive.py                      # 年度檔與 GCS 同步（收集器為 stateless）
 ├── utils.py                            # 技術指標計算
 │
 ├── data/                               # 本地資料存放
@@ -227,31 +231,34 @@ python stock_collector/update_strong_matrix.py
     │   ├── StockChart.tsx              # 專業技術分析圖
     │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action）
     └── lib/
-        └── supabase.ts                 # Supabase client + Auth
+        ├── firebase.ts                 # Firebase Client SDK + Auth + 型別
+        └── firebase-admin.ts           # Firebase Admin SDK（伺服器端查詢）
 ```
 
 ---
 
 ## 部署
 
-### Vercel（推薦）
+### Firebase App Hosting（現行做法）
 
-1. Push 程式碼到 GitHub
-2. 在 Vercel Dashboard 匯入專案
-3. 設定：
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: Next.js
-4. 設定環境變數：
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-5. Deploy
+**推送到 GitHub `main` 即自動部署**，不需手動執行任何指令。
 
-### Docker
+- backend：`stock-analysis`（region `asia-east1`，需 Blaze 方案）
+- 設定檔：`frontend/apphosting.yaml`（含 `NEXT_PUBLIC_*` 與 `minInstances: 0`）
+- Firestore 憑證走 **ADC**（同專案免放金鑰）
+- FinMind token 走 Secret Manager
+
+⚠️ `minInstances: 0` 是刻意的（冷啟動 2-5 秒換省成本）；改成 1 會多 $10~15/月。
+
+### 收集器（Cloud Run Job，與前端分開部署）
+
+改了 `stock_collector/` 或 `firebase_writer.py` **不會**隨前端自動部署，要另外重建 image：
 
 ```bash
-cd frontend
-docker-compose up -d
+gcloud run jobs deploy stock-collector --source=. --region=asia-east1
 ```
+
+排程為 Cloud Scheduler 工作日台灣 17:00 與 22:00 兩班。
 
 ---
 
@@ -260,13 +267,12 @@ docker-compose up -d
 | 類別 | 技術 |
 |------|------|
 | 資料收集 | Python 3.x, FinMind API, tenacity（重試） |
-| 資料庫 | Supabase (PostgreSQL) |
-| 身份驗證 | Supabase Auth (Google OAuth) |
-| 前端框架 | Next.js 15, React 18 |
-| UI 樣式 | Tailwind CSS |
+| 資料庫 | Firebase Firestore（分片寫入） |
+| 身份驗證 | Firebase Auth (Google OAuth) |
+| 前端框架 | Next.js 16, React 19 |
+| UI 樣式 | Tailwind CSS v4（`@theme`，無 config 檔） |
 | 圖表 | lightweight-charts |
-| AI 分析 | OpenAI GPT-4o / Claude API |
-| 部署 | Vercel / Docker |
+| 部署 | Firebase App Hosting（前端）＋ Cloud Run Job（收集器） |
 
 ---
 
@@ -314,5 +320,5 @@ MIT License
 
 - [FinMind 官方文件](https://finmind.github.io/)
 - [Next.js 文件](https://nextjs.org/docs)
-- [Supabase 文件](https://supabase.com/docs)
+- [Firebase App Hosting 文件](https://firebase.google.com/docs/app-hosting)
 - [lightweight-charts](https://tradingview.github.io/lightweight-charts/)
