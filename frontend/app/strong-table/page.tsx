@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader, TableSkeleton, EmptyState, ErrorState } from '../../components/states'
 import InfoTip from '../../components/InfoTip'
@@ -15,6 +15,8 @@ import {
   signColor,
   compareNullLast,
 } from '../../lib/format'
+import { NullCell } from '../../components/table'
+import { SELECT, alignClass, justifyClass, type ColDef } from '../../lib/table'
 import type { StrongStock } from '../../lib/firebase'
 
 /* ------------------------------------------------------------------ *
@@ -52,47 +54,14 @@ interface StrongTableResponse {
 }
 
 /* ----------------------------- 共用片段 ----------------------------- */
-
-/** 無資料儲存格：視覺上是「—」，螢幕報讀器唸「無資料」。
- *  顏色用 gray-600(7.56:1)，不用 gray-400(2.60:1)——「—」視覺量本來就小，再壓對比等於消失。 */
-function NullCell() {
-  return (
-    <span className="text-gray-600" title="FinMind 未涵蓋此股此欄資料">
-      <span aria-hidden="true">{DASH}</span>
-      <span className="sr-only">無資料</span>
-    </span>
-  )
-}
-
-const SELECT =
-  'border border-gray-300 rounded px-3 min-h-[44px] lg:min-h-[36px] text-base md:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
-
-type Align = 'left' | 'right' | 'center'
-
-const alignClass = (a: Align) =>
-  a === 'right' ? 'text-right' : a === 'center' ? 'text-center' : 'text-left'
-const justifyClass = (a: Align) =>
-  a === 'right' ? 'justify-end' : a === 'center' ? 'justify-center' : 'justify-start'
+/* NullCell / SELECT / Align / alignClass / justifyClass / ColDef 已抽到
+   components/table.tsx 與 lib/table.ts（強勢月報頁共用同一份，避免兩頁各自漂移）。 */
 
 interface RenderCtx {
   /** 所選日期不是最新交易日 → strong_count 是錯的（見下方 STALE 說明） */
   strongCountStale: boolean
   /** 手機摘要列：省略次要的第二行 */
   compact: boolean
-}
-
-interface ColDef {
-  header: string
-  /** 欄位說明區與手機展開列用的完整名稱（含單位） */
-  fullName: string
-  align: Align
-  sortable: boolean
-  /** null 代表「無資料」而非 0；排序時一律沉底 */
-  sortValue: (r: StrongTableRow) => number | string | null
-  render: (r: StrongTableRow, ctx: RenderCtx) => ReactNode
-  desc: string
-  /** 此欄可能真的缺資料（供「隱藏本組無資料的列」使用） */
-  nullable?: boolean
 }
 
 /* --------------------------- 衍生值計算 --------------------------- */
@@ -135,7 +104,7 @@ type ColKey =
   | 'trust_buy' | 'dealer_buy' | 'foreign_streak' | 'trust_streak'
   | 'foreign_hold_ratio' | 'foreign_remain_ratio' | 'foreign_limit_ratio'
 
-const COLUMNS: Record<ColKey, ColDef> = {
+const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
   /* --- 固定欄（所有分頁恆常顯示） --- */
   stock: {
     header: '股票',
@@ -488,7 +457,10 @@ export default function StrongTablePage() {
     streakMin: 0,
   })
   const [hideNullRows, setHideNullRows] = useState(false)
-  const [showAll, setShowAll] = useState(false)
+  // 預設「固定全欄位表格」：業主要的是一次看到全部欄位，而非在分組間切換。
+  // 代價是桌機會水平捲動（表格天生寬約 2,000px），但溢出關在表格自己的捲動容器裡，
+  // 整頁不橫捲、Sidebar 不會被蓋住（見下方 [contain:paint] 註解）。
+  const [showAll, setShowAll] = useState(true)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -1067,7 +1039,7 @@ export default function StrongTablePage() {
               隱藏無資料的列
             </label>
 
-            {/* 逃生門：只有這個模式會開水平捲動，預設關閉 */}
+            {/* 檢視切換：全欄位（預設）↔ 分組。全欄位會水平捲動，捲動關在表格容器內 */}
             <button
               type="button"
               aria-pressed={showAll}
@@ -1078,7 +1050,7 @@ export default function StrongTablePage() {
                   : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
               }`}
             >
-              {showAll ? '回到分組檢視' : '一次顯示全部欄位（會左右捲動）'}
+              {showAll ? '改用分組檢視（不捲動）' : '顯示全部欄位'}
             </button>
           </div>
         </div>
@@ -1201,7 +1173,7 @@ export default function StrongTablePage() {
             {showAll ? (
               <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
                 <p className="px-4 py-2 text-sm text-gray-700 bg-gray-50 border-b border-gray-200">
-                  ← 左右捲動查看更多欄位 →（此模式下表頭不會固定；回到分組檢視即可免捲動）
+                  ← 左右捲動查看全部欄位 →（此模式表頭不固定；若想免捲動可切換為分組檢視）
                 </p>
                 {/* tabIndex + role=region：否則鍵盤使用者捲不動這個容器。
                     overflow-x-auto 放在頁面內層，不可讓 body 橫捲（會跟 fixed Sidebar 錯位）。
