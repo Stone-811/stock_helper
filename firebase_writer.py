@@ -127,6 +127,9 @@ def _convert_stock_row(row) -> Dict[str, Any]:
         'foreign_hold_ratio': _opt_num(row.get('foreign_hold_ratio'), float),
         'foreign_remain_ratio': _opt_num(row.get('foreign_remain_ratio'), float),
         'foreign_limit_ratio': _opt_num(row.get('foreign_limit_ratio'), float),
+        # 外資持股張數（FinMind 官方申報值）與已發行張數；缺漏同樣寫 null 不寫 0
+        'foreign_hold_shares': _opt_num(row.get('foreign_hold_shares'), int),
+        'shares_issued': _opt_num(row.get('shares_issued'), int),
         'macd_status': str(row.get('macd_status', '') or ''),
         'foreign_streak': int(row.get('foreign_streak', 0) or 0),
         'trust_streak': int(row.get('trust_streak', 0) or 0),

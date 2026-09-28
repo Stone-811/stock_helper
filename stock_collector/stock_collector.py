@@ -282,7 +282,9 @@ class StockCollector:
             'stock_id',
             'ForeignInvestmentSharesRatio',      # 外資持股比例
             'ForeignInvestmentRemainRatio',      # 外資尚可投資比例
-            'ForeignInvestmentUpperLimitRatio'   # 外資投資上限
+            'ForeignInvestmentUpperLimitRatio',  # 外資投資上限
+            'ForeignInvestmentShares',           # 外資持股「股數」→ 下面轉張
+            'NumberOfSharesIssued'               # 已發行股數（可換算任何法人的持股比例）
         ]
 
         # 檢查欄位是否存在
@@ -298,9 +300,17 @@ class StockCollector:
         rename_map = {
             'ForeignInvestmentSharesRatio': 'foreign_hold_ratio',
             'ForeignInvestmentRemainRatio': 'foreign_remain_ratio',
-            'ForeignInvestmentUpperLimitRatio': 'foreign_limit_ratio'
+            'ForeignInvestmentUpperLimitRatio': 'foreign_limit_ratio',
+            'ForeignInvestmentShares': 'foreign_hold_shares',
+            'NumberOfSharesIssued': 'shares_issued'
         }
         processed = processed.rename(columns=rename_map)
+
+        # 股 → 張，一律 Math.trunc 等價的向零取整（全站慣例，見 skill「股→張換算」）
+        for col in ('foreign_hold_shares', 'shares_issued'):
+            if col in processed.columns:
+                processed[col] = pd.to_numeric(processed[col], errors='coerce') // 1000
+                processed[col] = processed[col].astype('Int64')
 
         # ⚠️ 不要把缺漏補 0：FinMind TaiwanStockShareholding 未涵蓋的股票（多為上櫃/新掛牌），
         # 補 0 會產生「外資投資上限 0.00%」這種法規上不可能的值，且與籌碼圖「無申報資料」矛盾。
@@ -390,6 +400,11 @@ class StockCollector:
             if col not in df.columns:
                 df[col] = pd.NA
             df[col] = pd.to_numeric(df[col], errors='coerce')
+        # 外資持股張數／已發行張數：同樣不可補 0，且為整數欄位故用 Int64 可空整數
+        for col in ['foreign_hold_shares', 'shares_issued']:
+            if col not in df.columns:
+                df[col] = pd.NA
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
 
         # 合併當沖資料
         if day_trading_processed is not None and len(day_trading_processed) > 0:
@@ -409,7 +424,8 @@ class StockCollector:
         columns = [
             'date', 'stock_id', 'stock_name', 'industry', 'open', 'high', 'low', 'close',
             'volume', 'day_trading_volume', 'foreign_buy', 'trust_buy', 'dealer_buy',
-            'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'
+            'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio',
+            'foreign_hold_shares', 'shares_issued'
         ]
         df = df[[c for c in columns if c in df.columns]]
         # 最終防禦：任一右表（法人/持股/當沖）若 stock_id 重複，left merge 都會產生重複行
