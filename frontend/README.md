@@ -66,5 +66,6 @@ npx firebase-tools deploy --only firestore:rules --project stock-analysis-b5602
 ## 開發前必讀
 
 專案 skill `.claude/skills/stock-helper-context/SKILL.md` 記錄了架構、資料語意與踩過的地雷
-（例如「無資料」不可寫成 0、股→張換算一律 `Math.trunc`、表格溢出不可讓整頁橫捲）。
-**改動前先讀它**；專案根目錄的 `CLAUDE.md` 部分內容已過時，以 skill 為準。
+（例如「無資料」不可寫成 0、股→張換算一律 `Math.trunc`、表格溢出不可讓整頁橫捲、
+InfoTip 泡泡一律 `position: fixed`）。**改動前先讀它。**
+專案根目錄的 `CLAUDE.md` 講架構與慣例（2026-10-09 已清過過時內容），skill 講「為什麼不能那樣做」。

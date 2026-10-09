@@ -2,6 +2,11 @@
 
 Claude Code 處理本專案時的指引說明。
 
+> ⭐ **改動前先讀 `.claude/skills/stock-helper-context/SKILL.md`**：
+> 那裡記錄踩過的地雷與資料語意（「無資料」不可寫成 0、股→張一律 `Math.trunc`、
+> 表格溢出不可讓整頁橫捲、強勢股條件的權威來源、改 collector 不會自動部署…）。
+> 本檔講的是**架構與慣例**，skill 講的是**為什麼不能那樣做**。
+
 ## 專案概述
 
 台灣股票資料收集與篩選工具，使用 FinMind API 抓取全市場上市上櫃股票。
@@ -9,42 +14,51 @@ Claude Code 處理本專案時的指引說明。
 功能：
 1. 大盤指數分析（加權指數 TAIEX + 台指期 TX）
 2. 每日資料收集（批次 API，6 次請求抓完全市場）
-3. 批次歷史資料收集
-4. 多條件選股篩選
-5. 強勢股分析網站（Next.js + Firebase + Sidebar 導航）
-6. 自選股功能（Firebase Auth + Google OAuth）
-7. Docker 容器化部署支援
-8. 基本面分析（OpenAI GPT / Claude API 生成投資研究報告）
+3. 批次歷史資料收集與一次性回補工具（`scripts/`）
+4. 多條件選股篩選（`/screener`）
+5. 強勢股分析網站：卡片 `/strong-stocks`、總表 `/strong-table`、月報 `/strong-monthly`
+6. 個股詳情：K 線／技術指標／三大法人／放空籌碼／今日訊號
+7. 自選股與到價提醒（Firebase Auth + Google OAuth）
+
+⚠️ **已移除、文件若再提到就是過時**：基本面分析（OpenAI/Claude 生成報告，
+連同 `app/analysis`、`api/analysis`、`stock_analysis_reports` collection）、
+`streamlit_app/`、`utils.py`、`tailwind.config.ts`（Tailwind v4 用 `@theme`，沒有設定檔）。
+根目錄的 `優化建議報告.md`（2026-08-01）整份已過時，其中 S1/S2 指的端點都不存在了。
 
 ## 系統架構
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         使用者介面                               │
-│                    Next.js 15 + Tailwind CSS                    │
-│                   (Firebase Hosting / Docker)                   │
+│              Next.js 16 + React 19 + Tailwind CSS v4            │
+│            (Firebase App Hosting，push main 自動 rollout)        │
 │                                                                  │
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
-│  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
-│  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
-│  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
-│  │ 📈 分析  │  基本面分析：AI 生成投資研究報告              │    │
+│  │ (md 以上)│  首頁：Dashboard（指數＋今日強勢＋自選）      │    │
+│  │ 📊 首頁  │  強勢股：卡片檢視 /strong-stocks              │    │
+│  │ 🔥 強勢股│  總表　：全欄位表格 /strong-table             │    │
+│  │ 🗓️ 月報  │  月報　：當月彙整 /strong-monthly             │    │
+│  │ 🔍 選股  │  選股　：自訂條件 /screener                   │    │
+│  │ ⭐ 自選股│  自選股：需 Google 登入                       │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
+│  手機：不渲染 Sidebar，導覽用 MobileBottomNav、登入在 TopBar    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
-│   /api/market-index/[id]  │  /api/strong-stocks  │  /api/stock  │
+│  market-index/[id] │ strong-stocks │ strong-monthly │ screener │
+│  stock/[id] │ stock/[id]/institutional │ stocks │ quotes         │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
 │                  Firebase Firestore + Auth                       │
-│  daily_data/{date}/chunks │ strong_stocks │ market_index │ user_watchlists │
+│  daily_data/{date}/chunks │ strong_stocks │ market_index │ metadata │
+│  （使用者資料：user_watchlists／alerts）                         │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
@@ -66,13 +80,18 @@ Claude Code 處理本專案時的指引說明。
 ├── stock_collector/                    # 資料收集模組
 │   ├── config.py                       # FinMind API 配置
 │   ├── daily_collector.py              # 統一排程器（重試、增量更新、驗證）
-│   ├── stock_collector.py              # 每日股票資料收集器
+│   ├── stock_collector.py              # 每日股票資料收集器（6 支批次 API）
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
-│   ├── update_strong_matrix.py         # 強勢股矩陣更新
-│   └── merge_daily_files.py            # 檔案合併工具
+│   ├── update_strong_matrix.py         # 強勢股判定與矩陣更新（條件的唯一權威）
+│   ├── indicators.py                   # MACD 狀態（由已刪除的 utils.py 精簡而來）
+│   ├── streak.py                       # 法人連買／連賣天數
+│   ├── alert_checker.py                # 到價提醒檢查
+│   ├── update_macd.py                  # 舊版逐檔 MACD（已被 indicators 取代）
+│   └── merge_daily_files.py            # 舊版檔案合併工具（已被年度歸檔取代）
 │
-├── firebase_writer.py                  # Firebase Firestore 資料寫入模組（優化版）
-├── utils.py                            # 技術指標計算
+├── firebase_writer.py                  # Firestore 寫入（分片優化 + null 語意）
+├── gcs_archive.py                      # 年度檔上下載 GCS（collector 是 stateless）
+├── notify.py                           # 通知
 │
 ├── scripts/                            # 一次性稽核／回補工具（一律預設 dry-run，--write 才寫）
 │   ├── backfill_null_vs_zero.py        # 把「缺資料被寫成 0」改回 null
@@ -91,47 +110,55 @@ Claude Code 處理本專案時的指引說明。
 │   └── strong_stock_matrix/            # 強勢股矩陣
 │       └── strong_stock_matrix.csv
 │
-├── frontend/                           # Next.js 前端
+├── frontend/                           # Next.js 16 前端
+│   ├── apphosting.yaml                 # App Hosting 設定（minInstances: 0 是刻意的）
 │   ├── app/                            # App Router 頁面
-│   │   ├── layout.tsx                  # 根 Layout（含 Sidebar）
-│   │   ├── page.tsx                    # 首頁（大盤指數圖表）
-│   │   ├── strong-stocks/page.tsx      # 強勢股列表頁
-│   │   ├── watchlist/page.tsx          # 自選股頁面
-│   │   ├── analysis/page.tsx           # 基本面分析頁
-│   │   ├── stock/[id]/page.tsx         # 個股詳情頁
-│   │   ├── actions/                    # Server Actions
-│   │   │   └── stocks.ts               # 股票搜尋（Firestore）
-│   │   └── api/                        # API Routes
-│   │       ├── analysis/route.ts       # 基本面分析 API（Claude AI）
-│   │       ├── analysis/[id]/route.ts  # 單一報告 API
-│   │       ├── market-index/[id]/route.ts  # 指數資料 API
-│   │       ├── strong-stocks/route.ts  # 強勢股 API
-│   │       ├── stock/[id]/route.ts     # 個股資料 API
-│   │       └── stocks/route.ts         # 股票清單 API（分頁）
+│   │   ├── layout.tsx                  # 根 Layout（Sidebar + TopBar + BottomNav）
+│   │   ├── page.tsx                    # 首頁 Dashboard
+│   │   ├── strong-stocks/page.tsx      # 強勢股（卡片）
+│   │   ├── strong-table/page.tsx       # 強勢股總表（全欄位表格）
+│   │   ├── strong-monthly/page.tsx     # 強勢月報（當月彙整）
+│   │   ├── screener/page.tsx           # 自訂條件選股
+│   │   ├── watchlist/page.tsx          # 自選股
+│   │   ├── stock/[id]/                 # 個股詳情（page + StockDetailClient）
+│   │   ├── actions/stocks.ts           # Server Action：股票搜尋
+│   │   └── api/                        # market-index/[id]、strong-stocks、
+│   │                                   # strong-monthly、screener、stocks、quotes、
+│   │                                   # stock/[id]、stock/[id]/institutional
 │   │
 │   ├── components/                     # React 元件
-│   │   ├── Sidebar.tsx                 # 側邊導航欄（響應式 + AuthButton）
-│   │   ├── AuthButton.tsx              # 登入/登出按鈕（Google OAuth）
-│   │   ├── WatchlistButton.tsx         # 加入/移除自選股按鈕
-│   │   ├── MainContent.tsx             # 主內容區（響應式寬度）
-│   │   ├── IndexChart.tsx              # 指數技術分析圖（K 線+成交量+指標）
-│   │   ├── StockCard.tsx               # 股票卡片
-│   │   ├── StockChart.tsx              # 專業技術分析圖（整合 K 線+指標）
-│   │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action + 300ms debounce）
+│   │   ├── Sidebar.tsx                 # 側邊導航（hidden md:flex，手機不渲染）
+│   │   ├── TopBar.tsx                  # 置頂搜尋列（手機版右側放登入）
+│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（4 格）
+│   │   ├── AuthButton.tsx              # Google 登入（variant: sidebar | topbar）
+│   │   ├── InfoTip.tsx                 # 說明泡泡（⚠️ 一律 position: fixed）
+│   │   ├── CandleChart.tsx             # K 線主圖
+│   │   ├── IndexChart.tsx              # 指數技術分析圖
+│   │   ├── StockChart.tsx              # 個股技術分析圖
+│   │   ├── InstitutionalChart.tsx      # 三大法人籌碼圖
+│   │   ├── StockSignals.tsx            # 今日訊號（純前端判定）
+│   │   ├── StockCard.tsx / states.tsx / table.tsx / MainContent.tsx
+│   │   ├── WatchlistButton.tsx / AlertButton.tsx
+│   │   └── StockSearchOptimized.tsx    # 搜尋（Server Action + debounce）
 │   │
 │   ├── lib/                            # 共用函式庫
-│   │   ├── firebase.ts                 # Firebase Client SDK + Auth + 型別定義
-│   │   └── firebase-admin.ts           # Firebase Admin SDK（Server-side）
+│   │   ├── firebase.ts                 # Client SDK + Auth + 型別定義
+│   │   ├── firebase-admin.ts           # Admin SDK（含 dayCache）
+│   │   ├── finmind.ts                  # 個股 K 線直打 FinMind REST
+│   │   ├── stock-data.ts               # 個股頁資料彙整
+│   │   ├── monthly-report.ts           # 月報彙整層
+│   │   ├── indicators.ts / signals.ts / format.ts / table.ts
 │   │
-│   ├── Dockerfile                      # Docker 構建檔
-│   ├── docker-compose.yml              # Docker Compose 配置
 │   ├── next.config.ts                  # Next.js 配置
-│   ├── tailwind.config.ts              # Tailwind CSS 配置
+│   ├── postcss.config.mjs              # Tailwind v4 走 PostCSS（沒有 tailwind.config.ts）
+│   ├── firestore.rules                 # Firestore 安全規則（需另外部署）
 │   └── package.json                    # NPM 依賴
 │
-└── streamlit_app/                      # 舊版 Streamlit 網站（已棄用）
-    └── app.py                          # Streamlit 應用
+└── .claude/skills/stock-helper-context/SKILL.md   # ⭐ 改動前必讀：踩過的地雷與資料語意
 ```
+
+⚠️ **已刪除、文件別再提**：`utils.py`、`streamlit_app/`、`frontend/Dockerfile`、
+`docker-compose.yml`、`tailwind.config.ts`、`app/analysis/`、`api/analysis/`。
 
 ## 核心模組說明
 
@@ -139,31 +166,43 @@ Claude Code 處理本專案時的指引說明。
 
 | 檔案 | 職責 |
 |------|------|
-| utils.py | 技術指標計算（MA、MACD）、選股邏輯 |
-| firebase_writer.py | DataFrame 寫入 Firestore（分片優化）- 每日寫入從 2300+ 次降至 ~10 次 |
-| stock_collector/daily_collector.py | 統一排程器：重試機制、增量更新、資料驗證 |
-| stock_collector/stock_collector.py | 批次 API 資料收集、CSV 存檔、Firestore 同步 |
+| firebase_writer.py | DataFrame 寫入 Firestore（分片優化）；`_opt_num` 缺漏寫 null、`_norm_stock_id` 補前導零 |
+| gcs_archive.py | 年度檔上下載 GCS（collector 是 stateless，年度檔是唯一完整歷史） |
+| stock_collector/daily_collector.py | 統一排程器：重試機制、缺口回補、資料驗證 |
+| stock_collector/stock_collector.py | 6 支批次 API 收集、CSV 存檔、Firestore 同步 |
 | stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
-| stock_collector/update_strong_matrix.py | 每日更新強勢股矩陣 |
+| stock_collector/update_strong_matrix.py | **強勢股判定的唯一權威**；每次執行重算全部歷史 |
+| stock_collector/indicators.py | MACD 狀態（用本地年度檔算，零 API） |
+| stock_collector/streak.py | 法人連買／連賣天數 |
+| stock_collector/alert_checker.py | 到價提醒 |
 | stock_collector/config.py | FinMind API token 配置 |
 
 ### Next.js 前端
 
 | 檔案 | 職責 |
 |------|------|
-| app/layout.tsx | 根 Layout：整合 Sidebar 導航 |
-| app/page.tsx | 首頁：加權指數 + 台指期技術分析圖 |
-| app/strong-stocks/page.tsx | 強勢股：強勢股列表、篩選功能、股票搜尋 |
+| app/layout.tsx | 根 Layout：Sidebar（md 以上）+ TopBar + MobileBottomNav |
+| app/page.tsx | 首頁 Dashboard：指數、今日強勢、我的自選 |
+| app/strong-stocks/page.tsx | 強勢股（卡片檢視） |
+| app/strong-table/page.tsx | 強勢股總表（表格，預設全欄位） |
+| app/strong-monthly/page.tsx | 強勢月報（當月彙整，12 欄對應業主 Word 月報） |
+| app/screener/page.tsx | 自訂條件選股 |
 | app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
-| app/analysis/page.tsx | 基本面分析：Claude AI 生成投資研究報告 |
-| app/stock/[id]/page.tsx | 個股詳情：專業圖表、法人買賣超 |
-| api/analysis/route.ts | API：生成基本面分析報告（POST）、列出報告（GET） |
-| api/analysis/[id]/route.ts | API：取得單一分析報告 |
+| app/stock/[id]/ | 個股詳情：K 線、三大法人、放空籌碼、今日訊號 |
 | api/market-index/[id]/route.ts | API：取得指數歷史資料（TAIEX / TX） |
 | api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數） |
+| api/strong-monthly/route.ts | API：月報彙整（s-maxage=1800） |
+| api/screener/route.ts | API：自訂條件選股 |
 | api/stock/[id]/route.ts | API：取得個股完整歷史資料 |
+| api/stock/[id]/institutional/route.ts | API：個股法人籌碼 |
 | api/stocks/route.ts | API：取得所有股票清單（分頁繞過 1000 筆限制） |
-| components/Sidebar.tsx | 側邊導航欄（桌面固定、手機漢堡選單）+ AuthButton |
+| api/quotes/route.ts | API：報價 |
+| components/Sidebar.tsx | 側邊導航欄（`hidden md:flex`，**手機不渲染**）+ AuthButton |
+| components/TopBar.tsx | 置頂搜尋列；手機版右側放登入 |
+| components/MobileBottomNav.tsx | 手機底部導覽（4 格） |
+| components/InfoTip.tsx | 說明泡泡（⚠️ 一律 `position: fixed`，見 skill） |
+| components/StockSignals.tsx | 今日訊號（純前端，零額外 API） |
+| components/InstitutionalChart.tsx | 三大法人籌碼圖 |
 | components/AuthButton.tsx | Google OAuth 登入/登出按鈕 |
 | components/WatchlistButton.tsx | 加入/移除自選股按鈕 |
 | components/IndexChart.tsx | 指數技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
@@ -280,19 +319,6 @@ user_watchlists/
         │   ├── stock_name: "台積電"
         │   └── added_at: Timestamp
         └── 2454
-```
-
-### stock_analysis_reports/{reportId} - 分析報告
-
-```
-stock_analysis_reports/
-└── {reportId}
-    ├── user_id: "..."
-    ├── stock_id: "2330"
-    ├── stock_name: "台積電"
-    ├── report_content: "..."
-    ├── model_used: "claude-sonnet-4-20250514"
-    └── created_at: Timestamp
 ```
 
 ### metadata - 系統元資料
@@ -427,11 +453,12 @@ FIREBASE_SERVICE_ACCOUNT_KEY='{"type":"service_account","project_id":"..."}'
 NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyBVxC5LJayAWEdQCBCZdt2-t8KD8ZwDgWM
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=stock-analysis-b5602.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=stock-analysis-b5602
-
-# AI API（基本面分析功能，二擇一）
-OPENAI_API_KEY=sk-...          # OpenAI GPT-4o（優先使用）
-# ANTHROPIC_API_KEY=sk-ant-... # Claude Sonnet（備用）
 ```
+
+⚠️ 生產環境（App Hosting）**不需要** `FIREBASE_SERVICE_ACCOUNT_KEY`：同專案下自動走 ADC。
+`frontend/service-account.json` 只為本機開發存在，是專案唯一「洩漏就完蛋」的長期憑證——
+建議改用 `gcloud auth application-default login` 後刪檔並在 IAM 撤銷（見 skill 待辦）。
+AI 分析功能已移除，不再需要 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`。
 
 ## FinMind API
 
@@ -478,51 +505,37 @@ institutional = api.taiwan_stock_institutional_investors(stock_id='2330', start_
 
 ## 部署方式
 
-### 方式一：Firebase Hosting（推薦）
+### 前端：Firebase App Hosting（push main 自動 rollout）
+
+**推送到 GitHub `main` 即自動建置部署，不需手動執行任何指令。**
+backend `stock-analysis`、region `asia-east1`、設定檔 `frontend/apphosting.yaml`。
+
+⚠️ **建置失敗時 App Hosting 會保留前一個 revision 繼續服務** → 網站仍然回 200、頁面打得開。
+**用 HTTP 狀態碼驗證上版等於沒驗證**，一定要查建置狀態：
 
 ```bash
-cd frontend
-
-# 安裝 Firebase CLI
-npm install -g firebase-tools
-
-# 登入 Firebase
-firebase login
-
-# 初始化專案（已完成，設定在 firebase.json）
-# firebase init hosting
-
-# 建置並部署
-npm run build
-firebase deploy --only hosting
+gcloud builds list --project stock-analysis-b5602 --region=asia-east1 --limit 5 \
+  --format='table(id,status,createTime)'
 ```
 
-**firebase.json 設定**：
-```json
-{
-  "hosting": {
-    "public": "out",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
-  }
-}
-```
-
-### 方式二：Docker
+Firestore rules 需另外部署：
 
 ```bash
-cd frontend
-
-# 使用 docker-compose
-docker-compose up -d
-
-# 或手動構建
-docker build -t stock-helper \
-  --build-arg NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key \
-  --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=stock-analysis-b5602 .
-
-docker run -p 3000:3000 stock-helper
+npx firebase-tools deploy --only firestore:rules --project stock-analysis-b5602
 ```
+
+### 收集器：Cloud Run Job（**改程式不會自動部署**）
+
+`stock_collector/`、`firebase_writer.py` 跑在 Cloud Run Job 的 image 裡，
+push 到 main **不會**更新它。改了收集器一定要重建 image 才生效：
+
+```bash
+gcloud run jobs deploy stock-collector --source=. \
+  --project stock-analysis-b5602 --region asia-east1
+```
+
+排程：Cloud Scheduler `stock-collect-1700` / `stock-collect-2200`
+（UTC 09:00 / 14:00 ＝ 台灣 17:00 / 22:00）。
 
 ## 執行指令
 
@@ -570,12 +583,6 @@ npm run dev
 
 # 生產構建
 npm run build && npm start
-```
-
-### 舊版 Streamlit（已棄用）
-
-```bash
-streamlit run streamlit_app/app.py
 ```
 
 ## 效能優化
@@ -648,10 +655,10 @@ export async function searchStocks(query: string): Promise<StockSearchResult[]> 
 3. 設定授權網域（localhost、your-domain.com）
 4. 設定 OAuth 同意畫面（Google Cloud Console）
 
-**費用**：Spark Plan（免費）包含：
-- 50K 讀取/天
-- 20K 寫入/天
-- 1 GB 儲存空間
+**方案**：⚠️ 本專案用的是 **Blaze（從量計費）**，不是 Spark——App Hosting 需要 Blaze。
+免費額度仍適用（50K 讀取/天、20K 寫入/天、1 GB 儲存），超出才計費；
+目前每日寫入約 9 次、讀取量遠低於額度，Firestore 本身幾乎不花錢。
+**真正的成本在 Cloud Run / Artifact Registry / Secret Manager**，見 skill 的「GCP 成本」章節。
 
 ### Firestore 1MB 文件大小限制
 
@@ -683,11 +690,10 @@ for i, chunk in enumerate(chunks):
 | 資料收集 | Python 3.x, FinMind API, tenacity（重試） |
 | 資料庫 | Firebase Firestore（分片優化） |
 | 身份驗證 | Firebase Auth (Google OAuth) |
-| 前端框架 | Next.js 15, React 19 |
-| UI 樣式 | Tailwind CSS |
+| 前端框架 | Next.js 16.2, React 19.2 |
+| UI 樣式 | Tailwind CSS v4（用 `@theme`，**沒有 tailwind.config.ts**） |
 | 圖表 | lightweight-charts |
-| AI 分析 | OpenAI GPT-4o / Claude API |
-| 部署 | Firebase Hosting / Docker |
+| 部署 | 前端 Firebase App Hosting（push main 自動）／收集器 Cloud Run Job（需手動重建 image） |
 | 版本控制 | Git, GitHub |
 
 ## GitHub Repository
@@ -695,6 +701,20 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-10-09
+
+**漲跌幅基準修正 + 放空籌碼 + 文件校正**
+- `change_pct` 由「當日振幅」改為「以前一交易日收盤為基準」（台股慣例，前端 2026-08-19 已統一）。
+  加 `_assert_prev_close_sane()` 護欄，避免 GCS 年度檔下載失敗時默默退回振幅還覆寫歷史。
+  ⚠️ **Cloud Run Job image 重建後**，887 天的 `strong_stocks` 會依新規則重寫
+  （強勢檔次 54,777 → 68,815；「實際下跌卻入選」1,204 → 1）。
+- 新增放空籌碼：融券／借券賣出／融資餘額三欄（收集器 + 個股頁 + `scripts/backfill_short_sale.py`）。
+  已回補 53 天（104,749 + 103,890 檔次）。
+- 強勢股條件四處文件同步成程式實際值（舊敘述「多頭排列＋MACD＋1000 張」是錯的）。
+- InfoTip 泡泡改 `position: fixed`（原本 absolute 會讓整頁橫捲）。
+- 清掉本檔的過時內容：基本面分析、streamlit_app、utils.py、Docker、tailwind.config.ts、
+  Firebase Hosting 部署方式。
 
 ### 2026-07-24
 
@@ -718,7 +738,6 @@ https://github.com/Stone-811/stock_helper
 - `strong_stocks/{date}` - 聚合每日強勢股
 - `market_index/{TAIEX|TX}` - 聚合指數歷史
 - `user_watchlists/{userId}/stocks/{stockId}` - 自選股
-- `stock_analysis_reports/{reportId}` - 分析報告
 
 **依賴更新**
 - 移除 `@supabase/supabase-js`
