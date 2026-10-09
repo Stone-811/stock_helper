@@ -287,6 +287,20 @@ export interface DailyStock {
   foreign_hold_shares?: number | null
   /** 已發行張數。缺值語意同 foreign_hold_shares（null / undefined 皆顯示「—」）。 */
   shares_issued?: number | null
+  /**
+   * 融券餘額（散戶放空，單位：張）。
+   * ⚠️ 缺值三態同 foreign_hold_shares：null = FinMind TaiwanDailyShortSaleBalances
+   * 未涵蓋此股（興櫃等無融券／借券制度，約 20%）；undefined = 2026-10-09 以前的
+   * daily_data 連 key 都沒有。**0 是真的 0**（實測 2026-09-24 有 860 檔融券餘額真的是 0），
+   * 所以不可寫 `?? 0`，否則「沒有這個制度」會變成「無人放空」。
+   */
+  margin_short_balance?: number | null
+  /** 借券賣出餘額（法人放空，單位：張）。缺值語意同 margin_short_balance。
+   * ⚠️ 與融券**必須分開顯示**：台積電融券 16 張 vs 借券賣出 15,046 張（940 倍），
+   * 只看融券會完全誤判法人部位。 */
+  sbl_short_balance?: number | null
+  /** 融資餘額（單位：張，FinMind MarginPurchaseTodayBalance 本身即張數）。缺值語意同上。 */
+  margin_balance?: number | null
   macd_status: string
   foreign_streak?: number // 外資連續買賣天數（連買 +N、連賣 -N；舊資料可能無此欄位）
   trust_streak?: number   // 投信連續買賣天數

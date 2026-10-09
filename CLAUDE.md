@@ -8,7 +8,7 @@ Claude Code 處理本專案時的指引說明。
 
 功能：
 1. 大盤指數分析（加權指數 TAIEX + 台指期 TX）
-2. 每日資料收集（批次 API，僅需 2 次請求）
+2. 每日資料收集（批次 API，6 次請求抓完全市場）
 3. 批次歷史資料收集
 4. 多條件選股篩選
 5. 強勢股分析網站（Next.js + Firebase + Sidebar 導航）
@@ -73,6 +73,13 @@ Claude Code 處理本專案時的指引說明。
 │
 ├── firebase_writer.py                  # Firebase Firestore 資料寫入模組（優化版）
 ├── utils.py                            # 技術指標計算
+│
+├── scripts/                            # 一次性稽核／回補工具（一律預設 dry-run，--write 才寫）
+│   ├── backfill_null_vs_zero.py        # 把「缺資料被寫成 0」改回 null
+│   ├── fix_stock_id_leading_zero.py    # 修 ETF 代碼掉前導零（0050→50）
+│   ├── backfill_foreign_hold_shares.py # 回補外資持股張數／已發行張數
+│   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
+│   └── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
@@ -315,21 +322,28 @@ metadata/
 ### 每日資料收集（批次 API + 自動存檔）
 ```
 1. 登入 FinMind API
-2. 批次取得全市場資料（僅 2 次 API）：
-   - 股價資料：api.taiwan_stock_daily(stock_id='')
-   - 籌碼資料：api.taiwan_stock_institutional_investors(stock_id='')
+2. 批次取得全市場資料（6 次 API，全部 data_id=''）：
+   - 股價：api.taiwan_stock_daily(stock_id='')
+   - 三大法人：api.taiwan_stock_institutional_investors(stock_id='')
+   - 外資持股：TaiwanStockShareholding
+   - 當沖：TaiwanStockDayTrading
+   - 放空餘額（融券＋借券賣出）：TaiwanDailyShortSaleBalances      ← 2026-10-09 新增
+   - 融資融券：TaiwanStockMarginPurchaseShortSale                  ← 2026-10-09 新增
+   ⚠️ 後兩支（及未來的附屬資料）走 `_fetch_optional()`，各自 try、失敗只讓對應欄位變 null，
+      不會讓整天的股價／法人資料一起丟掉。
 3. 處理法人資料（長格式轉寬格式）
-4. 合併股價與法人資料
-5. 轉換單位（股數 → 張數）
+4. 合併股價、法人、外資持股、當沖與放空資料
+5. 轉換單位（股數 → 張數，一律 //1000 向零取整）
+   ⚠️ 例外：TaiwanStockMarginPurchaseShortSale 的 MarginPurchaseTodayBalance **本身已是張**
 6. 計算 MACD 狀態
 7. 儲存到 data/daily_reports/daily_stock_YYYYMMDD.csv（暫存）
 8. 同步寫入 Firestore（分片優化，僅 ~6 次寫入）
-9. 自動追加到年度檔案 archive/stocks_YYYY.csv（新增）
+9. 自動追加到年度檔案 archive/stocks_YYYY.csv
 10. 自動刪除每日檔案（已整併，節省空間）
 ```
 
 **優勢**：
-- API 用量：相較逐檔抓取，從 4000次降至 2次，節省 99.95%
+- API 用量：相較逐檔抓取（約 5000 次）降至 6 次，節省 99.9%
 - 儲存管理：自動追加年度檔案，無需手動合併
 - 空間優化：自動刪除每日檔案，節省 37% 儲存空間
 
@@ -353,12 +367,48 @@ def collect_stocks(self, date=None):
 ```
 
 ### 強勢股篩選條件
+
+**唯一權威來源＝`stock_collector/update_strong_matrix.py` 的 `STRONG_CONDITIONS`**（四條全部成立才算強勢）：
+
 ```
-1. 多頭排列：close > MA5 > MA20 > MA60
-2. MACD 正值
-3. 成交量 > 500 張
-4. 法人買超：外資或投信 > 1000 張
+1. 成交量 > 500 張                                  min_volume: 500
+2. 漲跌幅 > 3%（以「前一交易日收盤」為基準）          min_change_pct: 3.0
+3. 收盤價 > 開盤價                                  require_up: True
+4. 三大法人「合計」買超 > 0 張                       require_institutional: True
+   （外資 + 投信 + 自營，門檻就是 0，不是 1000）
 ```
+
+⚠️ 此處先前寫的「多頭排列 close > MA5 > MA20 > MA60 ＋ MACD 正值 ＋ 外資或投信買超 > 1000 張」
+**是錯的**，四條裡只有成交量那條對得上（實測 2026-09-24 的 73 檔強勢股有 9 檔 MACD 是「空」，
+證明沒有 MACD 條件；逐檔驗證上面四條則 73/73 全部符合）。改條件請改程式再回來同步這段。
+
+⚠️ **漲跌幅基準**：原本程式寫成 `(close - open) / open`，那是**當日振幅**不是漲跌幅。
+台股慣例一律以前一交易日收盤為基準（前端已於 2026-08-19 統一，見
+`.claude/skills/stock-helper-context/SKILL.md`），收集器已對齊。前一日取「同一檔股票在資料中的
+前一筆」（`groupby` + `shift(1)`），**不可用日曆天推算**；年度檔第一個交易日取不到前一日時
+fallback 回 `open`（與前端 `prev_close > 0 ? prev_close : open` 同一條規則）。
+
+⚠️ **3% 門檻是套在「四捨五入到小數 2 位」的 change_pct 上**（與畫面顯示同一把尺）：
+真實漲幅 3.004% → `round(2)=3.0` → `3.0 > 3.0` 為 False 而落選，全史 125 檔次受影響（0.18%）。
+
+⚠️ **`update_matrix()` 每次執行都會重算並覆寫全部歷史** `strong_stocks/{date}`。
+改判定邏輯等於改寫 887 天的歷史強勢股清單；但 **Cloud Run Job image 不重建就不會生效**
+（`gcloud run jobs deploy stock-collector --source=.`），push 到 main 只重建前端。
+`_assert_prev_close_sane()` 會在「只拿到單一日期」或「fallback 比例 > 5%」時中止，
+避免 GCS 年度檔下載失敗時默默用當日振幅覆寫歷史。
+
+### 放空資料欄位（2026-10-09 新增，單位皆為張）
+
+| 欄位 | 來源 | 說明 |
+|---|---|---|
+| `margin_short_balance` | `MarginShortSalesCurrentDayBalance` ÷1000 | 融券餘額（散戶放空） |
+| `sbl_short_balance` | `SBLShortSalesCurrentDayBalance` ÷1000 | 借券賣出餘額（法人放空） |
+| `margin_balance` | `MarginPurchaseTodayBalance`（已是張） | 融資餘額 |
+
+⚠️ **融券與借券賣出必須分開顯示**：台積電 2026-09-24 融券 16 張、借券賣出 15,046 張（940 倍），
+只看融券會把法人空單當成零。
+⚠️ 缺漏一律寫 **null** 不寫 0（興櫃等無融券／借券制度，約 20% 的股票沒有這筆資料）；
+**0 是「真的沒人放空」的有效值**。歷史回補用 `scripts/backfill_short_sale.py`。
 
 ## 環境變數
 

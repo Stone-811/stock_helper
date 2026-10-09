@@ -85,6 +85,37 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **已知小重複**：首頁「今日市場」與「指數走勢」都顯示加權指數收盤/漲跌（前者摘要、後者含 OHLC 明細）——目前**刻意保留**（用途不同），若要精簡可把「指數走勢」的加權卡收掉。
 - **a11y 待辦**：`layout.tsx` 的 `viewport.maximumScale: 1` 會**禁止手機雙指放大**（違反 WCAG 1.4.4），建議移除；`watchlist` 頁尚無 `ErrorState`。
 
+### 手機不再渲染 Sidebar（2026-09-28）
+手機原本左上 ☰ 開側邊抽屜，但主導覽早在 P0 改版就移到 MobileBottomNav，抽屜裡只剩「登入」與
+「資料來源：FinMind」兩項 → 為一顆登入鈕維護抽屜／遮罩／開關事件不划算。現況：
+- `Sidebar.tsx` 改 `hidden md:flex`，移除 `isOpen` state、`toggle-mobile-menu` 事件監聽、
+  遮罩、關閉鈕、手機標題與 `md:hidden flex-1` 佔位。
+- 登入改掛 `TopBar` 右側：`<AuthButton variant="topbar" />` + `md:hidden`。
+- `AuthButton` 新增 `variant?: 'sidebar' | 'topbar'`；topbar 走淺色主題、`border-gray-500`
+  （對比 4.84 過 AA；`border-gray-300` 只有 1.47 不可用）、`min-h-[44px]`。
+⚠️ 桌機登入仍在 Sidebar 底部，**兩邊不可同時出現**（TopBar 那顆是 `md:hidden`）。
+
+### `/strong-table` 預設固定全欄位（2026-10-09）
+`showAll` 預設改 `true`（原本預設精簡欄位＋一顆「顯示全部」）。溢出控制：
+`overflow-x-auto [contain:paint] xl:overflow-x-visible xl:[contain:none]` ＋
+`role="region" tabIndex={0}`（可鍵盤捲動、螢幕閱讀器當 landmark）。
+`[contain:paint]` 的理由同月報章節——少了它 Chrome 會把巢狀溢出併進根捲動區 → 整頁橫捲 →
+fixed Sidebar 蓋住第一欄。
+
+### ⚠️ InfoTip 泡泡一律 `position: fixed`（2026-10-09 修，全站影響）
+泡泡原本是 `absolute` + `left-1/2 -translate-x-1/2`，**會把自己的寬度算進祖先的 scrollable
+overflow 一路傳到 `<html>`** → 靠右格子一點說明就整頁橫捲（375px 實測 `scrollWidth` 375→430，
+連 fixed 的底部導覽列都被撐成 431px）。這在加放空區塊之前就存在（三大法人的「外資投資上限」
+會讓 sw 變 394），只是放空新增 6 格有 3 格在右欄，觸發頻率大增。
+- **clamp 位移救不了**：那只改視覺位置，overflow 仍照 `left:50%` 的版面位置計算。
+- 現行作法：`fixed` ＋ 自行算座標 ＋ 夾回視窗 ＋ 下方放不下翻上方 ＋
+  `max-h-[calc(100vh-16px)] overflow-y-auto`（矮視窗：740×360 實測原本泡泡底部被切 130px）。
+- ⚠️ **副作用：`fixed` 泡泡會被祖先的 `[contain:paint]` 裁切** → InfoTip 一律放在捲動容器
+  **之外**（`/strong-table`、`/strong-monthly` 都是把欄位說明放表格上方，就是為了這個）。
+- 觸控目標：圖示視覺維持 32×32，用 `before:absolute before:-inset-1.5` 把**命中區**擴成
+  44×44，符合全站 ≥44px 規則。不直接放大圖示是因為 `/strong-stocks` 單頁有 274 顆，
+  放大會把列表版面撐開；`before` 是絕對定位、不佔版面。
+
 ## 強勢月報 `/strong-monthly`（2026-09-28 新增）
 
 業主每月手工維護的 Word《強勢商品篩選》月報的自動版：一行一檔，12 欄順序與 Word 同構。
@@ -163,6 +194,132 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
 **共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`）與
 `components/table.tsx`（`NullCell`/`TbdCell`/`TableScroll`）由 `/strong-table` 抽出，兩頁共用。
 
+## 強勢股的四條實際條件（2026-10-09 校正文件；程式才是權威）
+
+唯一權威＝`stock_collector/update_strong_matrix.py` 的 **`STRONG_CONDITIONS`**，四條**全部成立**：
+```
+min_volume: 500            成交量 > 500 張
+min_change_pct: 3.0        漲跌幅 > 3%（以「前一交易日收盤」為基準）
+require_up: True           close > open
+require_institutional      三大法人「合計」買超 > 0（外資＋投信＋自營，門檻就是 0）
+```
+⚠️ `CLAUDE.md`／`frontend/app/strong-monthly/page.tsx` 先前寫的「多頭排列 close>MA5>MA20>MA60
+＋ MACD 為正 ＋ 成交量>500 ＋ 外資或投信買超>1000」**只有成交量那條是對的**（實測 2026-09-24 的
+73 檔強勢股中 9 檔 MACD 是「空」→ 根本沒有 MACD 條件；逐檔驗證上面四條則 73/73 全符合）。
+**四處**敘述已於 2026-10-09 同步修正（`CLAUDE.md`、本檔、`README.md`、`/strong-monthly` 頁面的 amber 提示＋InfoTip），**改條件要先改程式再回來同步這四處**。
+
+### ⚠️ change_pct 曾用錯基準（2026-10-09 修）
+`update_strong_matrix.py` 原本 `change_pct = (close - open) / open * 100`，那是**當日振幅**不是漲跌幅。
+台股慣例一律對**前一交易日收盤**（前端 2026-08-19 已統一，見上方「漲跌幅一律以前一交易日收盤為基準」）。
+實例：4973 廣穎昨收 135.5→收 149.0 實際 **+9.96%** 但振幅僅 +2.76% → 漏選；
+6426 統新實際 **−1.87%** 卻因振幅 +3.02% 被選為「強勢」。
+- 作法：抽出 `add_change_pct(df)`。前一日一律取「同一檔股票在**資料中**的前一筆」
+  （`groupby('stock_id')` + `shift(1)`），**不可用日曆天推算**（會踩到假日）。
+- ⚠️ `calculate_strong(df)` 是被 `update_matrix()` **以每個年度檔一次**呼叫，df 含整年所有股票所有日期；
+  **不要傳單日切片進去**（會讓每一列都落到 fallback）。
+- ⚠️ 年度檔第一個交易日（如 2026-01-02）在自己的檔裡沒有前一日 → **fallback 回 `open`**，
+  與前端 `prev_close > 0 ? prev_close : open` 同一條規則。全史共 4 天 8,820 檔走這條路，
+  其中 **64 檔**若拿得到前一年收盤判定會不同（2024-01-02 14 檔、2025-01-02 12 檔、2026-01-02 38 檔；
+  2023-01-03 是全史起點、前面本來就沒資料）。殘留 9 檔實際漲幅 ≤3% 仍入選、1 檔實際下跌仍入選，
+  **全部落在這 4 天**。要根治就得讓 `calculate_strong` 多吃「前一個年度檔最後一個交易日的
+  (stock_id, close)」當 seed（約 2,300 列，記憶體成本極小）。
+  （原先寫 294 檔是錯的，驗證者用跨檔真實前收獨立重算為 64 檔，已更正。）
+- ⚠️ **3% 門檻套在「已四捨五入到小數 2 位」的 change_pct 上**（與畫面顯示同一把尺）：
+  真實漲幅 3.004% → `round(2)=3.0` → `3.0 > 3.0` 為 False 而落選。全史 125 檔次受影響
+  （反方向 0 檔次，佔 0.18%）。**刻意保留**——頁面顯示 3.00% 卻說它「漲超過 3%」更難解釋。
+- ✅ **護欄（2026-10-09 加）**：`_assert_prev_close_sane()` 在「只有一個交易日」或
+  「**檔案第一個交易日之後**仍有 > 5% 的列取不到前一日收盤」時 **raise**。
+  要防的情境：`update_matrix()` 找不到年度檔會退用 `daily_stock_*.csv`（每檔只有一天），
+  而 `gcs_archive.download_archives()` 下載失敗只記 warning 就回 0 → stateless 的 Cloud Run
+  會建出「只含一天」的年度檔 → 全部列 fallback → change_pct **默默變回當日振幅**，
+  還把 `strong_stocks` 覆寫成錯的判定，而日誌上完全看不出異常。
+  ⚠️ **比例一定要扣掉檔案第一個交易日**：對全部列算的話，比例約等於 1／交易日數
+  （第一天本來就全部沒有前一日）→ 年初 `stocks_2026.csv` 只有 10 天時就是 10%，
+  會把**正常**的檔案誤判成壞的（這是我第一版護欄的 bug，寫測試才抓到）。
+  扣掉第一天後正常檔案 < 0.1%（只剩年中新掛牌，全史 385 檔次）。
+  raise 會讓迴圈 `except ... continue` 跳過該檔；全部壞掉時 `all_data` 為空 → return None
+  → **不寫 Firestore**。寧可不更新，也不要用錯的定義覆蓋歷史。
+- ⚠️ **年度檔有「同一 (date, stock_id) 兩列」**（改名/轉上市留下兩個 `stock_name`，數值完全相同；
+  2023~2025 每個交易日約 24 組、全史 17,760 組，2026 檔目前 0 組）。直接對原始列 `shift(1)` 會讓
+  第二列把「同一天的自己」當前一日 → change_pct=0 → 誤判為非強勢。**必須先對 (stock_id, date)
+  去重算前一日再按鍵對回**（現行程式已如此）。
+- ⚠️⚠️ **`update_matrix()` 每次執行都重算全部歷史**（讀 4 個年度檔、對每一天重新判定 strong）
+  並透過 `write_strong_stock_matrix()` 覆寫 `strong_stocks/{date}` → 這個改動會**自動改寫全部
+  887 天的歷史強勢股清單**（本機年度檔 dry-run：強勢檔次 54,777 → 68,815，日均 61.8 → 77.6，
+  新增 19,673 檔次、移除 5,635 檔次；「實際下跌卻入選」1,204 → 1 檔次、「平盤卻入選」114 → 0）。
+  部署前要讓業主知道歷史會變。
+
+## 放空籌碼（2026-10-09 新增；收集器 ＋ 個股頁）
+
+### 資料來源與單位
+| FinMind dataset | 原欄位 | 我方欄位 | 單位 |
+|---|---|---|---|
+| `TaiwanDailyShortSaleBalances` | `MarginShortSalesCurrentDayBalance` | `margin_short_balance` 融券餘額 | **股** → `//1000` 轉張 |
+| 同上 | `SBLShortSalesCurrentDayBalance` | `sbl_short_balance` 借券賣出餘額 | **股** → `//1000` 轉張 |
+| `TaiwanStockMarginPurchaseShortSale` | `MarginPurchaseTodayBalance` | `margin_balance` 融資餘額 | **本身已是張，不可再除 1000** |
+
+兩支都吃 `data_id=''` 整批抓（各 1 次 API、約 2,200 檔），所以**每日批次 API 從 4 次變 6 次**
+（股價／法人／外資持股／當沖／放空餘額／融資融券）。
+單位已對帳：2026-09-24 全部 2,216 檔，`MarginShortSalesCurrentDayBalance//1000` 與同日官方張數欄位
+`ShortSaleTodayBalance` **0 筆不一致**。
+
+### ⚠️ 融券與借券賣出必須分開，不可只給合計
+兩套制度的參與者完全不同：**融券**＝向券商借股票賣出（**散戶**為主）；**借券賣出**＝從出借方
+（大股東／ETF）借券後賣出（**法人**為主）。實測台積電 2026-09-24：融券 **16 張** vs
+借券賣出 **15,046 張**，相差 **940 倍**。只看融券（很多免費看盤軟體就是這樣）會把法人空單當成零。
+個股頁刻意**不顯示合計數字**，合計只拿去當放空比／回補天數的分子。
+
+### 缺值三態（與 `foreign_hold_shares` 同一套語意）
+* **有值**——`0` 是真的 0（2026-09-24 有 860 檔融券餘額確實為 0）。
+* **`null`**＝FinMind 未涵蓋 → 興櫃、新掛牌等**根本沒有融券／借券制度**
+  （2026-09-24：2,344 檔中 468 檔無放空餘額、483 檔無融資資料）。
+* **`undefined`**＝2026-10-09 之前的 `daily_data` 連 key 都沒有。
+
+三者 UI 都是「—」。**任何地方寫 `?? 0` 都是 bug**：那會把「沒有這個制度」說成「無人放空」。
+
+### 衍生指標（`StockDetailClient.tsx` 的「放空籌碼」區塊，手機預設收合）
+* **放空比** ＝（融券＋借券賣出）÷ 已發行張數。強勢股實測 0~11.9%、中位數 1.8%。
+* **券資比** ＝ 融券 ÷ 融資。**只含散戶**、不含借券賣出，InfoTip 已寫明這個限制。
+* **回補天數** ＝（融券＋借券賣出）÷ 近 20 日均量 —— 軋空壓力訊號，在強勢股上辨識度最高
+  （`5309 系統電` 放空比 7.7%、回補要 **9.8 天**＝空單是日均量的 9.8 倍）。
+  均量取 history 最後 20 根且 `volume > 0`，不足 20 根就用實際根數並在 InfoTip 標明「實際 N 日」。
+* 分母為 0 或 null 一律回 **null**，不可讓它變 `Infinity`。
+
+### 歷史回補
+`scripts/backfill_short_sale.py`（比照 `backfill_foreign_hold_shares.py` 的安全設計）：
+預設 dry-run、`--write` 才寫、寫前備份 chunks 到 `logs/`、**只補「目前沒有該欄位」的股票**
+（冪等可重跑）、某日 FinMind 回 0 筆就**整日跳過**（不會把全市場清成 null）。
+放空餘額與融資是兩支 API，缺一邊時另一邊仍可補，故兩組欄位**各自獨立判斷有沒有**。
+dry-run 實測（53 天，2026-07-24 ~ 2026-10-08）：可補放空 104,749 檔次、融資 103,890 檔次，
+FinMind 未涵蓋 25,378 檔次（保持 null）。
+⚠️ 「缺」的判定必須是「**沒有 key 或值是 None**」，不可只檢查 key 存不存在：
+收集器對未涵蓋的股票是寫 **key + None**，所以 17:00 那班在放空資料還沒發布時跑過，
+整個市場三欄都會是「key 存在但值為 None」；只檢查 key 的版本永遠補不回來，
+還會把這種日子統計成「原本就有」而看不出異常。
+
+### ⚠️ 附屬資料的 API 失敗不可拖垮整日收集
+放空／融資這兩支走 **`_fetch_optional()`**（各自 try，失敗記 warning 後退成空 DataFrame），
+**不共用外層那個「包住整日」的 try**。理由：FinMind 失敗是**直接拋例外**（額度用盡／後端錯誤
+回的都是非 200），落到外層 `except` 就 `return None` → 當天的**股價／三大法人／外資持股／當沖
+全部一起丟掉**，只為了缺一份附屬資料。現在放空抓不到只讓三欄變 null，主資料照常落地，
+事後跑 backfill 補即可。
+（`shareholding` / `day_trading` 仍在外層 try 裡，是既有行為，尚未一併處理——見待辦。）
+
+## 投信累積持股：確認無可靠來源（2026-10-09 完整調查，不要再重查）
+
+業主要的是「投信手上有多少籌碼」＝**存量**。結論：**台股公開資料裡不存在逐檔投信持股**，
+因此月報那欄改成「近 N 日投信買賣超累計（**流量**）」並在表頭／subHeader／fullName／desc
+四處寫明（見上方強勢月報章節）。證據：
+
+1. **FinMind 全部 105 個資料集逐一檢查**：只有外資有逐檔官方持股（`TaiwanStockShareholding`）。
+   制度原因——**外資有投資上限、須每日申報**，投信沒有這個義務。
+2. **投信投顧公會（SITCA）**：只揭露「每檔基金前十大持股」與季報中占淨值 1% 以上的部位，
+   屬**部分揭露**，加總只能得到下限，且是月／季頻率。
+3. **商業資料商**標的「投信持股」本身就是推估值，不是申報值。
+4. **「錨點 ＋ 每日買賣超累加」漂移實測**（刻意在**外資**上做，因為只有外資有 ground truth 可比對）：
+   台積電一年僅 **+0.89%**、聯電 **+5.55%**，看起來可行；但 **宏齊一個月 −43%**、友達半年 **−34%**。
+   誤差正好爆在中小型股，而強勢股清單**絕大多數就是中小型股** → 這條路不可用。
+
 ## ⚠️ 關鍵地雷（2026-08 踩過並修過，改動前務必留意）
 1. **收集時機**：外資持股（`taiwan_stock_shareholding`）盤後**較晚**才發布，18:30 收集常抓到空 → 靜默存 0。需事後重跑補，或把排程改到台灣 ~22:00。**（2026-09-04 更新：已不再靜默存 0——缺漏改寫 null，見下方「無資料與真的是 0」章節；但「該有卻沒抓到」仍需重跑補。）**
 2. **資料源日期不一致**：個股頁 K 線用 FinMind、法人用 Firestore，兩者「最新日」可能差一天 → 收盤與法人不同日。已修：法人改抓「與 K 線同一天」。
@@ -191,10 +348,66 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
 4. **5 段永遠不會執行的舊架構備援**（其中 3 個 collection 根本不存在）→ 全部移除；`strong_stock_matrix` 那段是潛在 bug（會回傳 14 個月前舊資料）。
 5. **個股頁跨請求重讀 0.9 MB** → 加 `dayCache`（TTL 5 分鐘），中位數 0.72→0.54 秒。
 
-## GCP 成本（2026-08-29 稽核）
-帳單報表是**整個計費帳戶**（3 個專案共用），不是單一專案。Secret Manager 的 `automatic` 複寫會逐地區計費、每個版本約 $0.68/月（牌價 11 倍），**停用仍計費、只有銷毀才免費**。已設 AR cleanup policy（保留最新 3 份）；`firebaseapphosting-images` 由 App Hosting 自管（30 分鐘清一次），不要自己插手。GCS 兩個 bucket 都有 **7 天軟刪除**，刪了要等一週才看得到帳單下降。`minInstances: 0` 千萬別改 1（+$10~15/月）。細節見 memory `stock-helper-cost`。
+## 已修 bug 清單（2026-10-09 session）
+
+**程式（collector 端尚未部署，見「改 collector 不會自動部署」）**
+1. **`change_pct` 用的是當日振幅不是漲跌幅** → 抽出 `add_change_pct()`，改以前一交易日收盤為基準。
+2. **年度檔有重複 `(date, stock_id)` 列**（全史 17,760 組）→ 直接 `shift(1)` 會把「同一天的自己」
+   當前一日 → 先去重算前一日再按鍵對回。修掉這點讓全史強勢檔次由 68,457 修正為 68,815。
+3. **GCS 年度檔下載失敗會默默退化成振幅並覆寫歷史** → 加 `_assert_prev_close_sane()` 護欄。
+4. **放空／融資 API 失敗會丟掉整天的主資料** → 抽出 `_fetch_optional()`，各自 try。
+5. **回補腳本只檢查 key 存不存在** → 改成「沒有 key 或值是 None」都算缺；
+   `fetch_short` 的兩欄改為各自獨立（原本一欄壞掉另一欄也補不到）。
+
+**前端（已部署）**
+6. **InfoTip 泡泡讓整頁橫捲**（absolute 的寬度算進祖先 overflow，375px 下 sw 375→430，
+   連 fixed 底部導覽列都被撐成 431px）→ 改 `position: fixed` 自算座標；並補上矮視窗的
+   上下夾限與 `max-h`（740×360 原本泡泡底部被切 130px）。詳見上方 InfoTip 專章。
+7. **強勢股條件文件四處都是錯的** → CLAUDE.md／SKILL.md／README.md／`/strong-monthly`
+   的 amber 提示同步成實際四條，並在頁面加 InfoTip 說明舊敘述錯在哪。
+8. **兩個收合區塊缺 `aria-expanded`／`aria-controls`、標題是 div 不是 heading**
+   → 補 aria 並把「三大法人買賣超」「放空籌碼」改成 `<h2>`（視覺不變）。
+9. **InfoTip ⓘ 命中區只有 32px，違反全站 ≥44px** → `before:-inset-1.5` 擴成 44×44，
+   視覺維持 32px（`/strong-stocks` 有 274 顆，放大會撐開版面）。
+10. **三處註解在 InfoTip 改 fixed 後過時且誤導**（說泡泡是 absolute、會撐長捲軸）
+    → 改成「fixed 不撐捲軸，但會被 `[contain:paint]` 裁切，仍要放在捲動容器外」。
+
+## GCP 成本（2026-08-29 稽核、2026-10-09 補充）
+
+**估成本前先讀真實帳單**：第一次我拿牌價乘現有資源大小去推算，**沒看 Billing 報表**，
+被業主用帳單截圖更正。而且報表是**整個計費帳戶**（3 個專案共用）、不是單一專案 —— 兩個錯一起犯。
+
+- **Secret Manager 的 `automatic` 複寫逐地區計費**，每個版本約 $0.68/月（牌價的 ~11 倍）；
+  **停用（disabled）仍然計費，只有銷毀（destroy）才免費**。
+- Artifact Registry 已設 cleanup policy（保留最新 3 份）；`firebaseapphosting-images`
+  **由 App Hosting 自管**（30 分鐘清一次），不要自己插手。
+- GCS 兩個 bucket 都有 **7 天軟刪除** → 刪完要等一週帳單才會降，不要以為沒生效。
+- `minInstances: 0` **千萬別改 1**（+$10~15/月）。冷啟 2~5 秒是刻意換來的。
+
+⚠️⚠️ **`gs://stock-analysis-b5602-archive/archive/stocks_20XX.csv` 是線上服務的活依賴，
+不是冷備份**：每次 collector run 一開始就下載（`gcs_archive.py:32`）、`streak.py:26` 與
+`update_strong_matrix.py:98` 讀它、跑完再上傳回去。Firestore `daily_data` 只留 ~53 天，
+**這 4 個 CSV 是唯一的完整歷史**（也是 MACD 與強勢股矩陣的計算來源）。
+**絕對不可設 lifecycle 規則、不可刪、不可轉冷儲存層**，省不到幾毛卻會讓收集器算不出歷史。
 
 ## 待辦（尚未修，附具體修法）
+- **🔴 等業主決定：強勢股歷史要不要依新漲跌幅重算**。程式已改（`add_change_pct`），但
+  **Cloud Run Job image 沒重建就不會生效**（見上方「改 collector 不會自動部署」）。
+  重建的同時會把 887 天的 `strong_stocks/{date}` 依新規則全部覆寫：
+  強勢檔次 54,777 → 68,815（日均 61.8 → 77.6）、727 天變多／138 天變少／22 天不變、
+  單日最大 +204（2025-04-23）／−333（2026-06-08）、「實際下跌卻入選」1,204 → **1**、
+  「平盤卻入選」114 → **0**。**B 與 C 共用同一次 image 重建，無法只上其中一個。**
+- **放空資料目前只有前端，沒有新資料進來**：image 未重建 → `daily_data` 不會有那三欄。
+  歷史要跑 `scripts/backfill_short_sale.py --write`（53 天、可補 ~10.4 萬檔次）。
+  在 image 重建前，每天新資料都需要手動補一次。
+- **跨年第一個交易日的 fallback 可根治**：讓 `calculate_strong` 多吃「前一個年度檔最後一個
+  交易日的 (stock_id, close)」當 seed（約 2,300 列）。目前殘留 64 檔判定不同（見上方專章）。
+- **`shareholding` / `day_trading` 仍在「包住整日」的 try 裡**：任一支拋例外會丟掉整天資料。
+  改法同放空——用 `_fetch_optional()` 包起來（已寫好、可直接複用）。
+- **月報的基準日還沒有單一規則**（業主人工月報本身就沒有一致規則，數值是「填表當下的快照」、
+  集中在 09/21）。目前程式取「當月最後一次入選日」並已用 81 筆比對（70 筆吻合、0 筆吻合第一次）。
+- **月報兩欄仍「待定義」**：KD 的 `+↗` 記法、均線型態（四海遊龍／三陽開泰／糾結）的定義，
+  以及價格前綴 `ↆ` 的意思。**不可自己猜**，UI 用 `TbdCell` 與 null 的「—」刻意分開。
 - **C3 `run_incremental` 已失效（但不影響排程）**：`get_missing_dates` → `get_latest_date_from_db` 查的是 `daily_stocks` / `market_index_daily`，**這兩個 collection 現已不存在** → 一律回 None。所幸**排程走的是 `run_daily`**（Cloud Run Job 無傳參數，Dockerfile ENTRYPOINT `python -m stock_collector.daily_collector` → argparse 落到 else 分支），`run_incremental` 只在手動加 `--incremental` 時才跑。**要補缺口請改用 `--backfill-gaps`**（`get_gap_dates()`，用「交易日全集 − 已存在日期集合」，是正確做法）。若要修 `run_incremental`，就是把它改成呼叫 `get_gap_dates()`。
 - **A1 列表 vs 個股 MACD 完全統一**：C7 後 Firestore `macd_status` 已有值（列表可用），但個股頁仍前端算，資料源不同、極臨界日可能小差異。要完全一致需二選一單一來源。
 - **安全：本機的 `service-account.json` 可以整個拿掉**（2026-09-05 查證更正）。
@@ -221,6 +434,35 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
   5. Firestore 用 ADC、FinMind 用 Secret Manager、年度檔用 GCS（見下）
 - **年度檔持久化（GCS）**：collector 是 stateless（年度檔在本地/CI 每次為空），故 `gcs_archive.py` 在 run_daily 開始下載、結束上傳年度檔到 bucket `gs://stock-analysis-b5602-archive`（`USE_GCS_ARCHIVE=1` 啟用）。這讓 MACD/強勢股矩陣在雲端也有完整歷史。GH Actions 也設了此環境變數。
 
+## ⚠️ 上版驗證：HTTP 200 不等於部署成功（2026-10-09 自己踩的事故）
+
+`git add frontend/app/strong-table/page.tsx` **只 commit 了單一檔案**，漏掉它新 import 的
+`lib/table.ts` / `components/table.tsx` → App Hosting 建置 `a3d2d4f`、`bd9fc1d` **連續兩次失敗**，
+線上約 1 小時持續服務舊版（`build-2026-09-28-001`）。`26096bf` 補上檔案才恢復。
+
+**為什麼沒被發現**：App Hosting 建置失敗會**保留前一個 revision 繼續服務** →
+「curl 回 200」「頁面打得開」**全部都會通過**。用 HTTP 狀態碼驗證上版等於沒驗證。
+
+**正確驗證方式**（改前端後一定要做）：
+```bash
+gcloud builds list --project stock-analysis-b5602 --limit 5 \
+  --format='table(id,status,createTime)'      # 最新一筆必須是 SUCCESS
+```
+**習慣要改掉**：改前端一律 `git add -A frontend`，或先 `git status` 確認新檔都進去了。
+跨檔重構特別容易漏掉新建的共用模組。
+
+## ⚠️ 改 collector 不會自動部署（決定「歷史何時被改寫」的開關）
+
+push 到 `main` 只會讓 **App Hosting 重建前端**。`stock_collector/` 與 `firebase_writer.py`
+跑在 **Cloud Run Job 的 image** 裡，不重建就還在跑舊程式：
+```bash
+gcloud run jobs deploy stock-collector --source=. --project stock-analysis-b5602 --region asia-east1
+```
+這一點是**安全閥**也是**陷阱**：
+- 安全閥：改了強勢股判定邏輯後，`strong_stocks` 的 887 天歷史**不會**在下一班排程被改寫，
+  要等 image 重建。
+- 陷阱：以為「push 了就生效」→ 新欄位永遠不會出現在 `daily_data`，前端那一區永遠是「—」。
+
 ## 清理與模組化狀態（2026-08）
 **已清理死碼**：`utils.py`（844 行舊 Streamlit 死碼）→ 精簡成 `stock_collector/indicators.py`（只 get_macd_status）；`update_macd.py` 逐檔打 API 舊版；`firebase_writer.py` 3 個死讀取器；前端 `getStockHistory`/`verifyIdToken`/`getPopularStocks`/`getAllStocks`/`getUser`；requirements 的 `ta`/`tqdm`/`loguru`。
 **待模組化（大重構，建議在乾淨 session 做 + 充分測試）**：
@@ -229,12 +471,34 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
 - `firebase_writer.py` → 拆 `firestore_client.py` 與 `writers.py`
 **待清理（中信心，需先確認）**：`merge_daily_files.py`（已被 _append_to_yearly_archive 取代，若不再手動回補可刪）；`WatchlistButton.tsx`（孤兒元件，但可能是「加入自選」待辦）；~~`firebase-admin.ts` 舊架構 fallback~~ **✅ 2026-09-05 已完成**（移除 5 段，其中 3 個 collection 根本不存在）。DailyStock interface **不可刪**（StrongStock 繼承它）。
 
+## ⚠️ 驗證工具本身的坑（量測前先讀，不然會得到假結論）
+
+1. **`resize_window` 之後一定要 reload 再量**：沒 reload 時 2026-10-09 在 375px 量到
+   「橫向溢出」，reload 後 `scrollWidth - clientWidth` 是 0。（月報章節也踩過同一個。）
+2. **Tailwind v4 JIT：原始碼裡沒出現過的 class 根本不存在**。想比較
+   `border-gray-400/500/600` 的對比度而在 console 建臨時元素讀 computed color，
+   會拿到「class 不存在 → 繼承的近黑色」→ 算出假的 17.93 對比。
+   **只能改原始碼、重建、再量。**
+3. **`offsetParent !== null` 判斷可見性對 `position: fixed` 無效**
+   （fixed 元素 offsetParent 是 null 卻看得見）→ 改用 `getComputedStyle(el).display !== 'none'`。
+4. **API route 有 `s-maxage` 快取**，改完立刻 fetch 可能拿到舊回應 →
+   用 `fetch(url, {cache:'no-store'})` 或等快取過期。
+5. **「本機沒有設定檔」不代表沒有整合**：我依「repo 裡找不到 Vercel 設定」就回答
+   「不會再 push 到 Vercel」，被業主追問後查 GitHub API，發現 `vercel[bot]` 當天還在部署
+   （最後兩次建置失敗）。**整合是掛在 Vercel 那一側的**，要去 Vercel／GitHub App 設定看，
+   而不是 grep 本機檔案。（該整合已於 2026-10-09 移除，現在只走 Firebase App Hosting。）
+6. **本機年度檔可能落後於權威來源**：`data/` 不進版控，GCS 才是權威。
+   本機跑 dry-run 前先確認最後一個交易日（2026-10-09 當時本機只到 2026-09-04）。
+
 ## 常用指令
 ```bash
 # 補某交易日（含法人/外資持股/當沖/指數/強勢股/MACD）
 python3 -m stock_collector.daily_collector --date 2026-07-31
 # 補歷史指數
 python3 -m stock_collector.index_collector --days 730
+# 放空資料回補（預設 dry-run，--write 才寫入；只補缺的、冪等可重跑）
+python3 scripts/backfill_short_sale.py                        # 稽核 + 預覽
+python3 scripts/backfill_short_sale.py --month 2026-10 --write
 # 大盤成交量缺漏補資（FinMind 缺量時改抓 TWSE；預設 dry-run，--write 才寫入）— 見地雷 #12
 python3 scripts/backfill_index_volume_from_twse.py            # 稽核 + 預覽
 python3 scripts/backfill_index_volume_from_twse.py --write    # 實際補

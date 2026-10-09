@@ -811,7 +811,17 @@ export default function StrongMonthlyPage() {
                 <>（本月沒有可對照的人工月報）</>
               )}
               ，<strong>篩選條件的差異尚待確認</strong>。
-              網站現行強勢條件為：多頭排列（收盤 &gt; MA5 &gt; MA20 &gt; MA60）＋ MACD 為正 ＋ 成交量 &gt; 500 張 ＋ 外資或投信買超 &gt; 1000 張。
+              網站現行強勢條件為下列<strong>四條全部成立</strong>：成交量 &gt; 500 張 ＋ 漲跌幅 &gt; 3%（以前一交易日收盤為基準）
+              ＋ 收盤價 &gt; 開盤價 ＋ 三大法人<strong>合計</strong>買超 &gt; 0 張（外資＋投信＋自營，門檻是 0）。
+              <InfoTip title="條件以程式為準">
+                {/* ⚠️ 泡泡寬度固定 w-64／max-w-[78vw] 且沒有 break-words：長到不能斷行的
+                    檔案路徑會把泡泡內文擠爆，所以這裡只寫檔名不寫目錄。 */}
+                條件的唯一來源是收集器 <code>update_strong_matrix.py</code> 的 <code>STRONG_CONDITIONS</code>。
+                ⚠️ 本頁先前寫的「多頭排列（收盤 &gt; MA5 &gt; MA20 &gt; MA60）＋ MACD 為正 ＋ 外資或投信買超 &gt; 1000 張」是錯的：
+                四條裡只有成交量那條對得上。實測 2026-09-24 入選的 73 檔裡有 9 檔 MACD 是「空」，
+                可見根本沒有 MACD 條件；逐檔驗證上面四條則 73/73 全部符合。
+                另外「漲跌幅」原本程式寫成 (收盤 − 開盤) ÷ 開盤，那是<strong>當日振幅</strong>不是漲跌幅，已改為對前一交易日收盤計算（台股慣例，與全站其他頁一致）。
+              </InfoTip>
               <InfoTip title="為什麼筆數差這麼多">
                 網站條件跑一天平均就有 72 檔入選（實測最少 23、最多 131），整月聯集自然遠大於人工月報。
                 ⚠️ 但兩者<strong>不是包含關係</strong>：逐列比對 2026-09 的人工月報後發現，
@@ -1035,8 +1045,9 @@ export default function StrongMonthlyPage() {
           </div>
         </div>
 
-        {/* 欄位說明：刻意放在表格「上方」（任何捲動容器之外）——InfoTip 的泡泡是一般
-            absolute，放進 overflow 容器會被裁切、還會把水平捲軸撐長，z-index 救不了。 */}
+        {/* 欄位說明：刻意放在表格「上方」（任何捲動容器之外）——InfoTip 的泡泡是
+            `position: fixed`（見 InfoTip.tsx 檔頭），不會撐長水平捲軸，
+            但會被祖先的 `[contain:paint]`／`overflow` 裁切，所以仍要放在捲動容器之外。 */}
         <details className="bg-white rounded-lg shadow-sm mb-4">
           <summary className="min-h-[44px] flex items-center px-4 text-sm font-medium text-gray-700 cursor-pointer">
             欄位說明（12 欄的定義、單位與基準日）

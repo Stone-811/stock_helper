@@ -25,6 +25,14 @@ export interface StockLatest {
   day_trading_volume: number | null
   foreign_streak: number | null // 外資連續買賣天數（連買 +N、連賣 -N）
   trust_streak: number | null   // 投信連續買賣天數（連買 +N、連賣 -N）
+  /** 已發行張數（算放空比的分母）。null = 無資料。 */
+  shares_issued: number | null
+  /** 融券餘額（散戶放空，張）。null = FinMind 未涵蓋此股（興櫃等無融券制度）；0 是真的 0。 */
+  margin_short_balance: number | null
+  /** 借券賣出餘額（法人放空，張）。⚠️ 與融券必須分開顯示，不可只給合計。 */
+  sbl_short_balance: number | null
+  /** 融資餘額（張，FinMind 本身即張數，未再換算）。算券資比的分母。 */
+  margin_balance: number | null
 }
 
 export interface StockDetailData {
@@ -93,6 +101,12 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     day_trading_volume: num(fsLatest?.day_trading_volume),
     foreign_streak: num(fsLatest?.foreign_streak),
     trust_streak: num(fsLatest?.trust_streak),
+    shares_issued: num(fsLatest?.shares_issued),
+    // 放空三欄：缺漏（FinMind 未涵蓋／舊資料連 key 都沒有）一律 null → UI 顯示「—」。
+    // ⚠️ 絕不可 `?? 0`：0 在這三欄是「真的沒人放空」的有效值。
+    margin_short_balance: num(fsLatest?.margin_short_balance),
+    sbl_short_balance: num(fsLatest?.sbl_short_balance),
+    margin_balance: num(fsLatest?.margin_balance),
   }
 
   const strongHistory = await getStockStrongHistory(id, 10)

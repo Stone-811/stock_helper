@@ -1,7 +1,8 @@
 """
 股票資料收集器（批次 API 版本）
 使用全市場批次 API，大幅減少 API 呼叫次數
-每日只需 2 次 API（股價 + 法人），而非約 5000 次
+每日只需 6 次批次 API（股價 / 法人 / 外資持股 / 當沖 / 放空餘額 / 融資融券），
+而非逐檔約 5000 次
 """
 
 import pandas as pd
@@ -116,17 +117,35 @@ class StockCollector:
             )
             logging.info(f"  取得 {len(day_trading_data)} 筆當沖資料")
 
-            # 5. 處理法人資料（長格式轉寬格式）
+            # 5~6. 批次取得放空餘額（融券 + 借券賣出）與融資餘額（各 1 次 API）
+            #
+            # ⚠️ 這兩支**各自包 try**，不共用外層的整日 try：
+            #    放空是附屬資料，FinMind 失敗時（額度用盡／後端錯誤都是直接拋例外，
+            #    不是回空表）不該把當天的股價／三大法人／外資持股／當沖一起丟掉。
+            #    退成空 DataFrame → _process_short_sale_data 會讓三欄留 NA
+            #    → Firestore null → 前端「—」，事後再用 scripts/backfill_short_sale.py 補。
+            short_sale_data = self._fetch_optional(
+                'TaiwanDailyShortSaleBalances', target_date, '放空餘額')
+            margin_data = self._fetch_optional(
+                'TaiwanStockMarginPurchaseShortSale', target_date, '融資融券')
+
+            # 7. 處理法人資料（長格式轉寬格式）
             inst_pivot = self._process_institutional_data(inst_data)
 
-            # 6. 處理外資持股資料
+            # 8. 處理外資持股資料
             shareholding_processed = self._process_shareholding_data(shareholding_data)
 
-            # 7. 處理當沖資料
+            # 9. 處理當沖資料
             day_trading_processed = self._process_day_trading_data(day_trading_data)
 
-            # 8. 合併股價、法人、外資持股與當沖資料
-            df = self._merge_data(price_data, inst_pivot, shareholding_processed, target_date, day_trading_processed)
+            # 10. 處理放空資料（融券 / 借券賣出 / 融資）
+            short_processed = self._process_short_sale_data(short_sale_data, margin_data)
+
+            # 11. 合併股價、法人、外資持股、當沖與放空資料
+            df = self._merge_data(
+                price_data, inst_pivot, shareholding_processed, target_date,
+                day_trading_processed, short_processed
+            )
 
             if len(df) == 0:
                 logging.error("沒有有效資料")
@@ -331,8 +350,109 @@ class StockCollector:
 
         return processed
 
-    def _merge_data(self, price_data, inst_pivot, shareholding_processed, target_date, day_trading_processed=None):
-        """合併股價、法人與外資持股資料"""
+    def _fetch_optional(self, dataset, target_date, label):
+        """
+        抓一支「附屬」批次資料集，失敗時回空 DataFrame 而不是中斷整日收集。
+
+        用於放空餘額／融資融券這類「缺了只會讓對應欄位變 null」的資料。
+        主資料（股價、三大法人）刻意不走這條路——那些缺了這一天就沒有意義。
+
+        Returns
+        -------
+        pd.DataFrame : 成功時為 FinMind 原始資料；失敗或無資料時為空 DataFrame
+        """
+        logging.info(f"取得全市場{label}資料...")
+        try:
+            df = self.api.get_data(
+                dataset=dataset,
+                data_id='',
+                start_date=target_date,
+                end_date=target_date
+            )
+        except Exception as e:
+            logging.warning(f"  ⚠️ {label}抓取失敗（該欄位留 null，不影響當日其他資料）：{e}")
+            return pd.DataFrame()
+        if df is None:
+            logging.warning(f"  ⚠️ {label}回傳 None（該欄位留 null）")
+            return pd.DataFrame()
+        logging.info(f"  取得 {len(df)} 筆{label}資料")
+        return df
+
+    def _process_short_sale_data(self, short_sale_data, margin_data):
+        """
+        處理放空資料：融券餘額、借券賣出餘額（來自 TaiwanDailyShortSaleBalances）
+        與融資餘額（來自 TaiwanStockMarginPurchaseShortSale）。
+
+        單位
+        ----
+        * `MarginShortSalesCurrentDayBalance` / `SBLShortSalesCurrentDayBalance` 是**股**
+          → `//1000` 向零取整換算成**張**（全站慣例，見 skill「股→張換算」）。
+          實測 2026-09-24 全部 2,216 檔，`MarginShortSalesCurrentDayBalance//1000`
+          與同日 `TaiwanStockMarginPurchaseShortSale.ShortSaleTodayBalance`（官方張數）
+          完全相同（0 筆不一致），可確認換算正確。
+        * `MarginPurchaseTodayBalance` **本身已是張**，不可再除 1000。
+
+        Parameters
+        ----------
+        short_sale_data : pd.DataFrame
+            TaiwanDailyShortSaleBalances 原始資料（整批 data_id=''）
+        margin_data : pd.DataFrame
+            TaiwanStockMarginPurchaseShortSale 原始資料（整批 data_id=''）
+
+        Returns
+        -------
+        pd.DataFrame
+            含 stock_id、margin_short_balance、sbl_short_balance、margin_balance；
+            ⚠️ 缺漏一律留 NA（Int64 可空整數），不可補 0——興櫃等無融券/借券制度的股票
+            本來就沒有這筆資料，補 0 會被誤讀成「真的沒人放空」。
+        """
+        cols = ['stock_id', 'margin_short_balance', 'sbl_short_balance', 'margin_balance']
+
+        def _lots_from_shares(frame, src, dst):
+            """股 → 張（向零取整），回傳只含 stock_id + dst 的 DataFrame。"""
+            if frame is None or len(frame) == 0 or src not in frame.columns:
+                return None
+            out = frame[['stock_id', src]].copy()
+            out['stock_id'] = out['stock_id'].astype(str).str.strip()
+            out[dst] = pd.to_numeric(out[src], errors='coerce') // 1000
+            out[dst] = out[dst].astype('Int64')
+            # 同一代號理論上只有一筆；留防線避免 left merge 一對多產生重複股票
+            return out[['stock_id', dst]].drop_duplicates(subset=['stock_id'], keep='first')
+
+        parts = []
+        if short_sale_data is not None and len(short_sale_data) > 0:
+            for src, dst in (
+                ('MarginShortSalesCurrentDayBalance', 'margin_short_balance'),
+                ('SBLShortSalesCurrentDayBalance', 'sbl_short_balance'),
+            ):
+                piece = _lots_from_shares(short_sale_data, src, dst)
+                if piece is not None:
+                    parts.append(piece)
+
+        # 融資餘額：MarginPurchaseTodayBalance 已是張，不再換算
+        if (margin_data is not None and len(margin_data) > 0
+                and 'MarginPurchaseTodayBalance' in margin_data.columns):
+            mg = margin_data[['stock_id', 'MarginPurchaseTodayBalance']].copy()
+            mg['stock_id'] = mg['stock_id'].astype(str).str.strip()
+            mg['margin_balance'] = pd.to_numeric(
+                mg['MarginPurchaseTodayBalance'], errors='coerce'
+            ).astype('Int64')
+            parts.append(
+                mg[['stock_id', 'margin_balance']].drop_duplicates(subset=['stock_id'], keep='first')
+            )
+
+        if not parts:
+            return pd.DataFrame(columns=cols)
+
+        processed = parts[0]
+        for piece in parts[1:]:
+            processed = processed.merge(piece, on='stock_id', how='outer')
+
+        return processed
+
+    def _merge_data(self, price_data, inst_pivot, shareholding_processed, target_date,
+                    day_trading_processed=None, short_processed=None):
+        """合併股價、法人、外資持股、當沖與放空資料"""
 
         # 取得股票名稱與產業對照
         try:
@@ -420,12 +540,26 @@ class StockCollector:
             df['day_trading_volume'] = pd.NA
         df['day_trading_volume'] = pd.to_numeric(df['day_trading_volume'], errors='coerce').astype('Int64')
 
+        # 合併放空資料（融券 / 借券賣出 / 融資餘額）
+        if short_processed is not None and len(short_processed) > 0:
+            df = df.merge(short_processed, on='stock_id', how='left')
+
+        # 放空三欄：缺漏一律留 NA（Int64 可空整數），不可補 0。
+        # 興櫃、新掛牌等股票沒有融券與借券制度，FinMind 本來就沒有這筆資料
+        # （實測 2026-09-24：2,344 檔中 468 檔無放空餘額、483 檔無融資資料），
+        # 補 0 會變成「有這個制度但無人放空」，與事實相反。
+        for col in ['margin_short_balance', 'sbl_short_balance', 'margin_balance']:
+            if col not in df.columns:
+                df[col] = pd.NA
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+
         # 選擇並排序欄位
         columns = [
             'date', 'stock_id', 'stock_name', 'industry', 'open', 'high', 'low', 'close',
             'volume', 'day_trading_volume', 'foreign_buy', 'trust_buy', 'dealer_buy',
             'foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio',
-            'foreign_hold_shares', 'shares_issued'
+            'foreign_hold_shares', 'shares_issued',
+            'margin_short_balance', 'sbl_short_balance', 'margin_balance'
         ]
         df = df[[c for c in columns if c in df.columns]]
         # 最終防禦：任一右表（法人/持股/當沖）若 stock_id 重複，left merge 都會產生重複行

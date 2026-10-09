@@ -1123,8 +1123,9 @@ export default function StrongTablePage() {
         </div>
 
         {/* 欄位說明：刻意放在表格「上方」（任何捲動容器之外）。
-            InfoTip 的泡泡是一般 absolute（w-64 / z-[80]），放進 overflow 容器會被裁切、
-            還會把水平捲軸撐長，z-index 救不了；20 顆 32px 的 ⓘ 也會多出 640px 寬度負擔。 */}
+            InfoTip 的泡泡是 `position: fixed`（見 InfoTip.tsx 檔頭）：**不會**再把水平捲軸撐長，
+            但會被祖先的 `[contain:paint]`／`overflow` 裁切，所以仍然一律放在捲動容器之外。
+            另外 20 顆 32px 的 ⓘ 放進表頭也會多出 640px 寬度負擔。 */}
         <details className="bg-white rounded-lg shadow-sm mb-4">
           <summary className="min-h-[44px] flex items-center px-4 text-sm font-medium text-gray-700 cursor-pointer">
             欄位說明（單位與計算方式）

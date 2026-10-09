@@ -10,10 +10,13 @@ Next.js 16 + React 19 + Tailwind CSS v4 建構的台股分析網站。
 |---|---|
 | `/` | 市場 Dashboard：加權指數、今日強勢股、我的自選、指數走勢 |
 | `/strong-stocks` | 今日強勢股（卡片檢視） |
-| `/strong-table` | 強勢股總表（表格檢視，一次看全部欄位） |
+| `/strong-table` | 強勢股總表（表格檢視，**預設顯示全部欄位**） |
+| `/strong-monthly` | 強勢月報：當月曾入選的個股彙整（12 欄，對應業主的 Word 月報） |
 | `/screener` | 自訂條件選股 |
 | `/watchlist` | 自選股（需 Google 登入） |
-| `/stock/[id]` | 個股詳情：K 線、技術指標、籌碼圖、今日訊號 |
+| `/stock/[id]` | 個股詳情：K 線、技術指標、籌碼圖、**放空籌碼**、今日訊號 |
+
+手機不顯示 Sidebar（導覽在 MobileBottomNav，登入在 TopBar 右側）。
 
 ## 快速開始
 
