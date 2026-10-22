@@ -83,6 +83,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── stock_collector.py              # 每日股票資料收集器（6 支批次 API）
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
 │   ├── update_strong_matrix.py         # 強勢股判定與矩陣更新（條件的唯一權威）
+│   ├── trading_calendar.py             # 休市判斷（交易日曆＋加權指數＋證交所三方確認）
 │   ├── indicators.py                   # MACD 狀態（由已刪除的 utils.py 精簡而來）
 │   ├── streak.py                       # 法人連買／連賣天數
 │   ├── alert_checker.py                # 到價提醒檢查
@@ -98,7 +99,8 @@ Claude Code 處理本專案時的指引說明。
 │   ├── fix_stock_id_leading_zero.py    # 修 ETF 代碼掉前導零（0050→50）
 │   ├── backfill_foreign_hold_shares.py # 回補外資持股五欄（null-aware、只寫交易日、可 --date）
 │   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
-│   └── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
+│   ├── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
+│   └── dedupe_daily_data.py            # 清 daily_data 重複列與殘留分片（2026-10-22 已跑過）
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
@@ -166,12 +168,13 @@ Claude Code 處理本專案時的指引說明。
 
 | 檔案 | 職責 |
 |------|------|
-| firebase_writer.py | DataFrame 寫入 Firestore（分片優化）；`_opt_num` 缺漏寫 null、`_norm_stock_id` 補前導零 |
+| firebase_writer.py | DataFrame 寫入 Firestore（分片優化）；`_opt_num` 缺漏寫 null、`_norm_stock_id` 補前導零；寫入前依代號去重、刪掉用不到的舊分片 |
 | gcs_archive.py | 年度檔上下載 GCS（collector 是 stateless，年度檔是唯一完整歷史） |
 | stock_collector/daily_collector.py | 統一排程器：重試機制、缺口回補、資料驗證 |
 | stock_collector/stock_collector.py | 6 支批次 API 收集、CSV 存檔、Firestore 同步 |
 | stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
 | stock_collector/update_strong_matrix.py | **強勢股判定的唯一權威**；每次執行重算全部歷史 |
+| stock_collector/trading_calendar.py | 休市判斷：三個來源都說沒交易才跳過；任一抓不到或互相矛盾就照常收集（矛盾會寄信） |
 | stock_collector/indicators.py | MACD 狀態（用本地年度檔算，零 API） |
 | stock_collector/streak.py | 法人連買／連賣天數 |
 | stock_collector/alert_checker.py | 到價提醒 |
@@ -371,6 +374,9 @@ metadata/
 ### 統一排程器（daily_collector.py）
 
 整合所有資料收集流程，提供：
+- **休市日跳過**：開頭先問 `trading_calendar.is_market_closed()`；國定假日、補假、颱風停市不收集、
+  不寄告警、exit 0。`--backfill-gaps` 的缺口也用交易日曆算，不再把假日當缺漏。
+  ⚠️ 不可改回「排除週六日」：平日也會休市，2016～2018 也有補班週六是交易日。
 - **自動重試**：使用 tenacity 套件，失敗時指數退避重試（最多 3 次）
 - **增量更新**：自動偵測缺少的日期，只補抓缺失資料
 - **資料驗證**：確保資料筆數 >= 2000、收盤價完整度 >= 95%
@@ -627,10 +633,10 @@ export async function searchStocks(query: string): Promise<StockSearchResult[]> 
 
 ### 圖表時間軸對齊
 
-**重要**：使用 TimeRange（日期）而非 LogicalRange（索引）同步三圖：
-
-- LogicalRange 問題：MACD 從第 34 根 K 棒開始計算，索引對不上
-- TimeRange 解決：使用實際日期同步，確保三圖顯示相同日期範圍
+主圖與指標圖用 **LogicalRange** 同步（`CandleChart.tsx` 的 `subscribeVisibleLogicalRangeChange`），
+細節見上方「K 線圖」段落。指標一律用完整資料計算，子圖暖身期用 whitespace `{time}` 佔位、
+保留完整時間軸，所以索引對得上；**不可濾掉暖身期的 null，也不要切資料再算**（SKILL.md 開頭 K 線段與地雷 #4）。
+（2026-10-22 校正：本段先前寫「用 TimeRange 而非 LogicalRange」，與程式相反。）
 
 ## 開發原則
 
@@ -701,6 +707,18 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-10-22
+
+**收集器認得休市日，並清掉 daily_data 重複列**（collector image 已重建並在雲端實測）
+- 新增 `stock_collector/trading_calendar.py`。以前排程只排除週六日，平日休市照跑、抓不到股價就寄告警；
+  `--backfill-gaps` 也把假日當缺漏。現在要三個來源（FinMind 交易日曆、FinMind 加權指數、證交所 FMTQIK）
+  都說沒交易才跳過，寧可誤報也不安靜漏收。日曆只排到 2026-12-31，2027 一律照常收集。
+- 雲端實測：`--date 2026-10-09`（國慶）4 秒結束、exit 0、不寄信；交易日照常收集 2,353 檔。
+- 07-24～08-03 共 7 天的重複列（每天 794 檔存兩份，因 `taiwan_stock_info` 一檔列在兩個產業）與 08-03 的
+  2 片殘留分片已清掉；`write_daily_stocks()` 之後寫入前會去重並刪舊分片。
+- 補 09-29、10-21 整天缺的外資持股，以及 07-24～08-31 的持股張數／發行張數。
+- 手機與桌機頁面功能對齊（底部導覽 6 格、總表／月報手機排序與欄位、K 線手機讀值區、自選股今日訊號）。
 
 ### 2026-10-18（下午）
 
