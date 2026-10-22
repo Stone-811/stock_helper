@@ -306,6 +306,10 @@ export default function WatchlistPage() {
                           {/* 三種狀態要分得出來：
                               沒報價（API 失敗或當日無此股）＝不知道有沒有訊號 → NullCell「—」
                               有報價但 MACD／連買資料不齊（新上市暖身不足、當年度年初）＝無法判斷 → NullCell「—」
+                              ⚠️ 收集器在 MACD 天數不夠時存的是「-」這個字而不是 null（update_macd.py），
+                                 所以「-」也要當成算不出來；只檢查 null 的話年初幾乎每檔都會被說成「無」。
+                                 連買天數缺資料時收集器直接存 0（firebase_writer.py 的 int(... or 0)），
+                                 這半前端分不出來，要改收集器才能修。
                               資料齊全且沒有訊號 ＝ 確定今天沒有 → 「無」
                               （/api/quotes 已改為缺值不轉 0，才分得出後兩種）
                               空白格會被誤以為壞掉，所以兩種都不可留白。
@@ -315,7 +319,7 @@ export default function WatchlistPage() {
                           <td className="px-4 py-3">
                             {!stock.latestData ? (
                               <NullCell title="無報價資料，無法判斷今日訊號" />
-                            ) : !sigs.length && (stock.latestData.macd_status == null || stock.latestData.foreign_streak == null || stock.latestData.trust_streak == null) ? (
+                            ) : !sigs.length && (stock.latestData.macd_status == null || stock.latestData.macd_status === '-' || stock.latestData.foreign_streak == null || stock.latestData.trust_streak == null) ? (
                               <NullCell title="MACD 或法人連買資料不齊，無法判斷今日訊號" />
                             ) : sigs.length ? (
                               <SignalChips signals={sigs} className="whitespace-nowrap max-w-[18rem]" />
