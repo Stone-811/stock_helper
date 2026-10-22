@@ -62,6 +62,10 @@ interface RenderCtx {
   strongCountStale: boolean
   /** 手機摘要列：省略次要的第二行 */
   compact: boolean
+  /** 手機第 3 欄：省略漲跌幅前的 ▲▼。375 寬時這欄內容只剩約 76px（360 寬約 70px），
+   *  「▲ 」就佔約 20px，會把「+9.98%」「+10.00%」擠成省略號——被截斷的數字比少一個箭頭更糟。
+   *  方向仍由正負號＋紅綠表達。只影響漲跌幅，其他欄位的 render 不看這個旗標。 */
+  noArrow?: boolean
 }
 
 /* --------------------------- 衍生值計算 --------------------------- */
@@ -146,7 +150,7 @@ const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
     render: (r, ctx) => {
       const { change, pct, dir } = computeChange(r)
       if (pct == null || change == null) return <NullCell />
-      const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : ''
+      const arrow = ctx.noArrow ? '' : dir === 'up' ? '▲' : dir === 'down' ? '▼' : ''
       const sign = change > 0 ? '+' : ''
       return (
         <span className={`font-semibold ${changeColor(dir)}`}>
@@ -420,9 +424,12 @@ const DETAIL_GROUPS: { label: string; columns: ColKey[] }[] = [
   { label: '其他', columns: ['macd_status', 'industry', 'strong_count'] },
 ]
 
-/** 手機第 3 欄的候選（焦點欄 chip）。橫向捲動的是 44px 高的控制項，不是資料格。 */
+/** 手機第 3 欄的候選（焦點欄 chip）。橫向捲動的是 44px 高的控制項，不是資料格。
+ *  漲跌幅排第一顆：它是預設排序（DEFAULT_SORT）。少了這顆，手機一開始亮的會是別顆
+ *  （看起來像依成交量排、實際卻依漲跌幅排），而且只要點過任何一顆就回不到依漲跌幅排序
+ *  ——桌機可以點表頭，手機沒有表頭可點。 */
 const MOBILE_FOCUS_KEYS: ColKey[] = [
-  'volume', 'trading_value', 'day_trading_ratio', 'foreign_buy', 'trust_buy',
+  'change_pct', 'volume', 'trading_value', 'day_trading_ratio', 'foreign_buy', 'trust_buy',
   'dealer_buy', 'foreign_streak', 'foreign_hold_ratio', 'strong_count',
 ]
 
@@ -436,7 +443,34 @@ const QUICK_FILTERS = [
 
 const STORAGE_KEY = 'strong-table-view' // ⚠️ 不與 /strong-stocks 的 'strong-filters' 共用：欄位形狀不同
 
-const DEFAULT_SORT: { key: ColKey; dir: 'asc' | 'desc' } = { key: 'change_pct', dir: 'desc' }
+type SortState = { key: ColKey; dir: 'asc' | 'desc' }
+
+const DEFAULT_SORT: SortState = { key: 'change_pct', dir: 'desc' }
+
+/** 任一指定欄位「無資料」（sortValue 為 null）就回 true —— 給「隱藏無資料的列」用 */
+const hasNullIn = (r: StrongTableRow, keys: ColKey[]) =>
+  keys.some((k) => COLUMNS[k].sortValue(r) == null)
+
+// 排序一律在前端做：瀏覽器拿到的是 JSON.parse 出來的全新物件，怎麼 sort 都安全。
+// （伺服器端 getStocksByDate 的回傳陣列是跨請求共用的 process 級記憶體，
+//   對它 sort/reverse 會汙染 dayCache 五分鐘並影響 /api/screener 與個股頁。）
+const sortRowsBy = (list: StrongTableRow[], s: SortState) => {
+  const col = COLUMNS[s.key] ?? COLUMNS.change_pct
+  return [...list].sort((a, b) => {
+    const c = compareNullLast(col.sortValue(a), col.sortValue(b), s.dir)
+    if (c !== 0) return c
+    return a.stock_id.localeCompare(b.stock_id) // 同值時穩定排序
+  })
+}
+
+/** 統計列的排序說明（含「幾檔無資料排在最後」） */
+const sortSummaryOf = (sorted: StrongTableRow[], s: SortState) => {
+  const col = COLUMNS[s.key] ?? COLUMNS.change_pct
+  const nullCount = sorted.filter((r) => col.sortValue(r) == null).length
+  return `已依「${COLUMNS[s.key]?.fullName ?? ''}」${
+    s.dir === 'desc' ? '由大到小' : '由小到大'
+  }排序，共 ${sorted.length} 檔${nullCount > 0 ? `，其中 ${nullCount} 檔無資料排在最後` : ''}`
+}
 
 /* ------------------------------ 頁面 ------------------------------ */
 
@@ -592,7 +626,7 @@ export default function StrongTablePage() {
   )
 
   /**
-   * 實際生效的排序鍵。刻意在 render 期間推導、不用 useEffect + setState：
+   * 桌機實際生效的排序鍵。刻意在 render 期間推導、不用 useEffect + setState：
    * (a) 切換分組後若排序鍵不在可見欄，回退到預設，不留看不見的排序狀態；
    * (b) 非最新交易日時 strong_count 是錯的（見上方說明），不可拿它排序。
    * 使用者原本挑的 sort 保留著，切回該分組就會自動復原。
@@ -610,20 +644,58 @@ export default function StrongTablePage() {
         ? '所選日期不是最新交易日，「強勢日」欄位無法排序，已改為依漲跌幅排序'
         : `「${COLUMNS[sort.key].fullName}」不在目前欄位組，已改為依漲跌幅排序`
 
-  const focusKey: ColKey = MOBILE_FOCUS_KEYS.includes(effectiveSort.key) ? effectiveSort.key : 'volume'
+  /* ---- 手機：自己一套「可見欄＋排序」，不跟桌機的分組／全部欄位走 ----
+   * 手機與桌機兩份表格同時在 DOM 裡、由 md: 斷點切換顯示（全站慣例：不用 JS 量視窗），
+   * 但兩邊「看得到的欄」不同，所以排序、隱藏無資料的列、統計列都各算一份。 */
+
+  // 非最新交易日時拿掉「強勢日」這顆，理由同 effectiveSort 的 (b)
+  const mobileFocusKeys = useMemo(
+    () => MOBILE_FOCUS_KEYS.filter((k) => !(k === 'strong_count' && strongCountStale)),
+    [strongCountStale]
+  )
+
+  /**
+   * 手機實際生效的排序。規則只有一條：排序鍵必須是某一顆比較欄位按鈕，否則退回預設（漲跌幅）。
+   * 預設也在按鈕裡，所以「亮著的按鈕＝第 3 欄＝實際排序」恆成立，
+   * sessionStorage 還原回來的值也一樣——不會出現按鈕亮 A、實際依 B 排。
+   * （排序鍵不在按鈕裡，只會發生在同一分頁先在桌機寬度點了表頭、再轉回直向手機。）
+   * 刻意不看桌機的 showAll／group：手機沒有分組可切，拿看不見的分組去否決手機的選擇，
+   * 會變成「點了成交額卻沒反應」。
+   */
+  const mobileSort = useMemo(
+    () => (mobileFocusKeys.includes(sort.key) ? sort : DEFAULT_SORT),
+    [mobileFocusKeys, sort]
+  )
+  const focusKey: ColKey = mobileSort.key
+
+  const mobileSortNotice =
+    mobileSort.key === sort.key
+      ? ''
+      : strongCountStale && sort.key === 'strong_count'
+        ? '所選日期不是最新交易日，「強勢日」欄位無法排序，已改為依漲跌幅排序'
+        : `「${COLUMNS[sort.key].fullName}」不在手機的比較欄位，已改為依漲跌幅排序`
 
   const industries = useMemo(
     () => Array.from(new Set(rows.map((s) => s.industry).filter(Boolean) as string[])).sort(),
     [rows]
   )
 
-  // 「隱藏無資料的列」檢查範圍＝目前可見欄 ＋ 目前排序欄（手機只看得到焦點欄）
+  // 「隱藏無資料的列」檢查範圍＝目前可見欄 ＋ 目前排序欄
   const nullableCheckKeys = useMemo(
-    () => Array.from(new Set<ColKey>([effectiveSort.key, focusKey, ...visibleKeys])).filter((k) => COLUMNS[k].nullable),
-    [effectiveSort.key, focusKey, visibleKeys]
+    () => Array.from(new Set<ColKey>([effectiveSort.key, ...visibleKeys])).filter((k) => COLUMNS[k].nullable),
+    [effectiveSort.key, visibleKeys]
   )
 
-  const filteredRows = useMemo(() => {
+  // 手機同一條規則，只是可見欄不同：固定欄（股票／收盤＋漲跌幅）＋第 3 欄，而第 3 欄就是排序欄。
+  // ⚠️ 不可沿用桌機的 visibleKeys：showAll 預設 true → 手機會一律檢查全部 5 個可缺欄位，
+  //    外資持股整欄「—」的日子一勾選就變 0 檔，而手機畫面上根本沒有那一欄，使用者看不出原因。
+  const mobileNullableCheckKeys = useMemo(
+    () => Array.from(new Set<ColKey>([...FIXED_KEYS, focusKey])).filter((k) => COLUMNS[k].nullable),
+    [focusKey]
+  )
+
+  // 「隱藏無資料的列」以外的條件：桌機與手機共用同一份
+  const baseRows = useMemo(() => {
     return rows.filter((r) => {
       if (filter.macd !== 'all' && r.macd_status !== filter.macd) return false
       if (filter.minVolume > 0 && !(r.volume >= filter.minVolume)) return false
@@ -635,37 +707,44 @@ export default function StrongTablePage() {
         const nameHit = (r.stock_name || '').toLowerCase().includes(debouncedQuery)
         if (!idHit && !nameHit) return false
       }
-      if (hideNullRows && nullableCheckKeys.some((k) => COLUMNS[k].sortValue(r) == null)) return false
       return true
     })
-  }, [rows, filter, debouncedQuery, hideNullRows, nullableCheckKeys])
+  }, [rows, filter, debouncedQuery])
 
-  // 排序一律在前端做：瀏覽器拿到的是 JSON.parse 出來的全新物件，怎麼 sort 都安全。
-  // （伺服器端 getStocksByDate 的回傳陣列是跨請求共用的 process 級記憶體，
-  //   對它 sort/reverse 會汙染 dayCache 五分鐘並影響 /api/screener 與個股頁。）
-  const sortedRows = useMemo(() => {
-    const col = COLUMNS[effectiveSort.key] ?? COLUMNS.change_pct
-    return [...filteredRows].sort((a, b) => {
-      const c = compareNullLast(col.sortValue(a), col.sortValue(b), effectiveSort.dir)
-      if (c !== 0) return c
-      return a.stock_id.localeCompare(b.stock_id) // 同值時穩定排序
-    })
-  }, [filteredRows, effectiveSort])
+  const sortedRows = useMemo(
+    () => sortRowsBy(hideNullRows ? baseRows.filter((r) => !hasNullIn(r, nullableCheckKeys)) : baseRows, effectiveSort),
+    [baseRows, hideNullRows, nullableCheckKeys, effectiveSort]
+  )
 
-  const nullCount = useMemo(() => {
-    const col = COLUMNS[effectiveSort.key] ?? COLUMNS.change_pct
-    return sortedRows.filter((r) => col.sortValue(r) == null).length
-  }, [sortedRows, effectiveSort.key])
+  const mobileSortedRows = useMemo(
+    () => sortRowsBy(hideNullRows ? baseRows.filter((r) => !hasNullIn(r, mobileNullableCheckKeys)) : baseRows, mobileSort),
+    [baseRows, hideNullRows, mobileNullableCheckKeys, mobileSort]
+  )
 
-  const sortSummary = `已依「${COLUMNS[effectiveSort.key]?.fullName ?? ''}」${
-    effectiveSort.dir === 'desc' ? '由大到小' : '由小到大'
-  }排序，共 ${sortedRows.length} 檔${nullCount > 0 ? `，其中 ${nullCount} 檔無資料排在最後` : ''}`
 
-  // 只有兩態（desc ⇄ asc），不做「第三次點回預設」——多一個看不見的狀態對視力不佳者是負擔
-  const toggleSort = (key: ColKey) => {
+  // 還原記住的排序後，把「按下的那顆」排序按鈕捲進可見範圍：按鈕列在 375px 只露出前三、四顆，
+  // 被按下的若在捲動區外，畫面上看不出現在依什麼排。只調整按鈕列自己的 scrollLeft——
+  // 不可用 scrollIntoView，它會連整頁一起上下捲。
+  const chipRowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = chipRowRef.current
+    const btn = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (!row || !btn) return
+    const r = row.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    if (b.left < r.left || b.right > r.right) row.scrollLeft += b.left - r.left - 16
+  }, [focusKey, mobileSort.dir, mobileSortedRows.length])
+
+  const sortSummary = useMemo(() => sortSummaryOf(sortedRows, effectiveSort), [sortedRows, effectiveSort])
+  const mobileSortSummary = useMemo(() => sortSummaryOf(mobileSortedRows, mobileSort), [mobileSortedRows, mobileSort])
+
+  // 只有兩態（desc ⇄ asc），不做「第三次點回預設」——多一個看不見的狀態對視力不佳者是負擔。
+  // current＝使用者眼前那份表格的排序（桌機 effectiveSort、手機 mobileSort）：
+  // 兩者可能不同，要以畫面上亮著的那個決定「這次是翻轉方向還是換欄」。
+  const toggleSort = (key: ColKey, current: SortState = effectiveSort) => {
     setSort(
-      effectiveSort.key === key
-        ? { key, dir: effectiveSort.dir === 'desc' ? 'asc' : 'desc' }
+      current.key === key
+        ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' }
         : { key, dir: key === 'stock' ? 'asc' : 'desc' } // 數值欄首次點擊一律由大到小
     )
   }
@@ -681,6 +760,7 @@ export default function StrongTablePage() {
 
   const ctx: RenderCtx = { strongCountStale, compact: false }
   const ctxCompact: RenderCtx = { strongCountStale, compact: true }
+  const ctxFocus: RenderCtx = { strongCountStale, compact: true, noArrow: true } // 手機第 3 欄
 
   /* --------------------------- 表格片段 --------------------------- */
 
@@ -733,6 +813,10 @@ export default function StrongTablePage() {
     showAll ? '全部欄位' : GROUPS[group].label
   }」欄位組，共 ${sortedRows.length} 檔`
 
+  const mobileCaptionText = `${selectedDate || '（無日期）'} 強勢股總表，比較欄位為「${
+    COLUMNS[focusKey].fullName
+  }」，共 ${mobileSortedRows.length} 檔`
+
   const desktopTable = (
     // showAll 時 min-w-max 讓表格撐到內容寬度（容器才捲得動）；分組檢視維持 w-full 不捲
     <table className={`w-full ${showAll ? 'min-w-max' : ''}`}>
@@ -773,12 +857,16 @@ export default function StrongTablePage() {
     // table-fixed ＋ colgroup：auto 版面會用儲存格的 min-content 當表格下限，
     // 在 375px 下算出 507px 而把整頁撐出橫向捲動。固定欄寬才保證手機不橫捲。
     <table className="w-full table-fixed">
-      <caption className="sr-only">{captionText}</caption>
+      <caption className="sr-only">{mobileCaptionText}</caption>
+      {/* ⚠️ 欄寬依 320px 最窄手機推算：第 3 欄預設是漲跌幅，「+10.00%」約 65px。
+          原本 30%／28%／52px 時 320px 下第 3 欄只剩約 53px，會被截成「+3.0…」。
+          第 4 欄只放 w-11（44px）的展開鈕且 td 是 px-0，44px 剛好；第 1 欄讓出 2%，
+          股名改成最多折兩行（不截斷），所以讓出的寬度不會造成更多股名被切掉。 */}
       <colgroup>
-        <col className="w-[30%]" />
+        <col className="w-[28%]" />
         <col className="w-[28%]" />
         <col />
-        <col className="w-[52px]" />
+        <col className="w-[44px]" />
       </colgroup>
       {/* 表頭 sticky 掛在 <th>（不是 <thead>）：Tailwind preflight 讓 table 是
           border-collapse:collapse，掛 thead 相容性較差。top-[65px] 是 TopBar 實測高度。 */}
@@ -799,14 +887,15 @@ export default function StrongTablePage() {
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-200">
-        {sortedRows.map((r) => {
+        {mobileSortedRows.map((r) => {
           const open = expanded.has(r.stock_id)
           return (
             <Fragment key={r.stock_id}>
               <tr className="hover:bg-gray-50 focus-within:bg-gray-50">
                 <td className="px-2 py-3">
                   <Link href={`/stock/${r.stock_id}`} className="block min-h-[44px] hover:text-blue-600">
-                    <span className="block font-medium text-gray-900 truncate" title={r.stock_name || r.stock_id}>
+                    {/* 長股名（亞德客-KY、日月光投控）折兩行而不是截成「亞德客-…」：手機看不到 title 提示 */}
+                    <span className="block font-medium text-gray-900 line-clamp-2 [overflow-wrap:anywhere]" title={r.stock_name || r.stock_id}>
                       {r.stock_name || r.stock_id}
                     </span>
                     <span className="block text-sm text-gray-700 tabular-nums">{r.stock_id}</span>
@@ -814,10 +903,14 @@ export default function StrongTablePage() {
                 </td>
                 <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">
                   {COLUMNS.close.render(r, ctxCompact)}
-                  <span className="block text-sm">{COLUMNS.change_pct.render(r, ctxCompact)}</span>
+                  {/* 第 3 欄已經是漲跌幅時不再重複一次：同一列出現兩個一樣的數字，
+                      視力不佳者會以為是兩個不同指標。列高由第 1 欄的兩行決定，拿掉不會跳動。 */}
+                  {focusKey !== 'change_pct' && (
+                    <span className="block text-sm">{COLUMNS.change_pct.render(r, ctxCompact)}</span>
+                  )}
                 </td>
                 <td className="px-2 py-3 text-right truncate tabular-nums">
-                  {COLUMNS[focusKey].render(r, ctxCompact)}
+                  {COLUMNS[focusKey].render(r, ctxFocus)}
                 </td>
                 <td className="px-0 py-3 text-center">
                   <button
@@ -872,6 +965,36 @@ export default function StrongTablePage() {
 
   const noTradingDay = !!data && !data.latestDate
 
+  const emptyResult = (
+    <EmptyState
+      icon={data?.dataMissing ? '📅' : '🔍'}
+      title={data?.dataMissing ? '這一天沒有明細資料' : '沒有符合條件的股票'}
+      description={data?.dataMissing ? '請改選其他交易日' : '試著放寬搜尋、MACD／成交量／產業等條件'}
+    />
+  )
+  // 手機專用：「隱藏無資料的列」只檢查第 3 欄＋排序欄，第 3 欄選到一整天都沒資料的欄位
+  // （例如外資持股在 22:00 收集前整欄是「—」）時會變 0 檔。這時真正的原因是那個勾選框，
+  // 提示要直接講出來，不能叫人去放寬 MACD／成交量（2026-10-22 實測 124 檔 → 0 檔）。
+  const mobileEmptyResult =
+    hideNullRows && baseRows.length > 0 && !data?.dataMissing ? (
+      <EmptyState
+        icon="🔍"
+        title="勾選了「隱藏無資料的列」"
+        description={`「${COLUMNS[focusKey].fullName}」這一天全部沒有資料，所以整份表格被藏起來了。取消勾選即可看到 ${baseRows.length} 檔，或改選其他比較欄位。`}
+      />
+    ) : emptyResult
+
+  const statsBar = (cls: string, count: number, summary: string, notice: string) => (
+    <div className={`${cls} flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-sm`} aria-live="polite">
+      <span className="text-gray-700">
+        篩選 <span className="font-bold text-gray-900 tabular-nums">{count}</span> 檔 ／ 當日{' '}
+        <span className="font-medium text-gray-900 tabular-nums">{totalCount}</span> 檔
+      </span>
+      <span className="text-gray-700">{summary}</span>
+      {notice && <span className="text-amber-900">{notice}</span>}
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 容器比全站慣例的 max-w-7xl 寬：20 欄表格在 1920 螢幕上才不會白白浪費空間。
@@ -888,7 +1011,8 @@ export default function StrongTablePage() {
       />
 
       <div className="max-w-[1560px] mx-auto px-4 py-6">
-        {/* 檢視切換：表格與卡片是同一份資料的兩種呈現，所以不在手機底部導覽擠第五個圖示 */}
+        {/* 檢視切換：表格與卡片是同一份資料的兩種呈現。底部導覽與側邊欄也都有各自的格子，
+            這裡是就地切換的捷徑。 */}
         <div className="flex flex-wrap gap-2 mb-4">
           <Link
             href="/strong-stocks"
@@ -1090,24 +1214,26 @@ export default function StrongTablePage() {
 
         {/* 手機：焦點欄 chip 列。
             關鍵原則——橫向捲動的是 44px 高的控制項，不是資料格。
-            點不同顆＝換第 3 欄並依該欄由大到小；點同一顆＝翻轉方向。 */}
+            點不同顆＝換第 3 欄並依該欄由大到小；點同一顆＝翻轉方向。
+            亮哪顆、▼▲、第 3 欄一律看 mobileSort（不看桌機的 effectiveSort），三者才不會分家。 */}
         <div className="md:hidden mb-3">
           <div id="focus-label" className="text-sm text-gray-700 mb-1">
             比較欄位（點選即排序）
           </div>
           <div
+            ref={chipRowRef}
             className="-mx-4 px-4 pb-1 flex gap-2 overflow-x-auto snap-x"
             role="group"
             aria-labelledby="focus-label"
           >
-            {MOBILE_FOCUS_KEYS.filter((k) => !(k === 'strong_count' && strongCountStale)).map((k) => {
+            {mobileFocusKeys.map((k) => {
               const on = focusKey === k
               return (
                 <button
                   key={k}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => toggleSort(k)}
+                  onClick={() => toggleSort(k, mobileSort)}
                   className={`snap-start shrink-0 px-4 min-h-[44px] rounded-full text-sm border transition-colors ${
                     on
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -1115,7 +1241,7 @@ export default function StrongTablePage() {
                   }`}
                 >
                   {COLUMNS[k].header}
-                  {on && <span aria-hidden="true"> {effectiveSort.dir === 'desc' ? '▼' : '▲'}</span>}
+                  {on && <span aria-hidden="true"> {mobileSort.dir === 'desc' ? '▼' : '▲'}</span>}
                 </button>
               )
             })}
@@ -1151,15 +1277,11 @@ export default function StrongTablePage() {
           </div>
         </details>
 
-        {/* 統計列：篩選/排序造成筆數變動時播報 */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-sm" aria-live="polite">
-          <span className="text-gray-700">
-            篩選 <span className="font-bold text-gray-900 tabular-nums">{sortedRows.length}</span> 檔 ／ 當日{' '}
-            <span className="font-medium text-gray-900 tabular-nums">{totalCount}</span> 檔
-          </span>
-          <span className="text-gray-700">{sortSummary}</span>
-          {sortNotice && <span className="text-amber-900">{sortNotice}</span>}
-        </div>
+        {/* 統計列：篩選/排序造成筆數變動時播報。
+            手機與桌機的筆數／排序可能不同（見 mobileSort），所以各一份、用 md: 切換；
+            display:none 的那份不在無障礙樹裡，不會重複播報。 */}
+        {statsBar('flex md:hidden', mobileSortedRows.length, mobileSortSummary, mobileSortNotice)}
+        {statsBar('hidden md:flex', sortedRows.length, sortSummary, sortNotice)}
 
         {/* 結果區三元鏈：篩選列與分組切換恆常渲染，只有這裡換 */}
         {loading ? (
@@ -1168,22 +1290,23 @@ export default function StrongTablePage() {
           <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(selectedDate || undefined)} />
         ) : noTradingDay ? (
           <EmptyState icon="📅" title="尚無可用交易日" description="資料尚未收集完成，請稍後再試" />
-        ) : sortedRows.length === 0 ? (
-          <EmptyState
-            icon={data?.dataMissing ? '📅' : '🔍'}
-            title={data?.dataMissing ? '這一天沒有明細資料' : '沒有符合條件的股票'}
-            description={data?.dataMissing ? '請改選其他交易日' : '試著放寬搜尋、MACD／成交量／產業等條件'}
-          />
         ) : (
           <>
             {/* 手機：3 欄常駐 ＋ 可展開列（展開後一次列出全部欄位），不做橫捲資料表。
                 ⚠️ 這裡刻意不用 watchlist 的 overflow-hidden：overflow 非 visible 會讓卡片
                 變成 sticky 表頭的參考容器，而卡片高度＝表格高度，表頭等於完全沒黏住。
-                圓角改由表頭第一／最後一個 th 自己處理。 */}
-            <div className="md:hidden bg-white rounded-lg shadow-sm">{mobileTable}</div>
+                圓角改由表頭第一／最後一個 th 自己處理。
+                「沒有符合條件」要手機、桌機各自判斷：兩邊隱藏無資料列的範圍不同，筆數可能一邊 0 一邊不是。 */}
+            {mobileSortedRows.length === 0 ? (
+              <div className="md:hidden">{mobileEmptyResult}</div>
+            ) : (
+              <div className="md:hidden bg-white rounded-lg shadow-sm">{mobileTable}</div>
+            )}
 
             {/* 桌機 */}
-            {showAll ? (
+            {sortedRows.length === 0 ? (
+              <div className="hidden md:block">{emptyResult}</div>
+            ) : showAll ? (
               <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
                 <p className="px-4 py-2 text-sm text-gray-700 bg-gray-50 border-b border-gray-200">
                   ← 左右捲動查看全部欄位 →（此模式表頭不固定；若想免捲動可切換為分組檢視）

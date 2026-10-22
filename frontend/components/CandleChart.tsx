@@ -12,6 +12,7 @@ import {
   toLineData,
   bbandLine,
 } from '../lib/indicators'
+import { DASH } from '../lib/format'
 
 // 個股會多帶當沖量；大盤沒有（可選）。當沖量保留於資料結構供籌碼區使用，技術圖不再繪製。
 type ChartCandle = Candle & { day_trading_volume?: number }
@@ -50,6 +51,7 @@ function priceRatio(numInd: number, preset: LayoutPreset): number {
 export default function CandleChart({ data, height = 500, volumeFormatter = defaultVolumeFormatter }: CandleChartProps) {
   const priceRef = useRef<HTMLDivElement>(null)
   const indicatorRefs = useRef<(HTMLDivElement | null)[]>([])
+  const readoutRef = useRef<HTMLDivElement>(null) // 手機圖外讀值區（全螢幕算圖高時要扣掉它的高度）
 
   // 免重建即可切換顯示的系列
   const maRefs = useRef<{ ma5?: ISeriesApi<'Line'>; ma10?: ISeriesApi<'Line'>; ma20?: ISeriesApi<'Line'>; ma60?: ISeriesApi<'Line'> }>({})
@@ -90,12 +92,22 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   // 全螢幕：鎖背景捲動、依視窗算高、監聽旋轉/resize（橫向自動適配）
   useEffect(() => {
     if (!isFullscreen) return
-    const compute = () => setFsHeight(Math.max(320, window.innerHeight - 132))
+    // 手機的 MA／指標讀值改放圖外、會多佔幾行 → 一併扣掉，免得圖底被擠出畫面。
+    // 桌機該區是 md:hidden（offsetHeight 為 0），公式與原本相同。
+    const compute = () => {
+      const readoutH = readoutRef.current ? readoutRef.current.offsetHeight : 0
+      setFsHeight(Math.max(320, window.innerHeight - 132 - readoutH))
+    }
     compute()
     window.addEventListener('resize', compute)
+    // 讀值區行數會在全螢幕中改變（打開圖表設定勾布林、增減 MA），只聽 resize 不夠 → 圖底會被擠出畫面。
+    // setFsHeight 值相同時 React 不會重繪，十字線移動不受影響。
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(compute) : null
+    if (ro && readoutRef.current) ro.observe(readoutRef.current)
     document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('resize', compute)
+      ro?.disconnect()
       document.body.style.overflow = ''
     }
   }, [isFullscreen])
@@ -247,6 +259,9 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
       bbRefs.current = {}
       volRef.current = null
       charts.forEach((c) => c.remove())
+      // 圖重建前把游標清掉：remove() 不會送出 crosshairMove(undefined)，不清的話殘留的
+      // 游標日期會被帶到新圖（見下方 curIndex 的說明）
+      setCrosshairTime(null)
     }
   }, [chartData, effHeight, activeIndicators, preset, datePeriod, ma, bb, macd, kd, rsi]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -262,12 +277,30 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
   }, [showBB])
   useEffect(() => { volRef.current?.applyOptions({ visible: showVolume }) }, [showVolume])
 
-  const curIndex = crosshairTime ? chartData.findIndex((d) => d.date === crosshairTime) : chartData.length - 1
+  // ⚠️ 找不到游標日期時一定要退回最後一根，不可讓 cur 變 null：
+  //    換週期（日K→週K）或區間時 chartData 換了，殘留的游標日期在新資料裡可能不存在。
+  //    手機長按出現的十字線放開後仍留著（lightweight-charts 預設 exitMode = OnNextTap），
+  //    圖重建也不會送「游標已清除」事件 → 若 cur 變 null，手機圖外讀值區會整塊卸載、
+  //    下面的圖往上跳約 80px（桌機疊圖讀值也會消失到滑鼠再動為止）。
+  const found = crosshairTime ? chartData.findIndex((d) => d.date === crosshairTime) : -1
+  const curIndex = found >= 0 ? found : chartData.length - 1
   const cur = curIndex >= 0 ? chartData[curIndex] : null
   const prevClose = cur ? (curIndex > 0 ? chartData[curIndex - 1].close : cur.open) : 0
   const chg = cur ? cur.close - prevClose : 0
   const chgPct = prevClose ? (chg / prevClose) * 100 : 0
   const up = chg >= 0
+
+  // 手機圖外讀值用（數值、格式、顏色都與桌機疊圖讀值相同；改一邊記得改另一邊）
+  const maReadout: [string, boolean, (number | null)[], string][] = [
+    ['MA5', showMA5, ma.ma5, 'text-amber-400'],
+    ['MA10', showMA10, ma.ma10, 'text-blue-400'],
+    ['MA20', showMA20, ma.ma20, 'text-pink-400'],
+    ['MA60', showMA60, ma.ma60, 'text-purple-400'],
+  ]
+  const curBB = cur ? bb[curIndex] : null
+  const curMACD = cur ? macd[curIndex] : null
+  const curKD = cur ? kd[curIndex] : null
+  const curRSI = cur ? rsi[curIndex] : null
 
   const btn = (active: boolean) =>
     `px-2.5 md:px-3 py-1 md:py-1.5 text-sm font-medium rounded min-h-[44px] md:min-h-[34px] ${active ? 'bg-blue-600 text-white' : 'bg-[#232733] text-gray-200 hover:bg-[#2d323f]'}`
@@ -348,6 +381,34 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
         </div>
       </div>
 
+      {/* 手機：MA／布林／指標讀值放在圖外（控制列與圖之間），不疊在圖上蓋住 K 棒；
+          桌機仍疊在圖左上（下方 hidden md:contents 那段），兩邊數值同一份、跟著十字線走。
+          ⚠️ 行數只由「勾了哪些」決定：兩欄格線＋游標處沒有值就顯示「—」而不是整項消失，
+          手指拖十字線時這塊高度不變 → 下面的圖不會跟著上下跳。break-words 是極端字級的保險，
+          長數字寧可斷行也不可撐出整頁橫捲。 */}
+      {cur && (
+        <div ref={readoutRef} className="md:hidden grid grid-cols-2 gap-x-3 gap-y-0.5 pb-2 text-sm font-mono text-gray-300 break-words">
+          {maReadout.filter(([, on]) => on).map(([label, , values, color]) => (
+            <span key={label} className={color}>{label} {values[curIndex] != null ? values[curIndex]!.toFixed(1) : DASH}</span>
+          ))}
+          {showBB && (
+            <span className="col-span-2 text-fuchsia-300">
+              BB {curBB ? `${curBB.upper.toFixed(0)}/${curBB.middle.toFixed(0)}/${curBB.lower.toFixed(0)}` : DASH}
+            </span>
+          )}
+          <span className="col-span-2">
+            <span className="text-gray-300">{INDICATOR_LABELS[indicator]}</span>{' '}
+            {indicator === 'macd' && (curMACD
+              ? <><span className="text-blue-400">{curMACD.dif.toFixed(2)}</span> <span className="text-orange-400">{curMACD.macd.toFixed(2)}</span> <span className={curMACD.histogram >= 0 ? 'text-red-400' : 'text-green-400'}>{curMACD.histogram.toFixed(2)}</span></>
+              : DASH)}
+            {indicator === 'kd' && (curKD
+              ? <><span className="text-blue-400">{curKD.k.toFixed(1)}</span> <span className="text-orange-400">{curKD.d.toFixed(1)}</span></>
+              : DASH)}
+            {indicator === 'rsi' && (curRSI != null ? <span className="text-purple-400">{curRSI.toFixed(1)}</span> : DASH)}
+          </span>
+        </div>
+      )}
+
       {/* 圖表 + 左上讀值 */}
       <div className="relative">
         {cur && (
@@ -358,7 +419,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
                 <span className={up ? 'text-red-400' : 'text-green-400'}> {up ? '+' : ''}{chg.toFixed(2)} ({up ? '+' : ''}{chgPct.toFixed(2)}%)</span>
               </span>
               <span>量 <span className="text-gray-300">{volumeFormatter(cur.volume)}</span></span>
-              {/* MA/布林/指標數值：手機版隱藏（避免 legend 太密蓋住 K 棒），桌機顯示 */}
+              {/* MA/布林/指標數值：桌機疊在這裡；手機不疊（太密會蓋住 K 棒），改由上方圖外讀值區顯示 */}
               <span className="hidden md:contents">
                 {(showMA5 && ma.ma5[curIndex] != null) && <span className="text-amber-400">MA5 {ma.ma5[curIndex]!.toFixed(1)}</span>}
                 {(showMA10 && ma.ma10[curIndex] != null) && <span className="text-blue-400">MA10 {ma.ma10[curIndex]!.toFixed(1)}</span>}

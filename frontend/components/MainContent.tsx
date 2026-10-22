@@ -40,6 +40,12 @@ export default function MainContent({ children }: { children: React.ReactNode })
     <main className={`flex-1 min-w-0 transition-all duration-300 pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
       <TopBar />
       {children}
+      {/* 手機頁尾：站名與資料來源原本只在桌機側邊欄，手機不渲染 Sidebar 後就完全看不到。
+          放在 main 裡、children 之後，底部導覽列的留白（上面的 pb-[calc(3.5rem+…)]）在它下方，
+          所以不會被 fixed 導覽列蓋住。淺底用 gray-700 才有足夠對比（視力不佳）。 */}
+      <footer className="md:hidden border-t border-gray-200 px-4 py-4 text-center text-sm font-medium text-gray-700">
+        選股小幫手 · 資料來源：FinMind
+      </footer>
     </main>
   )
 }

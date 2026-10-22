@@ -129,7 +129,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── components/                     # React 元件
 │   │   ├── Sidebar.tsx                 # 側邊導航（hidden md:flex，手機不渲染）
 │   │   ├── TopBar.tsx                  # 置頂搜尋列（手機版右側放登入）
-│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（4 格）
+│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（6 格，與 Sidebar 共用 navItems）
 │   │   ├── AuthButton.tsx              # Google 登入（variant: sidebar | topbar）
 │   │   ├── InfoTip.tsx                 # 說明泡泡（⚠️ 一律 position: fixed）
 │   │   ├── CandleChart.tsx             # K 線主圖
@@ -199,7 +199,7 @@ Claude Code 處理本專案時的指引說明。
 | api/quotes/route.ts | API：報價 |
 | components/Sidebar.tsx | 側邊導航欄（`hidden md:flex`，**手機不渲染**）+ AuthButton |
 | components/TopBar.tsx | 置頂搜尋列；手機版右側放登入 |
-| components/MobileBottomNav.tsx | 手機底部導覽（4 格） |
+| components/MobileBottomNav.tsx | 手機底部導覽（6 格；清單與亮燈規則共用 `Sidebar.tsx` 的 `navItems`／`isNavActive`，改一處兩邊同步） |
 | components/InfoTip.tsx | 說明泡泡（⚠️ 一律 `position: fixed`，見 skill） |
 | components/StockSignals.tsx | 今日訊號（純前端，零額外 API） |
 | components/InstitutionalChart.tsx | 三大法人籌碼圖 |
@@ -228,10 +228,12 @@ Claude Code 處理本專案時的指引說明。
   疊加勾選 MA5／MA10／MA20／MA60／布林／量（預設 MA5、MA10、MA20、量 開）
 - ⛶ 全螢幕（只能按 ✕ 離開，Esc 無效）
 
-**左上讀值**：日期、收、漲跌（%）、量；桌機另外顯示已勾選的 MA、布林與當前指標數值
-（手機隱藏，避免蓋住 K 棒）。
+**讀值**：日期、收、漲跌（%）、量，加上已勾選的 MA、布林與當前指標數值。
+桌機疊在圖左上；**手機改放在控制列與圖之間的圖外讀值區**（兩欄格線，缺值顯示「—」），
+不疊在圖上蓋住 K 棒（2026-10-22 起，之前手機直接隱藏這些數值）。
+⚠️ 游標日期在新資料裡找不到時一律退回最後一根（換週期時殘留的游標會讓讀值整塊消失、圖往上跳）。
 
-**時間軸同步**：主圖與指標圖用 **LogicalRange** 同步（`CandleChart.tsx:208-216`）。
+**時間軸同步**：主圖與指標圖用 **LogicalRange** 同步（`CandleChart.tsx` 的 `subscribeVisibleLogicalRangeChange` 區塊）。
 指標一律用完整資料計算（不 slice），顯示範圍靠 `setVisibleLogicalRange` 控制——
 這是 SKILL.md 地雷 #4「遞迴指標暖身」的解法，**不要改回用區間切資料再算**。
 

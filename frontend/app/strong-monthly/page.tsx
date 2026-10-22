@@ -331,10 +331,19 @@ const TOTAL_W = COL_ORDER.reduce((s, k) => s + COL_W[k], 0)
 /** 釘住左側兩欄（日期＋商品）：橫捲時仍看得到「這一列是哪一檔」 */
 const STICKY_LEFT: Partial<Record<MKey, number>> = { firstDate: 0, stock: COL_W.firstDate }
 
-/** 手機第 3 欄的候選（焦點欄 chip）。橫向捲動的是 44px 高的控制項，不是資料格。
- *  'firstDate' 放第一個：它是預設排序鍵，否則預設被按下的那顆 chip 會落在捲動區外看不到。
- *  兩個「待定義」欄不列入（點了也沒有值可比較）。 */
+/** 手機第 3 欄（焦點欄）的候選。
+ *  兩個「待定義」欄不列入（點了也沒有值可比較）；商品／收盤價也不列入——它們固定在第 1、2 欄。 */
 const MOBILE_FOCUS_KEYS: MKey[] = ['firstDate', 'volume', 'foreignHold', 'trustNet', 'ma5', 'ma10', 'strongDays']
+
+/** 手機固定欄：已經常駐第 1、2 欄，依它們排序時第 3 欄維持原本的焦點欄，不跟著換 */
+const MOBILE_FIXED_KEYS: MKey[] = ['stock', 'close']
+
+/** 手機排序 chip 列＝焦點欄候選＋固定欄，順序沿用桌機欄序（COL_ORDER，單一來源）。
+ *  'firstDate' 因此排第一個：它是預設排序鍵，否則預設被按下的那顆 chip 會落在捲動區外看不到。
+ *  原本只有焦點欄候選 → 手機無法依商品／收盤價排序，桌機點表頭卻可以。 */
+const MOBILE_SORT_KEYS: MKey[] = COL_ORDER.filter(
+  (k) => MOBILE_FIXED_KEYS.includes(k) || MOBILE_FOCUS_KEYS.includes(k)
+)
 
 /** 手機展開列：一次列出全部 12 欄（含兩個「待定義」欄，不可為了省空間把它們藏掉） */
 const DETAIL_KEYS: MKey[] = COL_ORDER
@@ -366,6 +375,12 @@ export default function StrongMonthlyPage() {
    * 冷算要數十秒，讓使用者為了換視窗再等一輪是不可接受的。
    */
   const [trustWindow, setTrustWindow] = useState<TrustWindow>(DEFAULT_TRUST_WINDOW)
+  /**
+   * 手機第 3 欄「上一次」的焦點欄。排序鍵是焦點欄候選時第 3 欄直接跟排序鍵走；
+   * 依商品／收盤價排序時才用到它，讓第 3 欄維持原本的比較欄，而不是跳成某個固定欄。
+   * 初值＝預設排序鍵（日期），即手機預設畫面的第 3 欄。
+   */
+  const [mobileFocus, setMobileFocus] = useState<MKey>(DEFAULT_SORT.key)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const monthTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -404,13 +419,22 @@ export default function StrongMonthlyPage() {
         }
         // 驗證 key 仍存在於現行 registry：否則日後改欄名，舊 storage 會讓比較器
         // 拿到 undefined、整表看起來沒排序卻不報錯
+        let savedSortKey: MKey | undefined
         if (
           f.sort &&
           typeof f.sort.key === 'string' &&
           COL_KEY_SET.has(f.sort.key) &&
           (f.sort.dir === 'asc' || f.sort.dir === 'desc')
         ) {
-          setSort({ key: f.sort.key as MKey, dir: f.sort.dir })
+          savedSortKey = f.sort.key as MKey
+          setSort({ key: savedSortKey, dir: f.sort.dir })
+        }
+        // 與 toggleSort 同一規則：排序鍵本身是焦點欄候選就以它為準；
+        // 否則（依商品／收盤價排序）沿用存下來的焦點欄。舊 storage 沒有 focus 欄位 → 維持初值
+        if (savedSortKey && MOBILE_FOCUS_KEYS.includes(savedSortKey)) {
+          setMobileFocus(savedSortKey)
+        } else if (typeof f.focus === 'string' && MOBILE_FOCUS_KEYS.includes(f.focus as MKey)) {
+          setMobileFocus(f.focus as MKey)
         }
         // 舊 storage 可能沒有這個欄位，或存了不合法的數字 → parseTrustWindow 一律收斂成預設 20
         if (f.trustWindow !== undefined) setTrustWindow(parseTrustWindow(f.trustWindow))
@@ -435,10 +459,10 @@ export default function StrongMonthlyPage() {
     try {
       sessionStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ month, sort, query, industry, minDays, trustWindow })
+        JSON.stringify({ month, sort, query, industry, minDays, trustWindow, focus: mobileFocus })
       )
     } catch {}
-  }, [ready, month, sort, query, industry, minDays, trustWindow])
+  }, [ready, month, sort, query, industry, minDays, trustWindow, mobileFocus])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200)
@@ -474,7 +498,11 @@ export default function StrongMonthlyPage() {
     [COLUMNS, sort]
   )
 
-  const focusKey: MKey = MOBILE_FOCUS_KEYS.includes(effectiveSort.key) ? effectiveSort.key : 'volume'
+  // 手機第 3 欄「顯示什麼」：依商品／收盤價排序時沿用上一次的焦點欄。
+  // ⚠️ 這只決定第 3 欄的內容；chip 的按下狀態一律看 effectiveSort（實際排序依據）。
+  // 原本這裡 fallback 成 'volume'，chip 又用 focusKey 判斷按下 → 依收盤價排序時
+  // 「成交量」看起來是按下的還帶 ▼，表格卻是依收盤價排的。
+  const focusKey: MKey = MOBILE_FOCUS_KEYS.includes(effectiveSort.key) ? effectiveSort.key : mobileFocus
 
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
@@ -499,6 +527,20 @@ export default function StrongMonthlyPage() {
     })
   }, [COLUMNS, filteredRows, effectiveSort])
 
+
+  // 還原記住的排序後，把「按下的那顆」排序按鈕捲進可見範圍：按鈕列在 375px 只露出前三、四顆，
+  // 被按下的若在捲動區外，畫面上看不出現在依什麼排。只調整按鈕列自己的 scrollLeft——
+  // 不可用 scrollIntoView，它會連整頁一起上下捲。
+  const chipRowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = chipRowRef.current
+    const btn = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (!row || !btn) return
+    const r = row.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    if (b.left < r.left || b.right > r.right) row.scrollLeft += b.left - r.left - 16
+  }, [effectiveSort.key, effectiveSort.dir, sortedRows.length])
+
   const nullCount = useMemo(() => {
     const col = COLUMNS[effectiveSort.key] ?? COLUMNS.firstDate
     return sortedRows.filter((r) => col.sortValue(r) == null).length
@@ -521,6 +563,8 @@ export default function StrongMonthlyPage() {
   // 只有兩態（desc ⇄ asc）：多一個看不見的狀態對視力不佳者是負擔
   const toggleSort = (key: MKey) => {
     if (!COLUMNS[key].sortable) return
+    // 桌機點表頭也走這裡：在平板橫放排過成交量再轉直，手機第 3 欄才會是成交量
+    if (MOBILE_FOCUS_KEYS.includes(key)) setMobileFocus(key)
     setSort(
       effectiveSort.key === key
         ? { key, dir: effectiveSort.dir === 'desc' ? 'asc' : 'desc' }
@@ -539,6 +583,10 @@ export default function StrongMonthlyPage() {
 
   const ctx: Ctx = { compact: false }
   const ctxCompact: Ctx = { compact: true }
+
+  /** 手機表頭的 aria-sort：表頭本身不可點（排序靠上方 chip），但仍要讓報讀器知道目前依哪一欄排 */
+  const mobileAriaSort = (key: MKey): 'ascending' | 'descending' | undefined =>
+    effectiveSort.key === key ? (effectiveSort.dir === 'desc' ? 'descending' : 'ascending') : undefined
 
   /* --------------------------- 表格片段 --------------------------- */
 
@@ -648,22 +696,31 @@ export default function StrongMonthlyPage() {
       <caption className="sr-only">{captionText}</caption>
       {/* ⚠️ 第 3 欄（焦點欄）要放得下最寬的數值：投信累計實測最大 "+168,836"（8 字元，
           375px 下約 90px 含左右 padding）。原本 34%/26% 只留約 98px 給第 3 欄，
-          會把數字截成「+168,8…」——一個被截斷的金額比沒有還糟。改成 31%/23% 後約 120px。 */}
+          會把數字截成「+168,8…」——一個被截斷的金額比沒有還糟。改成 31%/23% 後約 120px。
+          之後第 2 欄要多放兩行標明的日期（「收盤 09/24」「首次 09/03」，text-sm 約 79px），
+          31%/23% 在 375px 只剩 63px、會擠成兩行 → 改 26%/28%＋第 2 欄 px-1（375px 約 88px、
+          360px 約 84px）。第 1＋2 欄合計仍是 54%，第 3 欄寬度完全不變；第 1 欄剩約 73px，
+          四字股名（16px × 4）放得下，更長的照舊 truncate（title 有全名）。 */}
       <colgroup>
-        <col className="w-[31%]" />
-        <col className="w-[23%]" />
+        <col className="w-[26%]" />
+        <col className="w-[28%]" />
         <col />
         <col className="w-[48px]" />
       </colgroup>
       <thead className="bg-gray-50">
         <tr>
-          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 rounded-tl-lg px-2 py-3 text-left text-sm font-medium text-gray-700">
+          {/* 不再有 rounded-t：卡片頂端改由上方的日期說明列承接，表頭圓角會在說明列下緣露出白角 */}
+          <th scope="col" aria-sort={mobileAriaSort('stock')} className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-left text-sm font-medium text-gray-700">
             商品
           </th>
-          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-right text-sm font-medium text-gray-700">
+          <th scope="col" aria-sort={mobileAriaSort('close')} className="sticky top-[65px] z-10 bg-gray-50 px-1 py-3 text-right text-sm font-medium text-gray-700">
             收盤價
           </th>
-          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-right text-sm font-medium text-gray-700">
+          <th
+            scope="col"
+            aria-sort={mobileAriaSort(focusKey)}
+            className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-right text-sm font-medium text-gray-700"
+          >
             {/* 焦點欄的參數（近 N 日）在手機上同樣要看得到，不可只留「投信買賣超累計」。
                 表頭允許換行（不 truncate）：欄名被截成「投信買…」等於沒說清楚是累計還是持股。 */}
             <span className="block leading-tight break-words">{COLUMNS[focusKey].header}</span>
@@ -672,8 +729,13 @@ export default function StrongMonthlyPage() {
                 {COLUMNS[focusKey].subHeader}
               </span>
             )}
+            {/* 「日期」是 Word 月報的欄名、桌機表頭照用；但手機第 2 欄底下另有「收盤」日期，
+                只寫「日期」會分不出是哪一天 → 手機另補一行說明（不改 registry，桌機表頭不變） */}
+            {focusKey === 'firstDate' && (
+              <span className="block text-xs font-normal text-gray-700 leading-tight">首次入選</span>
+            )}
           </th>
-          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 rounded-tr-lg px-0 py-3 text-center">
+          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 px-0 py-3 text-center">
             <span className="sr-only">展開全部欄位</span>
           </th>
         </tr>
@@ -686,17 +748,36 @@ export default function StrongMonthlyPage() {
               <tr className="hover:bg-gray-50 focus-within:bg-gray-50">
                 <td className="px-2 py-3">
                   <Link href={`/stock/${r.stockId}`} className="block min-h-[44px] hover:text-blue-600">
-                    <span className="block font-medium text-gray-900 truncate" title={r.stockName || r.stockId}>
+                    {/* 長股名折兩行而不是截斷：第 1 欄縮到 26% 後，375px 下被截的股名從 4 檔變 33 檔
+                        （亞德客-KY、日月光投控、台新新光金…），手機看不到 title 提示。第 2 欄本來就是
+                        三行（價格／收盤／首次），股名折成兩行不會讓列變高。 */}
+                    <span className="block font-medium text-gray-900 line-clamp-2 [overflow-wrap:anywhere]" title={r.stockName || r.stockId}>
                       {r.stockName || r.stockId}
                     </span>
                     <span className="block text-sm text-gray-700 tabular-nums">{r.stockId}</span>
                   </Link>
                 </td>
-                <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">
+                <td className="px-1 py-3 text-right whitespace-nowrap tabular-nums">
                   {COLUMNS.close.render(r, ctxCompact)}
-                  {/* 第 3 欄就是「日期」時不重複顯示（那欄已經是同一個值） */}
+                  {/* ⚠️ 同一列有兩個基準日：收盤價是「最後一次」入選日的價格，但原本這裡只印
+                      「MM/DD 起」（第一次入選日），緊貼在價格下方很容易被讀成價格的日期。兩行各自標明：
+                      「收盤」＝這個價格的日期、「首次」＝當月第一次入選日。
+                      日期右緣對齊（標籤同為兩字），字級維持 text-sm 不縮。
+                      whitespace-normal：窄螢幕或放大時允許在標籤與日期之間換行，
+                      日期本身 nowrap，絕不切成「09/」「24」，也不溢出到第 3 欄。 */}
+                  <span className="block whitespace-normal text-sm text-gray-700" title={`收盤價的日期：${r.lastDate}（當月最後一次入選）`}>
+                    收盤 <span className="whitespace-nowrap">{fmtMd(r.lastDate)}</span>
+                    <span className="sr-only">，此收盤價的日期，為當月最後一次入選日</span>
+                  </span>
+                  {/* 第 3 欄就是「日期」時不重複顯示：那欄是同一個值，且手機表頭已補「首次入選」，
+                      兩個日期仍各自有標明，不會混淆 */}
                   {focusKey !== 'firstDate' && (
-                    <span className="block text-sm text-gray-700">{fmtMd(r.firstDate)} 起</span>
+                    // mt-1：放大字級或 320px 時「標籤」與「日期」可能各自換行，兩組之間留空隙才分得出
+                    // 哪個日期配哪個標籤（否則「收盤／09/24／首次／09/03」四行等距排列，看不出配對）
+                    <span className="block mt-1 whitespace-normal text-sm text-gray-700" title={`當月第一次入選：${r.firstDate}`}>
+                      首次 <span className="whitespace-nowrap">{fmtMd(r.firstDate)}</span>
+                      <span className="sr-only">，當月第一次入選日</span>
+                    </span>
                   )}
                 </td>
                 {/* overflow-hidden 保底（table-fixed 下超寬內容會溢出欄），但不加 truncate：
@@ -1015,15 +1096,18 @@ export default function StrongMonthlyPage() {
           </div>
         </div>
 
-        {/* 手機：焦點欄 chip 列。橫向捲動的是 44px 高的控制項，不是資料格。
-            兩個「待定義」欄不列入（點了也沒有值可比較）。 */}
+        {/* 手機：排序 chip 列。橫向捲動的是 44px 高的控制項，不是資料格。
+            兩個「待定義」欄不列入（點了也沒有值可比較）。
+            點焦點欄候選＝第 3 欄換成該欄並依它排序；點商品／收盤價＝只排序，第 3 欄不換
+            （它們本來就在第 1、2 欄）。點同一顆＝翻轉方向。 */}
         <div className="md:hidden mb-3">
           <div id="monthly-focus-label" className="text-sm text-gray-700 mb-1">
-            比較欄位（點選即排序）
+            排序依據（點選即排序，再點一次反轉）
           </div>
-          <div className="-mx-4 px-4 pb-1 flex gap-2 overflow-x-auto snap-x" role="group" aria-labelledby="monthly-focus-label">
-            {MOBILE_FOCUS_KEYS.map((k) => {
-              const on = focusKey === k
+          <div ref={chipRowRef} className="-mx-4 px-4 pb-1 flex gap-2 overflow-x-auto snap-x" role="group" aria-labelledby="monthly-focus-label">
+            {MOBILE_SORT_KEYS.map((k) => {
+              // 按下狀態＝實際排序依據，不是「第 3 欄顯示什麼」（見 focusKey 的註解）
+              const on = effectiveSort.key === k
               return (
                 <button
                   key={k}
@@ -1038,7 +1122,15 @@ export default function StrongMonthlyPage() {
                   {COLUMNS[k].subHeader && (
                     <span className="text-xs"> {COLUMNS[k].subHeader}</span>
                   )}
+                  {/* 每列有「收盤」「首次」兩個日期，最顯眼的是收盤日；不補這兩字會被當成依收盤日排序。
+                      只改手機按鈕，桌機表頭維持「日期」 */}
+                  {k === 'firstDate' && !COLUMNS[k].subHeader && <span className="text-xs"> 首次入選</span>}
                   {on && <span aria-hidden="true"> {effectiveSort.dir === 'desc' ? '▼' : '▲'}</span>}
+                  {on && (
+                    <span className="sr-only">
+                      ，目前{effectiveSort.dir === 'desc' ? '由大到小' : '由小到大'}排序，再按一次反轉
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -1111,7 +1203,18 @@ export default function StrongMonthlyPage() {
             {/* 手機：3 欄常駐 ＋ 可展開列（展開後一次列出全部 12 欄），不做橫捲資料表。
                 ⚠️ 不可加 overflow-hidden：overflow 非 visible 會讓卡片變成 sticky 表頭的
                 參考容器，而卡片高度＝表格高度，表頭等於完全沒黏住。 */}
-            <div className="md:hidden bg-white rounded-lg shadow-sm">{mobileTable}</div>
+            <div className="md:hidden bg-white rounded-lg shadow-sm">
+              {/* 對應桌機表格上方的提示列：手機摘要列把兩個基準日擠在同一格，先講清楚各是什麼 */}
+              <p className="px-3 py-2 text-sm text-gray-700 bg-gray-50 border-b border-gray-200 rounded-t-lg">
+                收盤價下方的「收盤」是這個價格的日期（當月<strong>最後一次</strong>入選），
+                {/* 文字不可跨行寫：JSX 會把換行變成空格，「。」後面多一格 */}
+                {focusKey === 'firstDate' ? '第 3 欄「日期」' : '「首次」'}是當月<strong>第一次</strong>入選日。點右側
+                <span aria-hidden="true"> ▾ </span>
+                <span className="sr-only">展開鈕</span>
+                可看全部 12 欄。
+              </p>
+              {mobileTable}
+            </div>
 
             {/* 桌機：12 欄天生約 1400px，任何常見視窗都會溢出 →
                 一律把橫向與縱向都關在表格自己的捲動容器裡（不做 xl 以上放行的斷點），

@@ -43,14 +43,14 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 
 ## 前端 UI / RWD 慣例（2026-08-13，⚠️ 多數已被下方 P0 改版取代，僅保留脈絡）
 - **手機版一律用 Tailwind `md:` 斷點做「桌機常駐／手機收合」**（不做 JS 量視窗）：
-  - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（現已更名「⚙️ 圖表設定」）（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值用 `hidden md:contents` 手機隱藏（只留 日期/收/量）。觸控目標（**現已全面改 44px**）、checkbox `w-4 h-4 md:w-3.5`。
+  - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（現已更名「⚙️ 圖表設定」）（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值：~~手機隱藏~~ **2026-10-22 起手機改放圖外讀值區**（桌機仍疊在圖上，見 CLAUDE.md K 線圖段）。觸控目標（**現已全面改 44px**）、checkbox `w-4 h-4 md:w-3.5`。
   - `StockDetailClient`：三大法人明細手機預設收合（`showInst` state +「展開/收合」鈕 `md:hidden`；grid `${showInst?'grid':'hidden'} md:grid`），卡片 `p-4 md:p-6`。
   - ~~`Sidebar` 手機標題 `pl-10`~~：**已失效**——P0 後 ☰ 移到 `TopBar`、抽屜關閉鈕改在抽屜內。
   - ~~首頁 `IndexCard`~~：**已移除**（重複顯示加權），改為跟著分頁的精簡數據列 `IndexStatStrip`。
 - **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
 
 ### P0 UI/UX 改版（2026-08-18，已上線；以下取代上方部分 2026-08-13 慣例）
-- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、首頁/強勢/選股/自選、safe-area、active 藍、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
+- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、**2026-10-22 起 6 格：首頁/強勢/總表/月報/選股/自選**，與 Sidebar 共用 `navItems`、safe-area、active 藍、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
 - **Header 去雙層**：舊「全域 `TopBar` + 每頁 `<header bg-white shadow-sm>`」= 雙層。各頁改用 `states.tsx` 的 **`PageHeader`**（輕量標題、非白底 shadow bar）；`TopBar` 降高去 shadow、移除浮動漢堡的 `pl-16`。
 - **搜尋**：`StockSearchOptimized` 已是 instant（debounce/dropdown/鍵盤/點外關閉），**移除了「查詢」按鈕**。
 - **個股頁 header**：`← [名稱大] [代碼灰] … [☆加入自選] [🔔到價提醒]`；`WatchlistButton`（**原死碼、現已啟用**）接既有 `user_watchlists` 後端。股價階層：大字價格 `text-4xl md:text-5xl` + `▲▼` 漲跌 + 次要「日期·成交量」；金融數字加 `tabular-nums`。
@@ -216,7 +216,7 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
 
 **導覽**：Sidebar 第 6 項（🗓️ 強勢月報），並加了兩個輕量區段小標（「強勢股」/「工具」）把三個
 同前綴的項目收成一組。路由 **不可以 `/strong-stocks` 或 `/strong-table` 開頭**（isActive 是
-`startsWith`，會雙亮）。MobileBottomNav 維持 4 格，只把 isActive 併進「強勢」那顆。
+`startsWith`，會雙亮）。~~MobileBottomNav 維持 4 格，只把 isActive 併進「強勢」那顆。~~ **2026-10-22 改 6 格**，與 Sidebar 共用 `navItems`，每格只在自己的頁面亮，不再合併。
 三者是**同一層**：前兩者是「某一交易日」的兩種呈現，月報是「某一個月」的彙整。
 
 **共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`）與

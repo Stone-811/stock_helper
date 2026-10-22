@@ -39,9 +39,11 @@ export async function GET(request: Request) {
           volume: Number(s.volume ?? 0),
           prev_close: prevClose[id],
           macd_status: s.macd_status ? String(s.macd_status) : undefined,
-          foreign_streak: Number(s.foreign_streak ?? 0),
-          trust_streak: Number(s.trust_streak ?? 0),
-          foreign_buy: Number(s.foreign_buy ?? 0),
+          // ⚠️ 缺值保留「沒有」，不可 ?? 0：連買天數 0 是「今天沒連買」的有效值，
+          //    自選股的「今日訊號」要靠這個分辨「確定沒有訊號」與「資料不足、無法判斷」。
+          foreign_streak: s.foreign_streak == null ? undefined : Number(s.foreign_streak),
+          trust_streak: s.trust_streak == null ? undefined : Number(s.trust_streak),
+          foreign_buy: s.foreign_buy == null ? undefined : Number(s.foreign_buy),
         }
       }
     }

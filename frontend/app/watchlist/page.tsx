@@ -11,7 +11,8 @@ import {
   WatchlistItem
 } from '../../lib/firebase'
 import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
-import { computeSignals } from '../../lib/signals'
+import { NullCell, TableScroll } from '../../components/table'
+import { computeSignals, type Signal } from '../../lib/signals'
 
 interface Quote {
   stock_id: string
@@ -27,6 +28,22 @@ interface Quote {
 
 interface WatchlistStock extends WatchlistItem {
   latestData?: Quote
+}
+
+/**
+ * 今日訊號標籤：手機卡片與桌機表格共用這一段渲染。
+ * 以前只有手機卡片有標籤、桌機表格沒有，兩邊各寫一份遲早又會長得不一樣，所以抽出來。
+ * 沒有訊號時回傳 null：手機卡片維持原本「不顯示」，桌機表格由呼叫端自己補「無」。
+ */
+function SignalChips({ signals, className = '' }: { signals: Signal[]; className?: string }) {
+  if (!signals.length) return null
+  return (
+    <div className={`flex flex-wrap gap-1 ${className}`}>
+      {signals.map((s, i) => (
+        <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{s.icon} {s.text}</span>
+      ))}
+    </div>
+  )
 }
 
 export default function WatchlistPage() {
@@ -206,16 +223,7 @@ export default function WatchlistPage() {
                         </div>
                       </div>
                     </div>
-                    {(() => {
-                      const sigs = computeSignals(stock.latestData)
-                      return sigs.length ? (
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {sigs.map((s, i) => (
-                            <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{s.icon} {s.text}</span>
-                          ))}
-                        </div>
-                      ) : null
-                    })()}
+                    <SignalChips signals={computeSignals(stock.latestData)} className="mb-2" />
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                       <span className="text-sm text-gray-700">
                         成交量 {stock.latestData?.volume.toLocaleString() || '-'}
@@ -232,71 +240,103 @@ export default function WatchlistPage() {
               })}
             </div>
 
-            {/* 桌面版：表格佈局 */}
+            {/* 桌面版：表格佈局
+                加了「今日訊號」欄後，md 斷點＋展開的側欄（內容區約 480px）放不下六欄 →
+                溢出一律關進 TableScroll（overflow-x-auto + [contain:paint]），不可讓整頁橫捲
+                （fixed Sidebar 不跟著捲，會蓋住第一欄的股名）。
+                ⚠️ 這個容器裡不可放 InfoTip：fixed 泡泡會被 [contain:paint] 裁掉。 */}
             <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">股票</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">收盤價</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">漲跌</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">成交量</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {stocks.map((stock) => {
-                    const base = stock.latestData
-                      ? (stock.latestData.prev_close && stock.latestData.prev_close > 0 ? stock.latestData.prev_close : stock.latestData.open)
-                      : 0
-                    const change = stock.latestData ? stock.latestData.close - base : 0
-                    const changePercent = base > 0 ? (change / base) * 100 : 0
-                    const isPositive = change >= 0
+              <TableScroll label="自選股表格，視窗較窄時可左右捲動">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">股票</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">收盤價</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">漲跌</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">成交量</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">今日訊號</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {stocks.map((stock) => {
+                      const base = stock.latestData
+                        ? (stock.latestData.prev_close && stock.latestData.prev_close > 0 ? stock.latestData.prev_close : stock.latestData.open)
+                        : 0
+                      const change = stock.latestData ? stock.latestData.close - base : 0
+                      const changePercent = base > 0 ? (change / base) * 100 : 0
+                      const isPositive = change >= 0
+                      const sigs = computeSignals(stock.latestData)
 
-                    return (
-                      <tr key={stock.stock_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <Link
-                            href={`/stock/${stock.stock_id}`}
-                            className="hover:text-blue-600"
-                          >
-                            <div className="font-medium text-gray-900">{stock.stock_name}</div>
-                            <div className="text-sm text-gray-700">{stock.stock_id}</div>
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`font-medium ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
-                            {stock.latestData?.close.toFixed(2) || '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={isPositive ? 'text-red-600' : 'text-green-600'}>
+                      return (
+                        <tr key={stock.stock_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <Link
+                              href={`/stock/${stock.stock_id}`}
+                              className="hover:text-blue-600"
+                            >
+                              {/* nowrap：多了訊號欄後表格變寬，auto 版面會先擠能斷行的中文股名，
+                                  「國泰永續高股息」會在字中間折行；寧可交給外層 TableScroll 橫捲 */}
+                              <div className="font-medium text-gray-900 whitespace-nowrap">{stock.stock_name}</div>
+                              <div className="text-sm text-gray-700 whitespace-nowrap">{stock.stock_id}</div>
+                            </Link>
+                          </td>
+                          {/* 沒報價時三格一律用 NullCell「—」且不上色：原本是紅色的「-」
+                              （change 為 0 時 isPositive 成立），跟訊號欄的「—」並排會像兩種意思 */}
+                          <td className="px-4 py-3 text-right">
                             {stock.latestData ? (
-                              <>
+                              <span className={`font-medium ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
+                                {stock.latestData.close.toFixed(2)}
+                              </span>
+                            ) : <NullCell title="無報價資料" />}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {stock.latestData ? (
+                              <span className={isPositive ? 'text-red-600' : 'text-green-600'}>
                                 {isPositive ? '+' : ''}{change.toFixed(2)}
                                 <span className="text-sm ml-1">
                                   ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
                                 </span>
-                              </>
-                            ) : '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right text-gray-600">
-                          {stock.latestData?.volume.toLocaleString() || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => handleRemove(stock.stock_id)}
-                            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
-                          >
-                            移除
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                              </span>
+                            ) : <NullCell title="無報價資料" />}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-600">
+                            {stock.latestData ? stock.latestData.volume.toLocaleString() : <NullCell title="無報價資料" />}
+                          </td>
+                          {/* 三種狀態要分得出來：
+                              沒報價（API 失敗或當日無此股）＝不知道有沒有訊號 → NullCell「—」
+                              有報價但 MACD／連買資料不齊（新上市暖身不足、當年度年初）＝無法判斷 → NullCell「—」
+                              資料齊全且沒有訊號 ＝ 確定今天沒有 → 「無」
+                              （/api/quotes 已改為缺值不轉 0，才分得出後兩種）
+                              空白格會被誤以為壞掉，所以兩種都不可留白。
+                              whitespace-nowrap 讓單一標籤不在字中間折行（「外資連/買3日」很難讀），
+                              標籤之間仍可換行；max-w 限制本欄最寬約兩個標籤，
+                              免得一列有 4 個訊號就把收盤價、漲跌欄擠到折行。 */}
+                          <td className="px-4 py-3">
+                            {!stock.latestData ? (
+                              <NullCell title="無報價資料，無法判斷今日訊號" />
+                            ) : !sigs.length && (stock.latestData.macd_status == null || stock.latestData.foreign_streak == null || stock.latestData.trust_streak == null) ? (
+                              <NullCell title="MACD 或法人連買資料不齊，無法判斷今日訊號" />
+                            ) : sigs.length ? (
+                              <SignalChips signals={sigs} className="whitespace-nowrap max-w-[18rem]" />
+                            ) : (
+                              <span className="text-sm text-gray-700">無</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => handleRemove(stock.stock_id)}
+                              className="px-3 min-h-[44px] whitespace-nowrap text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              移除
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </TableScroll>
             </div>
           </>
         )}

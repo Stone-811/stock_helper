@@ -130,8 +130,8 @@ export default function StrongStocksPage() {
       <PageHeader title="強勢股列表" />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* 檢視切換：同一份資料的兩種呈現（卡片／表格）。
-            表格頁不進手機底部導覽，靠這裡一鍵過去。 */}
+        {/* 檢視切換：同一份資料的兩種呈現（卡片／表格）。底部導覽與側邊欄也都有總表、月報，
+            這裡是就地切換的捷徑（2026-10-22 手機底部導覽改 6 格後，不再是手機唯一入口）。 */}
         <div className="flex flex-wrap gap-2 mb-4">
           <span
             aria-current="page"

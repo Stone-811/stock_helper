@@ -38,3 +38,10 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/* 可用鍵盤 Tab 進去捲動的表格區（components/table.tsx 的 TableScroll）：焦點框畫在內側。
+   外層常有 overflow-hidden 用來裁圓角，畫在外側的預設焦點框會被整圈裁掉、Tab 停上去什麼都看不到。 */
+[role="region"][tabindex]:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}

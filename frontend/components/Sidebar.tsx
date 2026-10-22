@@ -5,27 +5,41 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import AuthButton from './AuthButton'
 
-interface NavItem {
+export interface NavItem {
   href: string
+  /** 全名：桌機側邊欄顯示；手機底部導覽拿來當 aria-label／title */
   label: string
+  /** 手機底部導覽的兩字標籤（320px 寬要擠 6 格，每格約 53px）。
+   *  ⚠️ 必須是 label 的子字串：aria-label 用全名時，語音控制說畫面上的字才點得到（WCAG 2.5.3） */
+  shortLabel: string
   icon: string
   /** 區段標題：三個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
   section?: string
 }
 
-const navItems: NavItem[] = [
-  { href: '/', label: '首頁', icon: '📊' },
-  { href: '/strong-stocks', label: '強勢股', icon: '🔥', section: '強勢股' },
-  // ⚠️ 路徑刻意不以 '/strong-stocks' 開頭：下方 isActive 是 pathname.startsWith(href)，
+// 桌機側邊欄與手機底部導覽（MobileBottomNav）共用這一份：兩邊的順序、目的地、圖示
+// 曾經各寫一份而分岔（手機少了總表與月報），改成單一來源後新增頁面只要改這裡。
+export const navItems: NavItem[] = [
+  { href: '/', label: '首頁', shortLabel: '首頁', icon: '📊' },
+  { href: '/strong-stocks', label: '強勢股', shortLabel: '強勢', icon: '🔥', section: '強勢股' },
+  // ⚠️ 路徑刻意不以 '/strong-stocks' 開頭：下方 isNavActive 是 pathname.startsWith(href)，
   //    取名 /strong-stocks-table 或 /strong-stocks/table 都會讓「強勢股」與本項同時亮起。
-  { href: '/strong-table', label: '強勢總表', icon: '📋' },
+  { href: '/strong-table', label: '強勢總表', shortLabel: '總表', icon: '📋' },
   // 月報與上面兩項**同一層、不是總表的子頁**：前兩者是「某一個交易日」的兩種呈現，
   // 月報是「某一個月」的彙整（主鍵與粒度都不同）。做成子路由會同時點亮兩個導覽項。
   // 圖示刻意用 🗓️（與 🔥/📋 形狀差異大）：縮排模式下只剩圖示可辨識。
-  { href: '/strong-monthly', label: '強勢月報', icon: '🗓️' },
-  { href: '/screener', label: '選股', icon: '🔍', section: '工具' },
-  { href: '/watchlist', label: '自選股', icon: '⭐' },
+  { href: '/strong-monthly', label: '強勢月報', shortLabel: '月報', icon: '🗓️' },
+  { href: '/screener', label: '選股', shortLabel: '選股', icon: '🔍', section: '工具' },
+  { href: '/watchlist', label: '自選股', shortLabel: '自選', icon: '⭐' },
 ]
+
+/** 判斷是否為當前路徑（或子路徑）；桌機與手機導覽共用同一條亮燈規則 */
+export function isNavActive(pathname: string, href: string) {
+  if (href === '/') {
+    return pathname === '/'
+  }
+  return pathname.startsWith(href)
+}
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -49,14 +63,6 @@ export default function Sidebar() {
     }))
   }
 
-  // 判斷是否為當前路徑（或子路徑）
-  const isActive = (href: string) => {
-    if (href === '/') {
-      return pathname === '/'
-    }
-    return pathname.startsWith(href)
-  }
-
   return (
     <>
       {/* Sidebar：**桌機專屬**（2026-09-28 起手機完全不渲染）。
@@ -73,13 +79,17 @@ export default function Sidebar() {
         {/* Logo/標題 + 縮排/關閉按鈕 */}
         <div className={`border-b border-[#2a2a3e] ${isCollapsed ? 'md:p-2' : 'p-6'} relative`}>
           <div>
+            {/* 站名與分頁標題、加入主畫面的名稱、手機頁尾統一叫「選股小幫手」。
+                原本的英文副標「Taiwan Stock Analysis」拿掉：別處都沒有這個說法，
+                留著只是多一行灰色小字要辨識。縮排模式（80px 寬）照舊只放圖示，
+                但補上 sr-only 站名，螢幕閱讀器才不會把整站標題念成「長條圖」。 */}
             {isCollapsed ? (
-              <h1 className="text-white text-2xl font-bold text-center">📊</h1>
+              <h1 className="text-white text-2xl font-bold text-center" title="選股小幫手">
+                <span aria-hidden="true">📊</span>
+                <span className="sr-only">選股小幫手</span>
+              </h1>
             ) : (
-              <>
-                <h1 className="text-white text-xl font-bold">台股分析系統</h1>
-                <p className="text-gray-300 text-sm mt-1">Taiwan Stock Analysis</p>
-              </>
+              <h1 className="text-white text-xl font-bold">選股小幫手</h1>
             )}
           </div>
 
@@ -122,7 +132,7 @@ export default function Sidebar() {
                   transition-colors duration-200
                   ${isCollapsed ? 'md:justify-center md:px-2' : ''}
                   ${
-                    isActive(item.href)
+                    isNavActive(pathname, item.href)
                       ? 'bg-blue-600 text-white'
                       : 'text-gray-300 hover:bg-[#2a2a3e] hover:text-white'
                   }
