@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
 """
-一次性回補：把外資持股張數（foreign_hold_shares）與已發行張數（shares_issued）
-補進既有的 daily_data，讓「月度強勢商品篩選」頁面不必等新資料累積。
+回補外資持股五欄：外資持股比例、外資尚可投資比例、外資投資上限（三個比例），
+以及外資持股張數、已發行張數，補進既有的 daily_data。
 
-背景
-----
-收集器原本只保留 TaiwanStockShareholding 的三個「比例」欄位，2026-09-28 才加上
-ForeignInvestmentShares（外資持股股數）與 NumberOfSharesIssued（已發行股數）。
-新程式只對之後的收集生效，既有日期沒有這兩欄 → 月報的「籌碼(外資)」整欄會是「—」。
+兩種情境都用這支
+----------------
+1. 欄位是新加的：收集器 2026-09-28 才開始存「外資持股張數／已發行張數」，之前的日期連 key 都沒有。
+2. 當天收集時 FinMind 還沒發布：收集器照規則寫 key + null、回報成功、不告警。
+   2026-10-21 就是這樣——22:00 那班跑完時 FinMind 的外資持股還是 0 筆，整個市場五欄都是 null，
+   隔天才有資料。（原本 SKILL.md 地雷 #1 認為「22:00 收就沒事」，這天證明不成立。）
 
 安全設計
 --------
-* 權威來源是 FinMind 該日整批 TaiwanStockShareholding，與收集器同一支 API、同樣的
-  股→張換算（//1000 向零取整）。
-* **只補「目前沒有這兩個欄位」的股票**；已有值的一律不動（可重跑、冪等）。
-* 某日 FinMind 回 0 筆（API 暫時失敗）→ 整日跳過，不會把全市場清成 null。
-* 未被 FinMind 涵蓋的股票**保持沒有這個欄位**（前端顯示「—」），不寫 0。
+* 權威來源是 FinMind 該日整批 TaiwanStockShareholding，與收集器同一支 API、同樣的換算：
+  三個比例照原值轉數字；兩個張數欄「股 → 張」//1000 向零取整（stock_collector._process_shareholding_data）。
+* **「缺」＝沒有 key 或值是 None**，兩者都補；已經有值的一律不動（可重跑、冪等）。
+  ⚠️ 只檢查 key 存不存在是不夠的：情境 2 的日子 key 都在、值是 None，presence check 永遠補不到。
+* 五欄**各自獨立**：FinMind 某一欄是空的，不會連累其他欄。
+* 某日 FinMind 回 0 筆（API 暫時失敗或還沒發布）→ 整日跳過，不會把全市場清成 null。
+* 未被 FinMind 涵蓋的股票保持 null（前端顯示「—」），不寫 0。
+* 只改 Firestore daily_data，不重跑收集：所以**不會**順便用舊資料檢查到價提醒、
+  不會動 MACD／連買天數、不會改年度檔（外資持股沒有被任何年度檔計算用到）。
 * 預設 DRY-RUN，--write 才實際寫入；寫入前自動備份原始 chunks 到 logs/。
 
 用法
 ----
-  python3 scripts/backfill_foreign_hold_shares.py                 # 稽核 + dry-run
-  python3 scripts/backfill_foreign_hold_shares.py --write         # 實際回補
+  python3 scripts/backfill_foreign_hold_shares.py                      # 全部日期稽核 + dry-run
+  python3 scripts/backfill_foreign_hold_shares.py --date 2026-10-21    # 只看某一天
+  python3 scripts/backfill_foreign_hold_shares.py --date 2026-10-21 --write
   python3 scripts/backfill_foreign_hold_shares.py --month 2026-09 --write
 """
 import os
 import sys
 import json
+import math
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -37,7 +44,14 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(ROOT / '.env')
 
-FIELDS = ('foreign_hold_shares', 'shares_issued')
+# 我方欄位 ← FinMind 欄位、型別
+FIELDS = {
+    'foreign_hold_ratio':   ('ForeignInvestmentSharesRatio', 'ratio'),
+    'foreign_remain_ratio': ('ForeignInvestmentRemainRatio', 'ratio'),
+    'foreign_limit_ratio':  ('ForeignInvestmentUpperLimitRatio', 'ratio'),
+    'foreign_hold_shares':  ('ForeignInvestmentShares', 'lots'),
+    'shares_issued':        ('NumberOfSharesIssued', 'lots'),
+}
 
 
 def get_api():
@@ -49,33 +63,50 @@ def get_api():
     return api
 
 
+def _norm_sid(v) -> str:
+    """與 firebase_writer._norm_stock_id 同一條規則（0050 曾被讀成 50）。"""
+    sid = str(v).strip()
+    return sid.zfill(4) if 0 < len(sid) < 4 else sid
+
+
+def _convert(v, kind):
+    """與收集器相同的換算；無法轉數字或是 NaN 一律回 None（不補 0）。"""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(x):
+        return None
+    return x if kind == 'ratio' else int(x) // 1000   # 股 → 張，向零取整（全站慣例）
+
+
+def _missing(stock: dict, field: str) -> bool:
+    """沒有 key 或值為 None 都算缺。⚠️ 0 不算缺。"""
+    return stock.get(field) is None
+
+
 def fetch_day(api, date):
-    """回傳 {stock_id: (外資持股張, 發行張)}；抓不到或空的回 None（呼叫端必須跳過）。"""
+    """回傳 {stock_id: {欄位: 值}}，只含 FinMind 有值的欄位；抓不到或空的回 None（呼叫端必須跳過）。"""
     try:
         df = api.taiwan_stock_shareholding(start_date=date, end_date=date)
     except Exception as e:
         print(f"    ⚠️ {date} 抓取失敗，跳過：{e}")
         return None
-    if df is None or len(df) == 0:
+    if df is None or len(df) == 0 or 'stock_id' not in df.columns:
         return None
-    need = {'stock_id', 'ForeignInvestmentShares', 'NumberOfSharesIssued'}
-    if not need.issubset(set(df.columns)):
-        print(f"    ⚠️ {date} 欄位不全（{sorted(set(df.columns) & need)}），跳過")
+    present = {f: src for f, (src, _) in FIELDS.items() if src in df.columns}
+    if not present:
+        print(f"    ⚠️ {date} 五個欄位都不在回傳資料裡，跳過")
         return None
     out = {}
     for _, r in df.iterrows():
-        sid = str(r['stock_id']).strip()
-        if 0 < len(sid) < 4:          # 與 firebase_writer._norm_stock_id 同一條規則
-            sid = sid.zfill(4)
-        def lots(v):
-            try:
-                n = int(v)
-            except (TypeError, ValueError):
-                return None
-            return n // 1000          # 股 → 張，向零取整（全站慣例）
-        hs, iss = lots(r['ForeignInvestmentShares']), lots(r['NumberOfSharesIssued'])
-        if hs is not None and iss is not None:
-            out[sid] = (hs, iss)
+        vals = {}
+        for f, src in present.items():
+            v = _convert(r[src], FIELDS[f][1])
+            if v is not None:
+                vals[f] = v
+        if vals:
+            out[_norm_sid(r['stock_id'])] = vals
     return out or None
 
 
@@ -83,16 +114,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--month', help='只處理該月，格式 YYYY-MM')
+    ap.add_argument('--date', help='只處理這一天，格式 YYYY-MM-DD')
     args = ap.parse_args()
 
     import firebase_writer as fw
     db = fw.get_firestore_client()
 
     dates = sorted(fw.list_daily_data_dates())
-    if args.month:
+    if args.date:
+        dates = [d for d in dates if d == args.date]
+    elif args.month:
         dates = [d for d in dates if d.startswith(args.month)]
     if not dates:
-        print('沒有符合的日期')
+        print('沒有符合的日期（daily_data 裡沒有這一天）')
         return 1
 
     api = get_api()
@@ -100,13 +134,13 @@ def main():
     if args.write:
         backup.mkdir(parents=True, exist_ok=True)
 
-    print(f"=== 外資持股張數回補　{'寫入模式' if args.write else 'DRY-RUN'} ===")
+    print(f"=== 外資持股五欄回補　{'寫入模式' if args.write else 'DRY-RUN'} ===")
     print(f"日期 {len(dates)} 天：{dates[0]} ~ {dates[-1]}")
     if args.write:
         print(f"備份目錄：{backup}\n")
 
-    tot_filled = tot_skipped = tot_already = 0
-    skipped_days = []
+    tot_stocks = tot_cells = tot_already = tot_nocover = 0
+    skipped_days, touched_days = [], []
 
     for date in dates:
         src = fetch_day(api, date)
@@ -116,7 +150,7 @@ def main():
             continue
 
         ref = db.collection('daily_data').document(date).collection('chunks')
-        filled = already = nocover = 0
+        n_stocks = n_cells = already = nocover = 0
         for doc in ref.stream():
             data = doc.to_dict() or {}
             stocks = data.get('stocks') or []
@@ -127,16 +161,19 @@ def main():
 
             changed = False
             for s in stocks:
-                sid = str(s.get('stock_id', ''))
-                if all(f in s for f in FIELDS):
+                gaps = [f for f in FIELDS if _missing(s, f)]
+                if not gaps:
                     already += 1
                     continue
-                hit = src.get(sid)
-                if hit is None:
-                    nocover += 1          # FinMind 未涵蓋 → 保持沒有欄位，前端顯示「—」
+                hit = src.get(str(s.get('stock_id', '')))
+                filled = [f for f in gaps if hit and f in hit]
+                if not filled:
+                    nocover += 1          # FinMind 未涵蓋 → 保持 null，前端顯示「—」
                     continue
-                s['foreign_hold_shares'], s['shares_issued'] = hit
-                filled += 1
+                for f in filled:
+                    s[f] = hit[f]
+                n_stocks += 1
+                n_cells += len(filled)
                 changed = True
 
             if changed and args.write:
@@ -146,15 +183,20 @@ def main():
                     'count': data.get('count', len(stocks)),
                 })
 
-        tot_filled += filled
+        tot_stocks += n_stocks
+        tot_cells += n_cells
         tot_already += already
-        tot_skipped += nocover
-        print(f"  {date}: 補 {filled:5d} 檔　已有 {already:5d}　FinMind 未涵蓋 {nocover:4d}")
+        tot_nocover += nocover
+        if n_stocks:
+            touched_days.append(date)
+        flag = '  ← 有缺' if n_stocks else ''
+        print(f"  {date}: 補 {n_stocks:5d} 檔（{n_cells:5d} 格）　已齊 {already:5d}　FinMind 未涵蓋 {nocover:4d}{flag}")
 
     print("\n=== 彙總 ===")
-    print(f"  補上欄位：{tot_filled:,} 檔")
-    print(f"  原本就有：{tot_already:,} 檔")
-    print(f"  FinMind 未涵蓋（保持無欄位，前端顯示「—」）：{tot_skipped:,} 檔")
+    print(f"  補上：{tot_stocks:,} 檔、{tot_cells:,} 格")
+    print(f"  原本就齊：{tot_already:,} 檔")
+    print(f"  FinMind 未涵蓋（保持 null，前端顯示「—」）：{tot_nocover:,} 檔")
+    print(f"  有缺而被補的日期：{touched_days if touched_days else '無'}")
     if skipped_days:
         print(f"  ⚠️ 整日跳過（FinMind 無資料）：{skipped_days}")
     if not args.write:

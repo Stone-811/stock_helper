@@ -96,7 +96,7 @@ Claude Code 處理本專案時的指引說明。
 ├── scripts/                            # 一次性稽核／回補工具（一律預設 dry-run，--write 才寫）
 │   ├── backfill_null_vs_zero.py        # 把「缺資料被寫成 0」改回 null
 │   ├── fix_stock_id_leading_zero.py    # 修 ETF 代碼掉前導零（0050→50）
-│   ├── backfill_foreign_hold_shares.py # 回補外資持股張數／已發行張數
+│   ├── backfill_foreign_hold_shares.py # 回補外資持股五欄（null-aware，可 --date）
 │   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
 │   └── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
 │
