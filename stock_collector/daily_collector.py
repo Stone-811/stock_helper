@@ -48,6 +48,10 @@ class DailyCollector:
             'index': {'success': False, 'count': 0, 'error': None},
             'matrix': {'success': False, 'count': 0, 'error': None},
         }
+        # 休市日的說明（None＝有開盤或不確定）。不放進 self.results：print_summary／告警會逐項讀
+        # results 的 success／count／error，多一個鍵會讓它們壞掉。
+        self.market_closed = None
+        self.day_log = []   # 批次模式逐日結果 (日期, 結果)，迴圈結束後印一份總表
 
     def get_latest_date_from_db(self, table='daily_stocks'):
         """從 Firestore 取得最新資料日期"""
@@ -73,15 +77,14 @@ class DailyCollector:
             return None
 
     def get_trading_days(self, start_date, end_date):
-        """取得交易日列表（排除週末）"""
-        days = []
-        current = start_date
-        while current <= end_date:
-            # 排除週末
-            if current.weekday() < 5:
-                days.append(current.strftime('%Y-%m-%d'))
-            current += timedelta(days=1)
-        return days
+        """取得交易日列表：依台股交易日曆，排除國定假日、補假與颱風停市（不只排除週末）。
+
+        原本只排除週六日 → 平日假日（中秋、國慶補假…）每次都被 --backfill-gaps 當成缺漏重抓。
+        日曆沒涵蓋的日子（下一年度行事曆還沒公布）退回週一到五，寧可多試也不要漏。
+        """
+        from stock_collector.trading_calendar import trading_days_between
+        # with_actual：再聯集加權指數實際有 K 棒的日子——日曆萬一誤標休市，找缺口時也不會跟著漏
+        return trading_days_between(start_date, end_date, with_actual=True)
 
     def get_missing_dates(self, table='daily_stocks'):
         """取得缺少資料的日期"""
@@ -223,6 +226,30 @@ class DailyCollector:
         logging.info(f"📅 開始每日資料收集: {date or '今日'}")
         logging.info("=" * 70)
 
+        # 休市日（國定假日、補假、颱風停市）：不收集、不重算、不告警。
+        # ⚠️ 只有「交易日曆說休市」且「加權指數當天確實沒有資料」兩者都成立才跳過；
+        #    日曆沒涵蓋（下一年度行事曆未公布）、抓不到、或兩者不一致時一律照常收集——
+        #    寧可多一封誤報，也不要把真的交易日安靜漏掉（見 trading_calendar.py）。
+        target = date or datetime.now().strftime('%Y-%m-%d')
+        self.market_closed = None   # 批次模式（--days／--backfill-gaps）會連續呼叫，每天都要重設
+        try:
+            from stock_collector.trading_calendar import is_market_closed
+            closed, why = is_market_closed(target)
+        except Exception as e:
+            closed, why = False, f'休市判斷失敗，照常收集：{e}'
+        logging.info(f"🗓️ {target}：{why}")
+        matrix_only = skip_stock and skip_index and not skip_matrix
+        if closed and matrix_only:
+            # 手動「只重算強勢股」（--skip-stock --skip-index）：跟今天有沒有開盤無關，照樣執行。
+            # 重建 image 後常在週末跑這個指令驗證歷史重算，不可被休市判斷吞掉（2026-10-22 審查指出）。
+            logging.info(f"🏖️ {target} 休市，但這次只重算強勢股 → 照常執行")
+        elif closed:
+            self.market_closed = why
+            self.day_log.append((target, '休市跳過'))
+            logging.info(f"🏖️ {target} 休市，本次不收集股票與指數、不重算強勢股、不檢查提醒、不寄告警")
+            self.print_summary()
+            return
+
         # 0. 從 Cloud Storage 下載年度檔（讓 Cloud Run 等 stateless 環境有持久歷史，供 MACD/強勢股計算）
         from gcs_archive import download_archives
         download_archives('data/daily_reports/archive')
@@ -283,6 +310,22 @@ class DailyCollector:
 
         # 輸出總結
         self.print_summary()
+        if not skip_stock:
+            self.day_log.append((target, '已收集' if self.results['stock']['success'] else '失敗'))
+
+    def print_batch_summary(self):
+        """批次模式（--days／--backfill-gaps）結束時的總表：最後一天若是休市，log 結尾只會看到
+        「休市日」，會蓋掉前面幾天的收集與失敗結果。"""
+        if not self.day_log:
+            return
+        counts = {}
+        for _, st in self.day_log:
+            counts[st] = counts.get(st, 0) + 1
+        logging.info("\n" + "=" * 70)
+        logging.info("📋 批次總表：" + "、".join(f"{k} {v} 天" for k, v in counts.items()))
+        for d, st in self.day_log:
+            logging.info(f"  {d}：{st}")
+        self.market_closed = None
 
     def _verify_firestore_written(self, date=None, skip_stock=False):
         """收集後驗證當日股票資料確實寫入 Firestore（而非只落在本地 CSV/GCS）。
@@ -386,6 +429,11 @@ class DailyCollector:
         logging.info("📋 收集結果總結")
         logging.info("=" * 70)
 
+        if self.market_closed:
+            logging.info(f"🏖️ 休市日，沒有收集任何資料（{self.market_closed}）")
+            logging.info(f"⏱️ 耗時: {elapsed}")
+            return
+
         for task, result in self.results.items():
             status = "✅" if result['success'] else "❌"
             count = result['count']
@@ -424,7 +472,9 @@ def _alert_failure(reason: str, collector):
     ]
     for task, res in r.items():
         name = task_names.get(task, task)
-        status = '✅ 成功' if res['success'] else '❌ 失敗'
+        # 沒跑到的任務（休市跳過、或批次模式只最後重算）不可顯示成「失敗」
+        ran = res['success'] or res['count'] or res['error']
+        status = '✅ 成功' if res['success'] else ('❌ 失敗' if ran else '— 未執行')
         lines.append(f'{name}：{status}｜筆數 {res["count"]}')
         if res['error']:
             lines.append(f'　└ {res["error"]}')
@@ -495,6 +545,7 @@ def main():
                     logging.info(f"\n{'='*70}\n回補缺漏日：{d}")
                     collector.run_daily(date=d, skip_matrix=True)
                 collector.update_strong_matrix()
+                collector.print_batch_summary()
             return 0
 
         elif args.incremental:
@@ -518,6 +569,7 @@ def main():
             # 最後更新強勢股矩陣
             if not args.skip_matrix:
                 collector.update_strong_matrix()
+            collector.print_batch_summary()
 
         else:
             # 單日收集
@@ -539,6 +591,9 @@ def main():
     # 依收集結果決定 exit code（僅單日排程模式）：關鍵任務（股票/指數）未成功 → 非 0，
     # 讓 Cloud Run execution 真的 FAIL，「假成功」才可觀測。批次/增量/回補有自身語意，不套用。
     single_day_mode = not (args.incremental or args.backfill_gaps or args.days)
+    if single_day_mode and collector.market_closed:
+        logging.info("🏖️ 休市日 → exit 0（不寄告警）")
+        return 0
     if single_day_mode:
         r = collector.results
         critical_failed = []

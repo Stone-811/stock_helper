@@ -177,10 +177,38 @@ def write_daily_stocks(df: pd.DataFrame) -> int:
     # 轉換所有股票資料
     stocks_data = [_convert_stock_row(row) for _, row in df.iterrows()]
 
+    # 同一檔只留一筆（保留第一筆）。2026-07-24～07-31 曾因 taiwan_stock_info 同一檔列在兩個產業分類，
+    # 合併後每天 794 檔存了兩份；網站讀取時有去重所以畫面沒錯，但用 stream() 掃分片的工具會算錯。
+    seen, deduped = set(), []
+    for st in stocks_data:
+        if st['stock_id'] in seen:
+            continue
+        seen.add(st['stock_id'])
+        deduped.append(st)
+    if len(deduped) != len(stocks_data):
+        logging.warning(f"⚠️ {date} 有 {len(stocks_data) - len(deduped)} 筆重複代號，已只保留第一筆")
+    stocks_data = deduped
+
     # 分片
     chunks = [stocks_data[i:i+CHUNK_SIZE] for i in range(0, len(stocks_data), CHUNK_SIZE)]
 
     batch = db.batch()
+
+    # 0. 重寫同一天時，先找出這次用不到的舊分片（編號 ≥ 新的分片數）一併刪除。
+    #    原本不刪 → 2026-08-03 第二次寫入只有 5 片，前一次的 chunk_5／chunk_6 一直留著。
+    #    網站照 chunk_count 讀所以看不到，但 stream() 掃全部分片的工具會讀到過期資料。
+    chunks_ref = db.collection('daily_data').document(date).collection('chunks')
+    keep = {f'chunk_{i}' for i in range(len(chunks))}
+    try:
+        stale = [d.id for d in chunks_ref.list_documents() if d.id not in keep]
+    except Exception as e:
+        # 清舊分片只是附帶的清理，不可擋住主寫入（網站本來就讀不到殘留分片）
+        logging.warning(f"列出 {date} 舊分片失敗，這次不清理：{e}")
+        stale = []
+    for cid in stale:
+        batch.delete(chunks_ref.document(cid))
+    if stale:
+        logging.info(f"  清除 {date} 用不到的舊分片：{sorted(stale)}")
 
     # 1. 寫入摘要文件
     summary_ref = db.collection('daily_data').document(date)
