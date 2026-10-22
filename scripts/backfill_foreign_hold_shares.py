@@ -21,6 +21,10 @@
 * 未被 FinMind 涵蓋的股票保持 null（前端顯示「—」），不寫 0。
 * 只改 Firestore daily_data，不重跑收集：所以**不會**順便用舊資料檢查到價提醒、
   不會動 MACD／連買天數、不會改年度檔（外資持股沒有被任何年度檔計算用到）。
+* **只寫交易日**：先向 FinMind 取交易日曆（TaiwanStockTradingDate），不在日曆裡的日子一律跳過。
+  日曆有反映國定假日、補假與颱風停市（2024-07-24／25 凱米、2024-10-31 康芮都在休市清單），
+  而且 2024-08-01 起與加權指數實際有 K 棒的日子逐日一致（541／541 天）。
+  不用星期幾推算——平日休市（中秋、教師節、國慶補假、颱風假）只能從日曆看出來。
 * 預設 DRY-RUN，--write 才實際寫入；寫入前自動備份原始 chunks 到 logs/。
 
 用法
@@ -29,6 +33,7 @@
   python3 scripts/backfill_foreign_hold_shares.py --date 2026-10-21    # 只看某一天
   python3 scripts/backfill_foreign_hold_shares.py --date 2026-10-21 --write
   python3 scripts/backfill_foreign_hold_shares.py --month 2026-09 --write
+  （2026-10-22 已用 --month 2026-07／2026-08 --write 補過 07-24～08-31 的兩個張數欄）
 """
 import os
 import sys
@@ -85,6 +90,18 @@ def _missing(stock: dict, field: str) -> bool:
     return stock.get(field) is None
 
 
+def trading_days(api, start, end):
+    """FinMind 交易日曆（含國定假日、補假、颱風停市）。抓不到回 None——呼叫端必須中止，不可當成全部都是交易日。"""
+    try:
+        cal = api.get_data(dataset='TaiwanStockTradingDate', start_date=start, end_date=end)
+    except Exception as e:
+        print(f"⚠️ 交易日曆抓取失敗：{e}")
+        return None
+    if cal is None or len(cal) == 0 or 'date' not in cal.columns:
+        return None
+    return set(cal['date'].astype(str))
+
+
 def fetch_day(api, date):
     """回傳 {stock_id: {欄位: 值}}，只含 FinMind 有值的欄位；抓不到或空的回 None（呼叫端必須跳過）。"""
     try:
@@ -130,6 +147,22 @@ def main():
         return 1
 
     api = get_api()
+
+    # 只處理交易日：日曆抓不到就中止（寧可不補，也不要在休市日寫資料）
+    cal = trading_days(api, dates[0], dates[-1])
+    if cal is None:
+        print('交易日曆抓不到，為避免寫到休市日，中止。')
+        return 1
+    not_trading = [d for d in dates if d not in cal]
+    if not_trading:
+        print(f"⚠️ daily_data 裡有 {len(not_trading)} 天不是交易日，跳過不處理：{not_trading}")
+        dates = [d for d in dates if d in cal]
+    import datetime as _dt
+    a, b = _dt.date.fromisoformat(dates[0]), _dt.date.fromisoformat(dates[-1])
+    off = [(a + _dt.timedelta(days=i)).isoformat() for i in range((b - a).days + 1)]
+    off = [d for d in off if _dt.date.fromisoformat(d).weekday() < 5 and d not in cal]
+    print(f"交易日曆核對：範圍內 {len(dates)} 個交易日都在日曆上；平日休市 {len(off)} 天 {off if off else ''}")
+
     backup = ROOT / 'logs' / 'fhs_backfill' / datetime.now().strftime('%Y%m%d_%H%M%S')
     if args.write:
         backup.mkdir(parents=True, exist_ok=True)
