@@ -214,41 +214,34 @@ Claude Code 處理本專案時的指引說明。
 | lib/firebase.ts | Firebase Client SDK + Auth + 型別定義 |
 | lib/firebase-admin.ts | Firebase Admin SDK（伺服器端查詢） |
 
-### StockChart / IndexChart 專業圖表功能
+### K 線圖（`CandleChart`；`StockChart`／`IndexChart` 只是包一層）
 
-使用 TradingView 開源的 **lightweight-charts** 套件實作專業級技術分析圖表。
+使用 TradingView 開源的 **lightweight-charts**。個股頁與首頁「指數走勢」共用同一個 `CandleChart`。
+（2026-10-22 依程式校正：本段先前寫的 TimeRange 同步、十字游標顯示開高低收／成交額／當沖、
+「固定範圍無動態滑動」、16px、`#1a1a2e` 全部與程式不符。）
 
-**核心功能**：
-- **時間週期切換**：日K / 週K / 月K
-- **日期區間選擇**：3M / 6M / 1Y / 2Y（固定顯示範圍，無動態滑動）
-- **技術指標選擇**：MACD / KD / RSI
-- **MA 均線勾選**：MA5、MA10、MA20、MA60 可獨立開關
-- **深色主題**：專業交易介面風格（#1a1a2e 背景）
+**控制列**：
+- 週期：日K／週K／月K（預設日K）
+- 區間：**1M**／3M／6M／1Y／2Y（預設 3M；只決定初始顯示範圍，**可以拖曳平移、滾輪縮放**）
+- 技術指標（單選分頁）：MACD／KD／RSI（預設 MACD）
+- ⚙️ 圖表設定（手機收合、桌機常駐）：版面「價格為主／均衡／指標為主」（預設均衡），
+  疊加勾選 MA5／MA10／MA20／MA60／布林／量（預設 MA5、MA10、MA20、量 開）
+- ⛶ 全螢幕（只能按 ✕ 離開，Esc 無效）
 
-**十字游標即時數據**：
-- **第一行**：日期、開高低收、漲跌幅、成交額
-- **第二行**：當沖額、當沖比例（僅 StockChart）
-- **第三行**：MA5、MA10、MA20、MA60 數值
-- **第四行**：當前指標數值（MACD: DIF/MACD/柱狀、KD: K/D、RSI）
+**左上讀值**：日期、收、漲跌（%）、量；桌機另外顯示已勾選的 MA、布林與當前指標數值
+（手機隱藏，避免蓋住 K 棒）。
 
-**時間軸同步**（重要）：
-```typescript
-// 使用 TimeRange 同步（非 LogicalRange），確保日期對齊
-mainChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-  if (range && !isSyncing) {
-    isSyncing = true
-    volumeChart.timeScale().setVisibleRange(range)
-    indicatorChart.timeScale().setVisibleRange(range)
-    isSyncing = false
-  }
-})
-```
+**時間軸同步**：主圖與指標圖用 **LogicalRange** 同步（`CandleChart.tsx:208-216`）。
+指標一律用完整資料計算（不 slice），顯示範圍靠 `setVisibleLogicalRange` 控制——
+這是 SKILL.md 地雷 #4「遞迴指標暖身」的解法，**不要改回用區間切資料再算**。
 
-**UI 規格**：
-- 圖表字體大小：16px
-- 資訊區字體：text-lg (18px) / text-base (16px)
-- 全幅寬度顯示（跳脫 max-w-7xl 容器）
-- 圖表高度：600px
+**顏色**：K 棒與量柱是「收 ≥ 開」紅、「收 < 開」綠（只比同一根的開與收）；
+讀值的漲跌顏色則是跟前一根收盤比，所以兩者可能不同色。
+
+**已知限制**：設定不會記住（每次打開回預設）；換週期／區間／指標／版面時拖曳位置會被重設；
+手機上手指在圖上滑會被圖表拿去拖曳、整頁不捲動（圖高 600px）。
+
+**UI 規格**：圖表字 14px、背景 `#131722`、高度 600px、全幅寬度（跳脫 max-w-7xl）。
 
 ## Firestore 集合結構（優化版）
 
@@ -716,6 +709,9 @@ https://github.com/Stone-811/stock_helper
   改寫前是 887 天／54,777 檔次（日均 61.8）。
 - 驗收用逐檔不變量檢查：2026-10-16 的 102 檔全部符合四個條件，違反數 0；
   原本掛在強勢股裡的下跌股 `9103 美德醫療-DR`（−0.33%）已消失。
+- ⚠️ **更正（2026-10-22）**：不是 913 天全部改寫，是 **912 天改寫、2024-08-05 殘留 5 檔舊名單**。
+  `write_strong_stock_matrix()` 只寫「重算後 ≥1 檔」的日期、沒有刪除步驟；那天新規則下是 0 檔，
+  所以舊的振幅名單（易威、弘塑、新日興、健策、信驊）沒被清掉。有效檔次是 71,305 不是 71,310。
 - ⚠️ `deploy-cloudrun.sh` 會被 auto mode 擋下（它同時 enable API／改 IAM／建排程），
   改用只做部署的窄指令並明確帶上 `--memory=2Gi --set-env-vars --set-secrets`。
 
