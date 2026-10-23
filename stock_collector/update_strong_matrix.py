@@ -188,6 +188,28 @@ def calculate_strong(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _day_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """每個交易日的檔數，以及三大法人至少一項有值（非 0）的比例，供 _complete_dates 判斷資料完整度。"""
+    inst_cols = [c for c in ('foreign_buy', 'trust_buy', 'dealer_buy') if c in df.columns]
+    inst_nz = (df[inst_cols].fillna(0) != 0).any(axis=1) if inst_cols else pd.Series(False, index=df.index)
+    return (df.assign(_inst_nz=inst_nz, date=df['date'].astype(str))
+              .groupby('date').agg(rows=('stock_id', 'size'), inst_share=('_inst_nz', 'mean')))
+
+
+def _complete_dates(stats: pd.DataFrame) -> set:
+    """
+    資料完整的交易日：檔數 ≥ 前後約 20 天中位數的 90%，且法人有值的比例 ≥ 50%。
+
+    實測 2023-01～2026-10：正常日子檔數比 ≥ 0.95、法人有值比例 ≥ 0.73（1% 分位）；
+    不完整的 4 天（2026-04-24、06-25、07-02、07-09）檔數都只有約 85%，後三天法人只有 0～39% 有值。
+    這種日子算出來的「0 檔強勢」不是真的 0 檔，不可拿來刪舊名單。
+    """
+    stats = stats[~stats.index.duplicated(keep='last')].sort_index()
+    median = stats['rows'].rolling(21, center=True, min_periods=5).median()
+    ok = (stats['rows'] >= 0.9 * median) & (stats['inst_share'] >= 0.5)
+    return set(stats.index[ok.fillna(False)])
+
+
 def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/strong_stock_matrix', output_filename: str = 'strong_stock_matrix.csv'):
     """
     更新強勢股矩陣
@@ -221,6 +243,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
         return None
 
     all_data = []
+    day_stats = []
 
     for file in all_files:
         try:
@@ -230,6 +253,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
             # 取需要的欄位
             df_subset = df[['date', 'stock_id', 'stock_name', 'strong']].copy()
             all_data.append(df_subset)
+            day_stats.append(_day_stats(df))
 
             # 統計
             strong_count = df['strong'].sum()
@@ -246,6 +270,12 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
     # 合併所有資料
     combined = pd.concat(all_data, ignore_index=True)
+    complete_dates = _complete_dates(pd.concat(day_stats))
+
+    # 股名空白（CSV 讀回來是 NaN）的列會被 pivot_table 整列丟掉 → 那幾檔次的強勢永遠寫不進去。
+    # 先用該檔最近一次的股名補上。
+    names = combined.dropna(subset=['stock_name']).groupby('stock_id')['stock_name'].last()
+    combined['stock_name'] = combined['stock_name'].fillna(combined['stock_id'].map(names)).fillna('')
 
     # Pivot：row=股票, columns=日期, values=strong
     pivot = combined.pivot_table(
@@ -269,7 +299,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
             import sys
             sys.path.insert(0, str(base_path))
             from firebase_writer import write_strong_stock_matrix
-            write_strong_stock_matrix(pivot)
+            write_strong_stock_matrix(pivot, complete_dates=complete_dates)
             logging.info("✓ Firestore 寫入完成")
         except Exception as e:
             logging.warning(f"⚠️ Firestore 寫入失敗: {e}")

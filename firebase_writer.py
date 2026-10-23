@@ -329,7 +329,7 @@ def write_strong_stocks(df: pd.DataFrame, date: str) -> int:
     return len(strong_stocks)
 
 
-def write_strong_stock_matrix(df: pd.DataFrame) -> int:
+def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
     """
     寫入強勢股矩陣到 Firestore（優化版：按日期聚合）
 
@@ -339,6 +339,8 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
     -----------
     df : pd.DataFrame
         強勢股資料（pivot format 或 long format）
+    complete_dates : set[str] | None
+        資料完整的日期。重算後 0 檔的日子只有在這裡面才會刪掉舊文件；None＝一天都不刪。
 
     Returns:
     --------
@@ -373,16 +375,18 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
 
         strong_df = pd.DataFrame(records)
 
-    if strong_df.empty:
-        logging.warning("沒有強勢股資料")
-        return 0
-
     # 這次「真的重算過」的日期：pivot 的日期欄＝年度檔裡實際有資料的日子（0 檔的日子也在，整欄是 0）。
     # 年度檔下載失敗的年份不在這裡 → 不會被當成 0 檔而刪掉。
     if 'date' in df.columns and 'stock_id' in df.columns:
         covered_dates = {str(d) for d in df['date'].unique()}
     else:
         covered_dates = {str(c) for c in date_columns}
+
+    if strong_df.empty:
+        if covered_dates:
+            _alert_strong_matrix(f"重算了 {len(covered_dates)} 天，卻一檔強勢股都沒有，疑似判定或資料出錯，這次不寫也不刪。")
+        logging.warning("沒有強勢股資料")
+        return 0
 
     # 按日期分組
     by_date: Dict[str, List[Dict]] = {}
@@ -394,6 +398,22 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
             'stock_id': _norm_stock_id(row['stock_id']),
             'stock_name': str(row.get('stock_name', ''))
         })
+
+    # 重算後變成 0 檔的日期要刪掉舊文件，否則網站會繼續顯示舊名單
+    # （2026-10-18 改漲跌幅基準後，2024-08-05 就這樣殘留了 5 檔舊振幅名單）。
+    # ⚠️ 只刪「資料完整」的 0 檔日（complete_dates 由 update_matrix 依當天檔數與法人有值比例算出）：
+    #    資料殘缺的日子（例：2026-07-09 法人整天是 0）算出來的 0 檔不是真的 0 檔，刪了會讓
+    #    另一份年度檔修好的名單被下一輪刪掉。沒給 complete_dates 就一天都不刪。
+    zero_dates = sorted(covered_dates - set(by_date))
+    deletable = [d for d in zero_dates if complete_dates is not None and d in complete_dates]
+    skipped_incomplete = [d for d in zero_dates if d not in deletable]
+    # ⚠️ 完整的 0 檔日正常只有個位數（2023-01～2026-10 只有 2024-08-05 一天）；一次很多天多半是
+    #    判定或資料出錯。先檢查再寫：超過上限就整輪不寫也不刪，不然歷史會變成新舊兩套規則混在一起。
+    max_zero = max(5, len(covered_dates) // 100)
+    if len(deletable) > max_zero:
+        _alert_strong_matrix(f"重算後有 {len(deletable)} 個資料完整的日子是 0 檔強勢股（上限 {max_zero}），"
+                             f"疑似判定或資料出錯，這次不寫也不刪。例：{deletable[:5]}")
+        raise RuntimeError(f"強勢股重算異常：{len(deletable)} 天變成 0 檔")
 
     total_written = 0
     all_dates = sorted(by_date.keys(), reverse=True)
@@ -426,29 +446,28 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
 
     logging.info(f"✓ 成功寫入 strong_stocks: {len(all_dates)} 個日期，共 {total_written} 筆")
 
-    # 重算後變成 0 檔的日期：刪掉舊文件，否則網站會繼續顯示舊名單
-    # （2026-10-18 改漲跌幅基準後，2024-08-05 就這樣殘留了 5 檔舊振幅名單）。
-    # ⚠️ 0 檔的日子正常只有個位數（全史 918 天裡 2 天）；一次要刪很多天多半是判定或資料出錯，
-    #    這時寧可留著舊名單、寄告警請人看，也不要整段刪光。
-    zero_dates = sorted(covered_dates - set(by_date))
-    max_zero = max(5, len(covered_dates) // 50)
-    if len(zero_dates) > max_zero:
-        msg = (f"重算後有 {len(zero_dates)} 天是 0 檔強勢股（上限 {max_zero}），"
-               f"疑似判定或資料出錯，這次不刪舊名單。例：{zero_dates[:5]}")
-        logging.error(f"⚠️ {msg}")
-        try:
-            from notify import send_alert
-            send_alert('[選股小幫手] 強勢股重算異常：太多天變成 0 檔', msg)
-        except Exception as e:
-            logging.warning(f"寄送強勢股異常告警失敗：{e}")
-    elif zero_dates:
+    if skipped_incomplete:
+        logging.warning(f"⚠️ {len(skipped_incomplete)} 天 0 檔強勢股但當天資料不完整，不刪舊名單：{skipped_incomplete}")
+    stale = [d for d in deletable if db.collection('strong_stocks').document(d).get().exists]
+    if stale:
         batch = db.batch()
-        for date in zero_dates:
+        for date in stale:
             batch.delete(db.collection('strong_stocks').document(date))
         batch.commit()
-        logging.info(f"✓ 清掉 {len(zero_dates)} 個 0 檔強勢股日期的舊名單：{zero_dates}")
+        logging.info(f"✓ 重算後 0 檔，刪掉舊名單：{stale}")
 
     return total_written
+
+
+def _alert_strong_matrix(msg: str):
+    """強勢股重算異常：記 error 並寄告警（沒設 SMTP 時 send_alert 回 False，也要留下 error 紀錄）。"""
+    logging.error(f"⚠️ {msg}")
+    try:
+        from notify import send_alert
+        if not send_alert('[選股小幫手] 強勢股重算異常', msg):
+            logging.error("⚠️ 強勢股異常告警沒有寄出（未設定 SMTP 或寄送失敗）")
+    except Exception as e:
+        logging.error(f"⚠️ 寄送強勢股異常告警失敗：{e}")
 
 
 def write_market_index(df: pd.DataFrame) -> int:
