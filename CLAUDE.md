@@ -423,6 +423,8 @@ fallback 回 `open`（與前端 `prev_close > 0 ? prev_close : open` 同一條�
 （`gcloud run jobs deploy stock-collector --source=.`），push 到 main 只重建前端。
 `_assert_prev_close_sane()` 會在「只拿到單一日期」或「fallback 比例 > 5%」時中止，
 避免 GCS 年度檔下載失敗時默默用當日振幅覆寫歷史。
+重算後變成 0 檔的日期會刪掉舊名單，但**只刪資料完整的日子**（`_complete_dates`：檔數 ≥ 前後中位數 90%、
+法人有值 ≥ 50%）；完整的 0 檔日一次超過 max(5, 天數/100) 就整輪不寫不刪並告警（2026-10-23 起）。
 
 ### 放空資料欄位（2026-10-09 新增，單位皆為張）
 
@@ -707,6 +709,16 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-10-23
+
+**強勢股 0 檔日清理＋業主 Word 月報逐日比對**（collector image 已重建）
+- 刪掉 2024-08-05 殘留的 5 檔舊名單；`write_strong_stock_matrix()` 之後會自動清「資料完整、重算後 0 檔」的日期，
+  護欄改在寫入前檢查；股名空白的強勢股不再被 pivot 丟掉（補回 2023 年 3 檔次）。
+- 發現 2026-04-24、06-25、07-02、07-09 年度檔資料不完整（07-09 法人整天是 0 → 0 檔強勢），補不補待業主決定。
+- 與 Word 月報逐日比對：Word 只涵蓋 09/18～09/24；數字欄是業主「抄寫那天」的值；業主挑選沒有可重現的規則。
+  22 題待業主確認的規則做成問卷 https://claude.ai/artifact/HK59rjPBnkynxb2qrYqA3W（細節見 skill）。
+- 10-23 臨時停市，收集器自動跳過（證交所 holidaySchedule 不含臨時停市，FinMind 日曆有）。
 
 ### 2026-10-22
 
