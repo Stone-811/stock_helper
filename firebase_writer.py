@@ -377,6 +377,13 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
         logging.warning("沒有強勢股資料")
         return 0
 
+    # 這次「真的重算過」的日期：pivot 的日期欄＝年度檔裡實際有資料的日子（0 檔的日子也在，整欄是 0）。
+    # 年度檔下載失敗的年份不在這裡 → 不會被當成 0 檔而刪掉。
+    if 'date' in df.columns and 'stock_id' in df.columns:
+        covered_dates = {str(d) for d in df['date'].unique()}
+    else:
+        covered_dates = {str(c) for c in date_columns}
+
     # 按日期分組
     by_date: Dict[str, List[Dict]] = {}
     for _, row in strong_df.iterrows():
@@ -418,6 +425,29 @@ def write_strong_stock_matrix(df: pd.DataFrame) -> int:
     batch.commit()
 
     logging.info(f"✓ 成功寫入 strong_stocks: {len(all_dates)} 個日期，共 {total_written} 筆")
+
+    # 重算後變成 0 檔的日期：刪掉舊文件，否則網站會繼續顯示舊名單
+    # （2026-10-18 改漲跌幅基準後，2024-08-05 就這樣殘留了 5 檔舊振幅名單）。
+    # ⚠️ 0 檔的日子正常只有個位數（全史 918 天裡 2 天）；一次要刪很多天多半是判定或資料出錯，
+    #    這時寧可留著舊名單、寄告警請人看，也不要整段刪光。
+    zero_dates = sorted(covered_dates - set(by_date))
+    max_zero = max(5, len(covered_dates) // 50)
+    if len(zero_dates) > max_zero:
+        msg = (f"重算後有 {len(zero_dates)} 天是 0 檔強勢股（上限 {max_zero}），"
+               f"疑似判定或資料出錯，這次不刪舊名單。例：{zero_dates[:5]}")
+        logging.error(f"⚠️ {msg}")
+        try:
+            from notify import send_alert
+            send_alert('[選股小幫手] 強勢股重算異常：太多天變成 0 檔', msg)
+        except Exception as e:
+            logging.warning(f"寄送強勢股異常告警失敗：{e}")
+    elif zero_dates:
+        batch = db.batch()
+        for date in zero_dates:
+            batch.delete(db.collection('strong_stocks').document(date))
+        batch.commit()
+        logging.info(f"✓ 清掉 {len(zero_dates)} 個 0 檔強勢股日期的舊名單：{zero_dates}")
+
     return total_written
 
 
