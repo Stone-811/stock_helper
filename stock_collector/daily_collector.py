@@ -253,7 +253,8 @@ class DailyCollector:
         # 0. 從 Cloud Storage 下載年度檔（讓 Cloud Run 等 stateless 環境有持久歷史，供 MACD/強勢股計算）
         #    ⚠️ 下載失敗會 raise ArchiveSyncError，不在這裡接：整輪（批次模式也是）中止、由 main() 寄告警。
         #    拿殘缺的年度檔收集或重算，最後還會被上傳蓋掉 Storage 的完整歷史。
-        from gcs_archive import download_archives
+        from gcs_archive import download_archives, require_authoritative_archive
+        require_authoritative_archive()
         download_archives('data/daily_reports/archive')
 
         # 1. 收集股票資料
@@ -287,9 +288,15 @@ class DailyCollector:
                 logging.error(f"  ❌ 失敗: {e}")
 
         # 4. 年度檔上傳回 Cloud Storage（供下次 stateless 執行使用）
-        #    比下載時變少、或別的執行先更新過的檔不會上傳，並 raise ArchiveSyncError（main() 寄告警）。
-        from gcs_archive import upload_archives
-        upload_archives('data/daily_reports/archive')
+        #    比下載時殘缺、或別的執行先更新過的檔不會上傳。失敗時資料已寫進 Firestore，
+        #    所以先記下、把後面的 available_dates／self-check／到價提醒跑完，最後再 raise（main() 寄告警）。
+        from gcs_archive import upload_archives, ArchiveUploadError
+        upload_error = None
+        try:
+            upload_archives('data/daily_reports/archive')
+        except ArchiveUploadError as e:
+            upload_error = e
+            logging.error(f"❌ 年度檔沒有存回 Storage：{e}")
 
         # 4.5 以 daily_data 實際日期更新 available_dates（C5：來源改為權威的 daily_data，
         #     而非強勢股矩陣，避免前端下拉選到沒有明細的日期）
@@ -315,6 +322,9 @@ class DailyCollector:
         self.print_summary()
         if not skip_stock:
             self.day_log.append((target, '已收集' if self.results['stock']['success'] else '失敗'))
+        if upload_error:
+            upload_error.target = target
+            raise upload_error
 
     def print_batch_summary(self):
         """批次模式（--days／--backfill-gaps）結束時的總表：最後一天若是休市，log 結尾只會看到
@@ -493,7 +503,7 @@ def _alert_failure(reason: str, collector):
 
 def main():
     """主程式"""
-    from gcs_archive import ArchiveSyncError
+    from gcs_archive import ArchiveSyncError, ArchiveUploadError
     parser = argparse.ArgumentParser(
         description='每日自動收集排程器',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -553,8 +563,10 @@ def main():
             return 0
 
         elif args.incremental:
-            # 增量更新模式
-            collector.run_incremental()
+            # ⚠️ 已停用：run_incremental 不經過年度檔下載／上傳（Cloud Run 上用空目錄收集，MACD 全是「-」、
+            #    年度檔永遠缺那天），get_missing_dates 查的 collection 也早就不存在，實際只會補今天。
+            logging.error("--incremental 已停用：補缺口請用 --backfill-gaps，補單日請用 --date YYYY-MM-DD")
+            return 2
 
         elif args.days:
             # 批次收集過去 N 天
@@ -586,6 +598,12 @@ def main():
 
     except KeyboardInterrupt:
         logging.info("\n⚠️ 使用者中斷")
+        return 1
+    except ArchiveUploadError as e:
+        day = getattr(e, 'target', None) or args.date or '今天'
+        logging.error(f"\n❌ {day} 已收集，但年度檔沒有存回 Storage: {e}")
+        _alert_failure(f"{day} 的資料已收集並寫入網站，但 Storage 年度檔沒有更新：{e}。"
+                       f"下一輪會用舊的年度檔重算強勢股，請補跑 --date {day}", collector)
         return 1
     except ArchiveSyncError as e:
         logging.error(f"\n❌ 年度檔同步失敗，整輪中止: {e}")

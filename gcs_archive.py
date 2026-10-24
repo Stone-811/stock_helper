@@ -8,8 +8,11 @@
 用 USE_GCS_ARCHIVE=1 啟用（Cloud Run 設定；本地開發不設則沿用本地檔）。
 Storage 用與前端相同的 Firebase Storage bucket。
 """
-import os
+import base64
+import hashlib
 import logging
+import os
+import re
 from pathlib import Path
 
 STORAGE_BUCKET = 'stock-analysis-b5602-archive'
@@ -33,25 +36,59 @@ class ArchiveSyncError(RuntimeError):
     """年度檔與 Storage 同步失敗。收集器要整輪中止：不可拿殘缺的年度檔收集、重算，更不可上傳蓋掉完整歷史。"""
 
 
-# 這次執行從 Storage 下載到的每個檔：{檔名: {'generation', 'rows', 'first', 'last'}}，上傳時拿來比對
+class ArchiveUploadError(ArchiveSyncError):
+    """資料已收集、已寫 Firestore，但年度檔沒存回 Storage（被防線擋下或與別的執行衝突）。"""
+
+
+# 只同步正式年度檔。archive/ 底下的備份（子資料夾、stocks_2026_backup.csv）不可被下載、重傳，
+# 也不可被 update_matrix 的 glob('stocks_*.csv') 當成另一份年度檔。備份請放在 archive/ 以外。
+ARCHIVE_RE = re.compile(r'stocks_\d{4}\.csv')
+
+# 這次執行從 Storage 下載到的每個檔：{檔名: {'generation', 'md5', 'days', 'rows', 'first', 'last'}}
 _downloaded = {}
 
 
 def _summary(path) -> dict:
-    """年度檔的列數與最早／最晚日期（第一欄就是 date，不用 pandas 整份讀進來）。"""
-    rows, first, last = 0, None, None
+    """
+    年度檔每天有幾檔（同一天同一代號只算一次）與最早／最晚日期。
+
+    ⚠️ 不可數原始列數：2023～2025 年度檔各有約 1.1% 的 (date, stock_id) 重複列（改名、轉上市留下的兩個股名），
+    重收任何一天時 _append_to_yearly_archive 會整份去重，列數少 1% 以上，但資料沒有少。
+    """
+    days = {}
     with open(path, encoding='utf-8-sig') as f:
         next(f, None)  # 表頭
         for line in f:
-            d = line.split(',', 1)[0].strip()
-            if not d:
+            parts = line.split(',', 2)
+            if len(parts) < 2 or not parts[0].strip():
                 continue
-            rows += 1
-            if first is None or d < first:
-                first = d
-            if last is None or d > last:
-                last = d
-    return {'rows': rows, 'first': first, 'last': last}
+            days.setdefault(parts[0].strip(), set()).add(parts[1].strip())
+    counts = {d: len(ids) for d, ids in days.items()}
+    return {'days': counts, 'rows': sum(counts.values()),
+            'first': min(counts) if counts else None, 'last': max(counts) if counts else None}
+
+
+def _md5(path) -> str:
+    """與 Storage 的 blob.md5_hash 同格式（base64），用來判斷本地檔有沒有被改過。"""
+    h = hashlib.md5()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return base64.b64encode(h.digest()).decode()
+
+
+def require_authoritative_archive():
+    """
+    會寫 Firestore、卻沒開 Storage 同步時中止。
+
+    本機的 data/daily_reports/archive 只是某天的副本（例：停在 2026-09-04），拿它算前一日收盤、MACD、連買天數，
+    會把錯的強勢名單與 daily_data 寫進正式站，而且本機不上傳，Storage 也缺那一天。
+    要在本機跑正式資料：設 USE_GCS_ARCHIVE=1（開頭下載、結尾上傳）。確定只是本機實驗：設 ALLOW_LOCAL_ARCHIVE=1。
+    """
+    from stock_collector import config
+    if config.firebase_enabled() and not gcs_enabled() and os.getenv('ALLOW_LOCAL_ARCHIVE') != '1':
+        raise ArchiveSyncError('會寫入正式 Firestore，但沒有設 USE_GCS_ARCHIVE=1：本機年度檔不是最新的完整歷史。'
+                               '請設 USE_GCS_ARCHIVE=1 再跑；只是本機實驗才設 ALLOW_LOCAL_ARCHIVE=1')
 
 
 def download_archives(local_archive_dir) -> int:
@@ -73,7 +110,9 @@ def download_archives(local_archive_dir) -> int:
         count = 0
         for blob in bucket.list_blobs(prefix=ARCHIVE_PREFIX):
             fname = blob.name[len(ARCHIVE_PREFIX):]
-            if not fname.endswith('.csv'):
+            if not ARCHIVE_RE.fullmatch(fname):
+                if fname:
+                    logging.warning(f"⚠️ Storage 的 {blob.name} 不是年度檔，略過（備份請放在 {ARCHIVE_PREFIX} 以外）")
                 continue
             final, part = local_dir / fname, local_dir / (fname + '.part')
             try:
@@ -85,12 +124,12 @@ def download_archives(local_archive_dir) -> int:
             finally:
                 if part.exists():
                     part.unlink()
-            _downloaded[fname] = {'generation': blob.generation, **_summary(final)}
+            _downloaded[fname] = {'generation': blob.generation, 'md5': blob.md5_hash, **_summary(final)}
             count += 1
         if count == 0:
             raise ArchiveSyncError('Storage 裡沒有任何年度檔')
         logging.info(f"✓ 從 Storage 下載 {count} 個年度檔：" + '、'.join(
-            f"{k} {v['rows']:,} 列（到 {v['last']}）" for k, v in sorted(_downloaded.items())))
+            f"{k} {len(v['days'])} 天（到 {v['last']}）" for k, v in sorted(_downloaded.items())))
         return count
     except ArchiveSyncError:
         raise
@@ -98,46 +137,70 @@ def download_archives(local_archive_dir) -> int:
         raise ArchiveSyncError(f'Storage 下載年度檔失敗：{e}') from e
 
 
+def check_upload(local_archive_dir):
+    """
+    上傳前的比對，只檢查不上傳（回補腳本的 dry-run 也用這個，預告 --write 的結果）。
+
+    回傳 (要上傳的 [(路徑, generation, summary)], 沒改過略過的檔名, 問題清單)。
+    不過關的條件：下載時有的日子不見了，或某一天的檔數少於下載時的 95%
+    （例：重收某天時 FinMind 只回 85%，2,334 檔被換成 1,979 檔）。
+    """
+    local_dir = Path(local_archive_dir)
+    to_upload, unchanged, problems = [], [], []
+    for csv in sorted(local_dir.glob('*.csv')):
+        name = csv.name
+        if not ARCHIVE_RE.fullmatch(name):
+            continue
+        base = _downloaded.get(name)
+        if base and base.get('md5') and base['md5'] == _md5(csv):
+            unchanged.append(name)
+            continue
+        now = _summary(csv)
+        if base:
+            lost = sorted(d for d in base['days'] if d not in now['days'])
+            shrunk = sorted(d for d, n in base['days'].items() if d in now['days'] and now['days'][d] < n * 0.95)
+            if lost or shrunk:
+                detail = []
+                if lost:
+                    detail.append(f"少了 {len(lost)} 天（{'、'.join(lost[:5])}{'…' if len(lost) > 5 else ''}）")
+                for d in shrunk[:5]:
+                    detail.append(f"{d} 從 {base['days'][d]:,} 檔變 {now['days'][d]:,} 檔")
+                problems.append(f"{name} 比下載時殘缺：{'；'.join(detail)}，不上傳")
+                continue
+            to_upload.append((csv, base['generation'], now))
+        else:
+            to_upload.append((csv, 0, now))   # 新年度檔：Storage 上必須還不存在
+    return to_upload, unchanged, problems
+
+
 def upload_archives(local_archive_dir) -> int:
     """
-    把本地年度檔上傳 Storage（collector 結束時）。回傳上傳檔數。
+    把本地有改過的年度檔上傳 Storage（collector 結束時）。回傳上傳檔數。
 
-    ⚠️ 兩道防線，任何一個檔不過就不上傳該檔，最後 raise ArchiveSyncError（呼叫端會寄告警）：
-    1. 不可比下載時「變少」：列數少於 99%、最晚日期倒退、或最早日期往後 → 一定是本地檔殘缺。
-    2. 帶下載時的 generation 上傳（新年度的檔帶 0＝Storage 上必須還不存在）：
-       兩個執行同時跑時（排程與手動 workflow_dispatch），後傳的不會蓋掉先傳的那天。
+    ⚠️ 比對（check_upload）不過的檔不上傳；其餘帶下載時的 generation 上傳（新年度檔帶 0），
+    兩個執行同時跑時（排程與手動 workflow_dispatch），後傳的不會蓋掉先傳的那天。
+    沒改過的檔不重傳，免得只重算強勢股的執行也跟排程互相衝突。
+    有任何問題就 raise ArchiveUploadError（呼叫端會寄告警，資料已寫 Firestore）。
     """
     if not gcs_enabled():
         return 0
-    try:
-        bucket = _bucket()
-    except Exception as e:
-        raise ArchiveSyncError(f'連不到 Storage，年度檔沒有上傳：{e}') from e
-    local_dir = Path(local_archive_dir)
-    problems, count = [], 0
-    for csv in sorted(local_dir.glob('*.csv')):
-        name, now = csv.name, _summary(csv)
-        base = _downloaded.get(name)
-        if base:
-            shrunk = now['rows'] < base['rows'] * 0.99
-            moved = ((now['last'] or '') < (base['last'] or '')
-                     or (base['first'] and now['first'] and now['first'] > base['first']))
-            if shrunk or moved:
-                problems.append(f"{name} 比下載時殘缺（{base['rows']:,} → {now['rows']:,} 列，"
-                                f"{base['first']}～{base['last']} → {now['first']}～{now['last']}），不上傳")
-                continue
-            generation = base['generation']
-        else:
-            generation = 0
-        blob = bucket.blob(ARCHIVE_PREFIX + name)
+    to_upload, unchanged, problems = check_upload(local_archive_dir)
+    count = 0
+    if to_upload:
         try:
-            blob.upload_from_filename(str(csv), if_generation_match=generation)
+            bucket = _bucket()
         except Exception as e:
-            problems.append(f'{name} 上傳失敗（可能有另一個執行先更新了）：{e}')
-            continue
-        _downloaded[name] = {'generation': blob.generation, **now}
-        count += 1
+            raise ArchiveUploadError(f'連不到 Storage，年度檔沒有上傳：{e}') from e
+        for csv, generation, now in to_upload:
+            blob = bucket.blob(ARCHIVE_PREFIX + csv.name)
+            try:
+                blob.upload_from_filename(str(csv), if_generation_match=generation)
+            except Exception as e:
+                problems.append(f'{csv.name} 上傳失敗（可能有另一個執行先更新了）：{e}')
+                continue
+            _downloaded[csv.name] = {'generation': blob.generation, 'md5': blob.md5_hash, **now}
+            count += 1
     if problems:
-        raise ArchiveSyncError('；'.join(problems))
-    logging.info(f"✓ 上傳 {count} 個年度檔到 Storage")
+        raise ArchiveUploadError('；'.join(problems))
+    logging.info(f"✓ 上傳 {count} 個年度檔到 Storage" + (f"（{len(unchanged)} 個沒改過、略過）" if unchanged else ''))
     return count

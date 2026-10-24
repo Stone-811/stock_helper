@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import glob
 import logging
+import sys
 from dotenv import load_dotenv
 
 # 載入環境變數
@@ -331,6 +332,13 @@ def main():
     parser.add_argument('--output', type=str, default='strong_stock_matrix.csv', help='輸出檔案名稱')
 
     args = parser.parse_args()
+
+    # 本機直接跑也會寫正式 strong_stocks：不可拿本機的舊年度檔算（見 gcs_archive.require_authoritative_archive）
+    if FIREBASE_ENABLED:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from gcs_archive import require_authoritative_archive, download_archives
+        require_authoritative_archive()
+        download_archives(Path(__file__).parent.parent / args.data_dir / 'archive')
 
     count = update_matrix(
         data_dir=args.data_dir,

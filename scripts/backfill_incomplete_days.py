@@ -38,6 +38,7 @@ import stock_collector.stock_collector as sc   # noqa: E402
 from stock_collector.update_strong_matrix import _day_stats, _complete_dates, calculate_strong   # noqa: E402
 
 PRICE_COLS = ['open', 'high', 'low', 'close']
+INST_COLS = ['foreign_buy', 'trust_buy', 'dealer_buy']
 # 成交量允許「只增不減」：2026-10-24 實測這 4 天重抓時價格一致、成交量每檔只多不少（+2～+11,200 張），
 # 是當初收得太早、FinMind 還沒更新完；變少才代表抓錯。
 
@@ -76,6 +77,14 @@ def main():
         return 0
     print(f'要補的日子：{targets}')
 
+    # daily_data 已經有的日子不歸這支腳本管：只改年度檔、不改 daily_data，強勢名單會跟網站明細對不上
+    from firebase_writer import get_firestore_client
+    db = get_firestore_client()
+    in_daily = [d for d in targets if db.collection('daily_data').document(d).get().exists]
+    if in_daily:
+        print(f'❌ 這些日子 daily_data 已經有資料，要連網站明細一起重收（--date），不能只補年度檔：{in_daily}')
+        return 1
+
     sc.FIREBASE_ENABLED = False        # 不寫 daily_data（見檔頭）
     collector = sc.StockCollector(output_dir=str(work))
 
@@ -85,6 +94,7 @@ def main():
         before_df = load_year(archive, year)
         before = day_report(before_df, d)
         old = before_df[before_df['date'].astype(str) == d].set_index('stock_id')
+        old = old[~old.index.duplicated(keep='last')]     # 2023～2025 年度檔有改名留下的重複列
 
         path = collector.collect_daily_data(target_date=d)
         if not path or not str(path).endswith(f'stocks_{year}.csv'):
@@ -98,18 +108,28 @@ def main():
         diff = int((old.loc[common, PRICE_COLS].round(4) != new.loc[common, PRICE_COLS].round(4)).any(axis=1).sum())
         vol_up = int((new.loc[common, 'volume'] > old.loc[common, 'volume']).sum())
         vol_down = int((new.loc[common, 'volume'] < old.loc[common, 'volume']).sum())
+        # 法人原本有值、重抓後變 0：FinMind 這次回得不完整，不可拿較差的資料換掉較好的
+        washed = sum(int(((old.loc[common, c].fillna(0) != 0) & (new.loc[common, c].fillna(0) == 0)).sum())
+                     for c in INST_COLS if c in old.columns and c in new.columns)
         lost = sorted(set(old.index) - set(new.index))
         complete = d in _complete_dates(_day_stats(after_df))
-        ok &= complete and diff == 0 and vol_down == 0 and not lost
-        rows_out.append((d, before, after, diff, vol_up, vol_down, len(lost), complete))
+        ok &= complete and diff == 0 and vol_down == 0 and washed == 0 and not lost
+        rows_out.append((d, before, after, diff, vol_up, vol_down, washed, len(lost), complete))
 
-    print('\n日期        檔數（前→後）  法人有值（前→後）  強勢（前→後）  價格不同  量變多  量變少  消失  補完完整')
-    for d, b, a, diff, up, down, lost, complete in rows_out:
+    print('\n日期        檔數（前→後）  法人有值（前→後）  強勢（前→後）  價格不同  量變多  量變少  法人被洗成0  消失  補完完整')
+    for d, b, a, diff, up, down, washed, lost, complete in rows_out:
         print(f"{d}  {b['rows']:>5} → {a['rows']:<5}  {b['inst']:>4.0%} → {a['inst']:<4.0%}       "
-              f"{b['strong']:>3} → {a['strong']:<3}     {diff:>5}   {up:>5}   {down:>5}  {lost:>4}    {'是' if complete else '否'}")
+              f"{b['strong']:>3} → {a['strong']:<3}     {diff:>5}   {up:>5}   {down:>5}      {washed:>5}     {lost:>4}    {'是' if complete else '否'}")
+    print('（前一日收盤改由補好的日子提供，重算後隔天的強勢名單也可能小幅變動，屬於修正。）')
+
+    to_upload, unchanged, problems = gcs_archive.check_upload(archive)
+    print(f"上傳前比對：要上傳 {[p.name for p, _, _ in to_upload]}，沒改過 {unchanged}")
+    if problems:
+        print('❌ ' + '；'.join(problems))
+        ok = False
 
     if not ok:
-        print('\n❌ 比對沒過（補完仍不完整、舊列價格被改、成交量變少、或有股票消失），不上傳。')
+        print('\n❌ 比對沒過（補完仍不完整、舊列價格被改、成交量變少、法人被洗成 0、有股票消失、或上傳前比對不過），不上傳。')
         return 1
     if not args.write:
         print(f'\n（dry-run）比對通過，沒有上傳。暫存目錄：{work}')
