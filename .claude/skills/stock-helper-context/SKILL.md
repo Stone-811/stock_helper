@@ -516,16 +516,46 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
   只刪「資料完整、重算後 0 檔」的日期，刪前 `get()` 確認存在；完整的 0 檔日超過 max(5, 天數/100) 就**整輪不寫不刪**、
   寄告警並 raise（審查指出原本護欄在寫入後才檢查）；全部 0 檔也告警。股名 NaN 的強勢股以前被 pivot_table 丟掉，
   補回 2023 年 3 檔次（2730 ×2、6731）。
-- **🔴 有 4 天年度檔資料不完整，強勢股算少了（問卷 D1 待業主決定）**：2026-04-24、06-25、07-02、07-09
-  只有前後中位數約 85% 的檔數；06-25／07-02 法人只有 39% 有值，07-09 是 0% → 07-09 強勢 0 檔（補完估約 84 檔）。
-  FinMind 現在 4 天都有完整資料。正常日子：檔數比 ≥0.95、法人有值 ≥0.73（`update_strong_matrix._complete_dates` 的依據）。
-  ⚠️ 補法只能改 **GCS 年度檔**再重算：strong_stocks 全由年度檔推導，只寫 Firestore 會被下一輪覆寫。
-  也**不要**用 `daily_collector --date` 重收：那會在 daily_data 塞進孤立的一天（daily_data 從 07-24 起），
-  月報用 available_dates 當交易日軸，「近 20 日投信累計」會把它當成 07-24 的前一天。
-- **🔴 年度檔下載一半失敗會蓋掉 GCS 完整歷史（既有風險，審查 F2）**：`download_archives` 吃掉例外回 0、
-  `run_daily` 不看回傳值；google-cloud-storage 只在 DataCorruption／NotFound 時刪半成品 → 截斷的檔案被拿去收集、
-  最後 `upload_archives` 無條件上傳。bucket 沒開 versioning，只有 soft delete 7 天可救。
-  修法：下載後比對 blob.size、失敗就中止整輪；上傳前確認列數／最後日期不比下載時少，並帶 if_generation_match。
+- **🟡 年度檔有 15 天資料收得不完整（業主 2026-10-24 說「補上」；工具與驗證都好了，上傳等業主執行）**
+  - 原本以為 4 天（04-24、06-25、07-02、07-09 檔數只有約 85%）。獨立核對者對證交所、櫃買中心、FinMind 全市場逐檔比對後更正：
+    **缺的那 15% 全是興櫃股**，上市上櫃當初都收齊了；真正錯的是**法人寫成 0**（06-25／07-02 約 6 成、07-09 全部）、
+    成交量偏少、外資持股比例三欄寫 0.0。另外還有 11 天通過 `_complete_dates` 但有錯：
+    06-16～07-06 的 7 天少 11 檔次強勢股（6446 藥華藥、6589 台康生技法人每天被寫成 0），04-22、04-23、06-15、06-18
+    外資持股比例或當沖寫成 0、06-18 有 125 檔上市股量偏少。→ **少數幾檔法人寫成 0 的日子，完整度檢查抓不到。**
+  - 工具：`scripts/backfill_incomplete_days.py --date …`（走 `collect_daily_data`，但 `sc.FIREBASE_ENABLED=False` 不寫 daily_data）。
+    擋下條件：價格有任何不同、成交量變少、法人原本有值變 0、有股票消失、補完仍不完整、上傳前比對不過、
+    **daily_data 已有該日**（那種日子要連網站明細一起 `--date` 重收）。
+  - 15 天 dry-run（2026-10-24）：價格 0 不同、量只增、法人 0 筆洗成 0、0 檔消失；強勢合計 **+300 檔次**
+    （07-09 0→84、07-02 76→207、06-25 29→82、04-22 162→173…）。重算後 06-26、07-03、07-13 也會各變 1～2 檔（前一日收盤改對）。
+    獨立核對：4 個主要日子回補後與三個來源 0 筆不同，07-02 的 207 檔合理（加權 −0.58%、櫃買 +1.92%）。
+  - ⚠️ **`--write` 被 auto mode 擋下**（覆寫正式 GCS 年度檔）→ 請業主在終端機自己跑，跑完再執行一次只重算強勢股。
+    上傳前備份在當時 session 的 scratchpad `gcs_backup_20261024/stocks_2026.csv`（generation 1792739517133527）。
+  - 已知不修：回補用今天的股名（39～43 檔是改名後的名字）；之後日子已存的連買天數不重算（08-03～08-07 有 23 列被截在 16 天左右，最新一天不受影響）。
+- ~~**🔴 年度檔下載一半失敗會蓋掉 GCS 完整歷史**~~ **✅ 2026-10-24 修好**（commit 66ca379、e30342a，兩輪對抗式審查）：
+  - `download_archives`：先寫 `.part`、比 `blob.size`、鎖 generation；任一檔失敗 raise `ArchiveSyncError` → main() 告警、exit 1、整輪不收集不上傳。
+  - `upload_archives` → `check_upload`：**逐日數不重複代號**（不可數原始列數：2023～2025 各有約 1.1% 的 (date, stock_id)
+    重複列，重收任一天整份去重就少 1% 以上）；下載時有的日子不見、或某天少於 95% 就不傳；`md5_hash` 沒變的檔不重傳
+    （否則只重算強勢股的執行也會跟排程互相 412）；帶下載時的 generation 上傳（新年度檔帶 0）。
+  - 上傳失敗：`run_daily` 先跑完 available_dates／self-check／到價提醒再 raise `ArchiveUploadError`，告警寫「已收集並寫入網站，
+    但年度檔沒存回，請補跑 --date」。
+  - `require_authoritative_archive()`：會寫 Firestore 卻沒設 `USE_GCS_ARCHIVE=1` 就中止（本機年度檔停在 09-04，
+    審查模擬：拿它重算 09-04 會多 44 檔、漏 64 檔）；`ALLOW_LOCAL_ARCHIVE=1` 才放行。`update_strong_matrix.py` 單獨跑也檢查。
+  - `--incremental` 停用（return 2）：它不經過年度檔同步，Cloud Run 上用空目錄收集。
+  - 只同步 `stocks_YYYY.csv`：**備份請放在 archive/ 前綴以外**，否則下載失敗或被 glob 當成另一份年度檔。
+  - 順手修：`add_macd_from_archive`／`add_streak_from_archive` 直接取年度檔 `tail()`，補舊日期時拿到的是最新一天的序列
+    → 改成只取目標日（含）以前。影響 `--date` 補舊日期與 `--backfill-gaps`，每天排程不受影響。
+  - 複查（d9f234f）再修：某天檔數**比下載時少就不上傳**（原本容忍 5%，同一天重收是整天替換，不會合法變少）；
+    `require_authoritative_archive(writes_firestore)` 由呼叫端傳旗標——⚠️ gcs_archive 裡不可 `from stock_collector import config`，
+    `python stock_collector/update_strong_matrix.py` 腳本模式下 stock_collector/ 在 sys.path 上，會把 stock_collector.py 當頂層套件載入而崩潰；
+    檢查與 `ensure_downloaded()` 放在 `update_matrix()` 開頭（`--days` 全是休市日時最後的重算也經過）；
+    舊入口 `python -m stock_collector.stock_collector` 會寫正式資料時拒絕；批次模式某天上傳失敗會繼續、最後一起報。
+  - ⚠️ **`update_matrix()` 後段有區域 `import sys`**：在函式前段直接用 `sys` 會 UnboundLocalError（雲端每輪都會走到），
+    新程式要用 `import sys as _sys`。這次是在本機跑腳本模式才抓到。
+  - 雲端實測（2026-10-24，新 image）：只重算強勢股 → 下載 4 檔、寫 916 天、「上傳 0 個（4 個沒改過、略過）」、
+    GCS generation 不變（1792739517133527）、exit 0。
+  - 測試：假 bucket 18 種情境（scratchpad `test_gcs_archive2.py`）。
+  - 還沒修（相鄰問題）：新年度第一個交易日 `_assert_prev_close_sane` 會 raise、那天沒有強勢名單也不告警；
+    1 月前約 25 個交易日 MACD 全是「-」。兩者都要讓年度檔讀前一年最後一段當種子（見「跨年第一個交易日」待辦）。
 - **GCS 年度檔缺外資持股張數**（2026-01-02～09-29 與 10-21）：回補腳本只寫 Firestore，沒寫年度檔。
   網站月報讀 daily_data，**不受影響**（9 月每天約 1,980 檔有值）；但「年度檔是唯一完整歷史」這句對這兩欄不成立。
 - **自選股「今日訊號」分不出「連買 0 天」與「沒有法人資料」**（2026-10-22 說明書審查時兩位審查者各自抓到）：

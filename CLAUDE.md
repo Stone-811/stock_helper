@@ -91,7 +91,7 @@ Claude Code 處理本專案時的指引說明。
 │   └── merge_daily_files.py            # 舊版檔案合併工具（已被年度歸檔取代）
 │
 ├── firebase_writer.py                  # Firestore 寫入（分片優化 + null 語意）
-├── gcs_archive.py                      # 年度檔上下載 GCS（collector 是 stateless）
+├── gcs_archive.py                      # 年度檔上下載 GCS（collector 是 stateless；下載不完整就整輪中止、上傳前逐日比對）
 ├── notify.py                           # 通知
 │
 ├── scripts/                            # 一次性稽核／回補工具（一律預設 dry-run，--write 才寫）
@@ -100,7 +100,8 @@ Claude Code 處理本專案時的指引說明。
 │   ├── backfill_foreign_hold_shares.py # 回補外資持股五欄（null-aware、只寫交易日、可 --date）
 │   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
 │   ├── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
-│   └── dedupe_daily_data.py            # 清 daily_data 重複列與殘留分片（2026-10-22 已跑過）
+│   ├── dedupe_daily_data.py            # 清 daily_data 重複列與殘留分片（2026-10-22 已跑過）
+│   └── backfill_incomplete_days.py     # 重收年度檔裡收得不完整的日子（只改 GCS 年度檔，不寫 daily_data）
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
@@ -544,10 +545,14 @@ gcloud run jobs deploy stock-collector --source=. \
 
 ### Python 資料收集
 
+⚠️ **本機跑會寫正式 Firestore，一定要 `export USE_GCS_ARCHIVE=1`**（開頭從 GCS 下載年度檔、結尾上傳）。
+沒設會被 `require_authoritative_archive()` 擋下：本機 `data/daily_reports/archive` 只是某天的副本，
+拿它算前一日收盤／MACD／連買天數會把錯的資料寫進正式站。只是本機實驗才設 `ALLOW_LOCAL_ARCHIVE=1`。
+`--incremental` 已停用（不經過年度檔同步），補缺口用 `--backfill-gaps`。
+
 ```bash
 # === 統一排程器（推薦）===
 python -m stock_collector.daily_collector                    # 今日（股票+指數+矩陣）
-python -m stock_collector.daily_collector --incremental      # 增量更新（只補缺少的日期）
 python -m stock_collector.daily_collector --date 2026-06-19  # 指定日期
 python -m stock_collector.daily_collector --days 7           # 批次收集過去 7 天
 python -m stock_collector.daily_collector --skip-stock       # 只收集指數+矩陣
@@ -555,6 +560,7 @@ python -m stock_collector.daily_collector --skip-index       # 只收集股票+�
 python -m stock_collector.daily_collector --skip-matrix      # 只收集資料，不更新矩陣
 
 # === 個別收集（舊方式）===
+# ⚠️ stock_collector.py 單獨執行時，會寫正式資料就拒絕（它不把年度檔存回 Storage）；正式資料一律用 daily_collector
 # 指數資料收集（加權指數 + 台指期）
 python -m stock_collector.index_collector              # 今日
 python -m stock_collector.index_collector --days 30    # 過去 30 天
@@ -567,7 +573,7 @@ python stock_collector/stock_collector.py
 python stock_collector/stock_collector.py --days 7
 
 # 更新強勢股矩陣
-python stock_collector/update_strong_matrix.py
+USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix   # 會先從 Storage 下載年度檔；沒設會拒絕
 
 # 測試 Firebase 連線
 python firebase_writer.py
