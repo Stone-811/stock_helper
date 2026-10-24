@@ -180,6 +180,9 @@ class StockCollector:
             # 9. 寫入 Firestore（若已設定）
             firestore_ok = None
             if FIREBASE_ENABLED:
+                # 不可拿本機舊年度檔算出的 MACD／連買天數寫進正式站（見 gcs_archive.require_authoritative_archive）
+                from gcs_archive import require_authoritative_archive
+                require_authoritative_archive(True)
                 logging.info("寫入 Firestore...")
                 try:
                     from firebase_writer import write_daily_stocks
@@ -718,6 +721,14 @@ def main():
     parser.add_argument('--skip-macd', action='store_true', help='跳過 MACD 計算（加快收集速度）')
 
     args = parser.parse_args()
+
+    # ⚠️ 這支舊入口會寫正式 Firestore，但從不把年度檔存回 Storage，MACD／連買天數也是拿本機副本算
+    #    （2026-10-24 審查）。正式資料一律走 daily_collector（有下載、上傳與比對防線）。
+    if FIREBASE_ENABLED and os.getenv('ALLOW_LOCAL_ARCHIVE') != '1':
+        print('❌ 這支指令會寫正式資料，但不會把年度檔存回 Storage。請改用：\n'
+              '   USE_GCS_ARCHIVE=1 python -m stock_collector.daily_collector --date YYYY-MM-DD（或 --days N）\n'
+              '   只是本機實驗才設 ALLOW_LOCAL_ARCHIVE=1。')
+        return 2
 
     start_time = datetime.now()
 

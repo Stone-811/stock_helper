@@ -77,18 +77,29 @@ def _md5(path) -> str:
     return base64.b64encode(h.digest()).decode()
 
 
-def require_authoritative_archive():
+def require_authoritative_archive(writes_firestore: bool):
     """
     會寫 Firestore、卻沒開 Storage 同步時中止。
 
     本機的 data/daily_reports/archive 只是某天的副本（例：停在 2026-09-04），拿它算前一日收盤、MACD、連買天數，
     會把錯的強勢名單與 daily_data 寫進正式站，而且本機不上傳，Storage 也缺那一天。
     要在本機跑正式資料：設 USE_GCS_ARCHIVE=1（開頭下載、結尾上傳）。確定只是本機實驗：設 ALLOW_LOCAL_ARCHIVE=1。
+
+    writes_firestore 由呼叫端傳入（stock_collector.config.firebase_enabled()）。⚠️ 這裡不可自己
+    `from stock_collector import config`：用 `python stock_collector/update_strong_matrix.py` 執行時，
+    stock_collector/ 目錄在 sys.path 上，會把 stock_collector/stock_collector.py 當成頂層套件載入而崩潰。
     """
-    from stock_collector import config
-    if config.firebase_enabled() and not gcs_enabled() and os.getenv('ALLOW_LOCAL_ARCHIVE') != '1':
+    if writes_firestore and not gcs_enabled() and os.getenv('ALLOW_LOCAL_ARCHIVE') != '1':
         raise ArchiveSyncError('會寫入正式 Firestore，但沒有設 USE_GCS_ARCHIVE=1：本機年度檔不是最新的完整歷史。'
                                '請設 USE_GCS_ARCHIVE=1 再跑；只是本機實驗才設 ALLOW_LOCAL_ARCHIVE=1')
+
+
+def ensure_downloaded(local_archive_dir) -> int:
+    """這次執行還沒從 Storage 下載過年度檔就先下載（例：--days 的日子全是休市日、run_daily 都沒走到下載，
+    最後卻還要重算強勢股）。已下載過就不重下。回傳下載檔數。"""
+    if gcs_enabled() and not _downloaded:
+        return download_archives(local_archive_dir)
+    return 0
 
 
 def download_archives(local_archive_dir) -> int:
@@ -142,8 +153,8 @@ def check_upload(local_archive_dir):
     上傳前的比對，只檢查不上傳（回補腳本的 dry-run 也用這個，預告 --write 的結果）。
 
     回傳 (要上傳的 [(路徑, generation, summary)], 沒改過略過的檔名, 問題清單)。
-    不過關的條件：下載時有的日子不見了，或某一天的檔數少於下載時的 95%
-    （例：重收某天時 FinMind 只回 85%，2,334 檔被換成 1,979 檔）。
+    不過關的條件：下載時有的日子不見了，或某一天的檔數比下載時少（同一天重收是整天替換，不會合法地變少；
+    例：重收某天時 FinMind 只回 85%，2,334 檔被換成 1,979 檔。少掉的正是唯一完整歷史裡要保護的列）。
     """
     local_dir = Path(local_archive_dir)
     to_upload, unchanged, problems = [], [], []
@@ -158,7 +169,7 @@ def check_upload(local_archive_dir):
         now = _summary(csv)
         if base:
             lost = sorted(d for d in base['days'] if d not in now['days'])
-            shrunk = sorted(d for d, n in base['days'].items() if d in now['days'] and now['days'][d] < n * 0.95)
+            shrunk = sorted(d for d, n in base['days'].items() if d in now['days'] and now['days'][d] < n)
             if lost or shrunk:
                 detail = []
                 if lost:

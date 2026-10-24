@@ -229,6 +229,15 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     output_path = base_path / output_dir
     output_path.mkdir(parents=True, exist_ok=True)
 
+    # 會寫正式 strong_stocks：不可拿本機的舊年度檔算；這次執行還沒下載過就先從 Storage 下載
+    # （本機直接跑、--days 全是休市日時的最後重算，都不會經過 run_daily 的下載）
+    if FIREBASE_ENABLED:
+        import sys as _sys   # ⚠️ 不可直接用 sys：本函式後段有區域 `import sys`，前面用會 UnboundLocalError
+        _sys.path.insert(0, str(base_path))
+        from gcs_archive import require_authoritative_archive, ensure_downloaded
+        require_authoritative_archive(True)
+        ensure_downloaded(data_path / 'archive')
+
     # 讀取年度合併檔案（優先）或每日報表（備用）
     archive_files = sorted(glob.glob(str(data_path / 'archive' / 'stocks_*.csv')))
     daily_files = sorted(glob.glob(str(data_path / 'daily_stock_*.csv')))
@@ -333,17 +342,16 @@ def main():
 
     args = parser.parse_args()
 
-    # 本機直接跑也會寫正式 strong_stocks：不可拿本機的舊年度檔算（見 gcs_archive.require_authoritative_archive）
-    if FIREBASE_ENABLED:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from gcs_archive import require_authoritative_archive, download_archives
-        require_authoritative_archive()
-        download_archives(Path(__file__).parent.parent / args.data_dir / 'archive')
-
-    count = update_matrix(
-        data_dir=args.data_dir,
-        output_filename=args.output
-    )
+    try:
+        count = update_matrix(
+            data_dir=args.data_dir,
+            output_filename=args.output
+        )
+    except Exception as e:
+        if type(e).__name__ != 'ArchiveSyncError':
+            raise
+        print(f"\n❌ {e}")
+        return 1
 
     if count:
         print(f"\n✅ 成功！強勢股矩陣已更新（{count} 檔股票）")

@@ -254,7 +254,8 @@ class DailyCollector:
         #    ⚠️ 下載失敗會 raise ArchiveSyncError，不在這裡接：整輪（批次模式也是）中止、由 main() 寄告警。
         #    拿殘缺的年度檔收集或重算，最後還會被上傳蓋掉 Storage 的完整歷史。
         from gcs_archive import download_archives, require_authoritative_archive
-        require_authoritative_archive()
+        from stock_collector import config as _config
+        require_authoritative_archive(_config.firebase_enabled())
         download_archives('data/daily_reports/archive')
 
         # 1. 收集股票資料
@@ -467,6 +468,18 @@ class DailyCollector:
         logging.info("=" * 70)
 
 
+def _raise_batch_upload_errors(failed):
+    """批次模式：有日子的年度檔沒存回 Storage → 收完全部、重算完再一起報（那些日子已寫 Firestore，
+    之後 --backfill-gaps 不會再當成缺口，只能靠這封信補跑）。"""
+    if not failed:
+        return
+    from gcs_archive import ArchiveUploadError
+    days = '、'.join(d for d, _ in failed)
+    err = ArchiveUploadError(f"{len(failed)} 天的年度檔沒有存回 Storage（{days}）：{failed[-1][1]}")
+    err.target = days
+    raise err
+
+
 def _alert_failure(reason: str, collector):
     """組裝並寄出收集失敗告警（分區塊純文字）。缺 SMTP 設定時自動略過。"""
     try:
@@ -555,11 +568,16 @@ def main():
             else:
                 preview = ', '.join(gaps[:10]) + ('...' if len(gaps) > 10 else '')
                 logging.info(f"發現 {len(gaps)} 個缺漏交易日，開始回補：{preview}")
+                failed_upload = []
                 for d in gaps:
                     logging.info(f"\n{'='*70}\n回補缺漏日：{d}")
-                    collector.run_daily(date=d, skip_matrix=True)
+                    try:
+                        collector.run_daily(date=d, skip_matrix=True)
+                    except ArchiveUploadError as e:   # 那天已寫 Firestore；下一天會重新下載最新版，繼續
+                        failed_upload.append((d, e))
                 collector.update_strong_matrix()
                 collector.print_batch_summary()
+                _raise_batch_upload_errors(failed_upload)
             return 0
 
         elif args.incremental:
@@ -571,21 +589,26 @@ def main():
         elif args.days:
             # 批次收集過去 N 天
             today = datetime.now().date()
+            failed_upload = []
             for i in range(args.days, 0, -1):
                 date = (today - timedelta(days=i)).strftime('%Y-%m-%d')
                 logging.info(f"\n{'='*70}")
                 logging.info(f"批次收集: {date}")
-                collector.run_daily(
-                    date=date,
-                    skip_stock=args.skip_stock,
-                    skip_index=args.skip_index,
-                    skip_matrix=True  # 批次時最後再更新一次
-                )
+                try:
+                    collector.run_daily(
+                        date=date,
+                        skip_stock=args.skip_stock,
+                        skip_index=args.skip_index,
+                        skip_matrix=True  # 批次時最後再更新一次
+                    )
+                except ArchiveUploadError as e:
+                    failed_upload.append((date, e))
 
             # 最後更新強勢股矩陣
             if not args.skip_matrix:
                 collector.update_strong_matrix()
             collector.print_batch_summary()
+            _raise_batch_upload_errors(failed_upload)
 
         else:
             # 單日收集
