@@ -28,6 +28,8 @@ def add_streak_from_archive(df, target_date, data_dir):
         hist = pd.read_csv(archive, usecols=lambda c: c in cols, dtype={'stock_id': str})
         hist['stock_id'] = hist['stock_id'].astype(str)
         hist['date'] = hist['date'].astype(str)
+        # 只取目標日（含）以前：補舊日期時年度檔已經有之後的資料，tail() 會拿到「未來」的序列
+        hist = hist[hist['date'] <= str(target_date)]
         frames.append(hist)
 
     combined = (pd.concat(frames, ignore_index=True)

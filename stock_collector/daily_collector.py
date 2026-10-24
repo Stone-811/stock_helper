@@ -251,6 +251,8 @@ class DailyCollector:
             return
 
         # 0. 從 Cloud Storage 下載年度檔（讓 Cloud Run 等 stateless 環境有持久歷史，供 MACD/強勢股計算）
+        #    ⚠️ 下載失敗會 raise ArchiveSyncError，不在這裡接：整輪（批次模式也是）中止、由 main() 寄告警。
+        #    拿殘缺的年度檔收集或重算，最後還會被上傳蓋掉 Storage 的完整歷史。
         from gcs_archive import download_archives
         download_archives('data/daily_reports/archive')
 
@@ -285,6 +287,7 @@ class DailyCollector:
                 logging.error(f"  ❌ 失敗: {e}")
 
         # 4. 年度檔上傳回 Cloud Storage（供下次 stateless 執行使用）
+        #    比下載時變少、或別的執行先更新過的檔不會上傳，並 raise ArchiveSyncError（main() 寄告警）。
         from gcs_archive import upload_archives
         upload_archives('data/daily_reports/archive')
 
@@ -490,6 +493,7 @@ def _alert_failure(reason: str, collector):
 
 def main():
     """主程式"""
+    from gcs_archive import ArchiveSyncError
     parser = argparse.ArgumentParser(
         description='每日自動收集排程器',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -582,6 +586,10 @@ def main():
 
     except KeyboardInterrupt:
         logging.info("\n⚠️ 使用者中斷")
+        return 1
+    except ArchiveSyncError as e:
+        logging.error(f"\n❌ 年度檔同步失敗，整輪中止: {e}")
+        _alert_failure(f"年度檔與 Storage 同步失敗，這輪沒有收集也沒有上傳：{e}", collector)
         return 1
     except Exception as e:
         logging.error(f"\n❌ 執行失敗: {e}")

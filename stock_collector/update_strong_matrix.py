@@ -107,8 +107,8 @@ def _assert_prev_close_sane(df: pd.DataFrame, prev_close: pd.Series) -> None:
     為什麼需要這道防線
     ------------------
     `update_matrix()` 在找不到年度檔時會退用 `daily_stock_*.csv`（每檔只有一天），
-    而 `gcs_archive.download_archives()` 下載失敗時只記 warning 就回傳 0
-    （gcs_archive.py:48-50）→ stateless 的 Cloud Run 會用當天資料重建出
+    而 `gcs_archive.download_archives()` 以前下載失敗時只記 warning 就回傳 0
+    （2026-10-24 起改成 raise、整輪中止）→ stateless 的 Cloud Run 會用當天資料重建出
     「只含一個日期」的 stocks_YYYY.csv。這兩種情況下每一列都取不到前一日
     → 全部 fallback 回 open → change_pct **又變回當日振幅**，
     而且日誌上完全看不出異常，卻會把 strong_stocks/{date} 覆寫成錯的判定。
