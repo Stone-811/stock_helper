@@ -85,8 +85,9 @@ const dayTradingRatioOf = (r: StrongTableRow): number | null =>
 const numCell = (v: number | null | undefined, digits = 0, cls = 'text-gray-900') =>
   v == null ? <NullCell /> : <span className={cls}>{fmtNum(v, digits)}</span>
 
+// 0 寫「0」（不寫「+0」）：與卡片同一頁、同一種寫法
 const signedCell = (v: number | null | undefined) =>
-  v == null ? <NullCell /> : <span className={signColor(v)}>{fmtSigned(v)}</span>
+  v == null ? <NullCell /> : <span className={signColor(v)}>{v === 0 ? '0' : fmtSigned(v)}</span>
 
 const pctCell = (v: number | null | undefined, digits = 2, cls = 'text-gray-900') =>
   v == null ? <NullCell /> : <span className={cls}>{fmtPct(v, digits)}</span>
@@ -185,6 +186,8 @@ const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
     render: (r) => {
       const m = r.macd_status
       if (!m) return <NullCell />
+      // 「-」是天數不夠算不出來，跟卡片一樣顯示「—」（無資料一律「—」）
+      const label = m === '多' || m === '空' ? m : DASH
       const cls =
         m === '多'
           ? 'bg-red-100 text-red-700'
@@ -193,7 +196,7 @@ const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
             : 'bg-gray-100 text-gray-700'
       return (
         <span className={`inline-flex items-center min-h-[28px] px-2 rounded text-sm font-medium ${cls}`}>
-          {m}
+          {label}
         </span>
       )
     },
@@ -456,6 +459,9 @@ const isView = (v: unknown): v is View => v === 'cards' || v === 'table'
 
 type SortState = { key: ColKey; dir: 'asc' | 'desc' }
 
+/** 「排序依據」裡卡片上本來看不到的欄位：依它們排序時，每張卡片多一行顯示該值 */
+const CARD_HIDDEN_KEYS: ColKey[] = ['volume', 'day_trading_ratio', 'foreign_streak', 'foreign_hold_ratio']
+
 const DEFAULT_SORT: SortState = { key: 'change_pct', dir: 'desc' }
 
 /** 任一指定欄位「無資料」（sortValue 為 null）就回 true —— 給「隱藏無資料的列」用 */
@@ -535,7 +541,8 @@ export default function StrongStocksPage() {
       const json: StrongTableResponse = await res.json()
       if (seq !== reqSeq.current) return
       // 記住的舊日期之後又出了新交易日 → 回到最新一天
-      if (newestWhenPicked && json.availableDates?.[0] && json.availableDates[0] !== newestWhenPicked) {
+      // YYYY-MM-DD 可以直接比大小；用 > 而不是 !==：CDN 快取回了較舊的清單，不可誤判成出了新交易日
+      if (newestWhenPicked && json.availableDates?.[0] && json.availableDates[0] > newestWhenPicked) {
         setPicked(null)
         fetchData()
         return
@@ -544,7 +551,11 @@ export default function StrongStocksPage() {
       // API 對不在白名單的日期是「靜默退回最新日」而不是回 400，
       // 所以一律以回應的 latestDate 為準，不要相信自己送出去的 date。
       setSelectedDate(json.latestDate || '')
-      if (date && json.latestDate !== date) setPicked(null)
+      if (date) {
+        // 以回應重算：API 退回最新日就不算「選了舊日期」；最新日以這次回應為準（開頁後收集器可能寫入了新的一天）
+        const newest = json.availableDates?.[0]
+        setPicked(json.latestDate === date && newest && date !== newest ? { date, newest } : null)
+      }
     } catch (e) {
       if (seq !== reqSeq.current) return
       console.error('Failed to fetch strong stocks:', e)
@@ -737,6 +748,12 @@ export default function StrongStocksPage() {
     () => Array.from(new Set(rows.map((s) => s.industry).filter(Boolean) as string[])).sort(),
     [rows]
   )
+
+  // 記住的產業不在這一天的選項裡：下拉會顯示「全部產業」，實際卻還在依舊產業篩 → 改回全部
+  useEffect(() => {
+    if (!data || filter.industry === 'all') return
+    if (!industries.includes(filter.industry)) setFilter((f) => ({ ...f, industry: 'all' }))
+  }, [data, industries, filter.industry])
 
   // 「隱藏無資料的列」檢查範圍＝目前可見欄 ＋ 目前排序欄
   const nullableCheckKeys = useMemo(
@@ -1053,14 +1070,16 @@ export default function StrongStocksPage() {
       />
     ) : emptyResult
 
+  // 載入中、出錯、還沒有資料時顯示「—」：不可寫「當日 0 檔」，也不可在換日期時留著前一天的檔數
+  const statsReady = viewReady && !loading && !error && !!data && !noTradingDay
   const statsBar = (cls: string, count: number, summary: string, notice: string) => (
     <div className={`${cls} flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-sm`} aria-live="polite">
       <span className="text-gray-700">
-        篩選 <span className="font-bold text-gray-900 tabular-nums">{count}</span> 檔 ／ 當日{' '}
-        <span className="font-medium text-gray-900 tabular-nums">{totalCount}</span> 檔
+        篩選 <span className="font-bold text-gray-900 tabular-nums">{statsReady ? count : DASH}</span> 檔 ／ 當日{' '}
+        <span className="font-medium text-gray-900 tabular-nums">{statsReady ? totalCount : DASH}</span> 檔
       </span>
-      <span className="text-gray-700">{summary}</span>
-      {notice && <span className="text-amber-900">{notice}</span>}
+      {statsReady && <span className="text-gray-700">{summary}</span>}
+      {statsReady && notice && <span className="text-amber-900">{notice}</span>}
     </div>
   )
 
@@ -1102,7 +1121,8 @@ export default function StrongStocksPage() {
           })}
         </div>
 
-        {/* 大字日期卡（原卡片頁的）：顯示的是 API 實際回傳的日期，跟下面的資料一定是同一天 */}
+        {/* 大字日期卡（原卡片頁的）：資料到了以後顯示的是 API 實際回傳的日期，跟下面的資料是同一天；
+            換日期的載入期間先顯示剛選的那天（下方結果區此時是骨架）。 */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
           <div>
             <div className="text-sm text-gray-700">資料日期</div>
@@ -1157,6 +1177,7 @@ export default function StrongStocksPage() {
                 onClick={() =>
                   setFilter((f) => ({
                     ...f,
+                    industry: q.key === 'all' ? 'all' : f.industry, // 「全部」＝不加任何條件
                     macd: q.macd,
                     minVolume: q.minVolume,
                     foreignBuy: q.foreignBuy,
@@ -1256,7 +1277,7 @@ export default function StrongStocksPage() {
             )}
 
             {/* 預設關閉：預設要誠實呈現有多少檔沒資料。只在表格出現：卡片沒有「欄」的概念 */}
-            {view === 'table' && (
+            {viewReady && view === 'table' && (
             <label className="flex items-center gap-2 min-h-[44px] lg:min-h-[36px] text-sm text-gray-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -1269,7 +1290,7 @@ export default function StrongStocksPage() {
             )}
 
             {/* 檢視切換：全欄位（預設）↔ 分組。全欄位會水平捲動，捲動關在表格容器內 */}
-            {view === 'table' && (
+            {viewReady && view === 'table' && (
             <button
               type="button"
               aria-pressed={showAll}
@@ -1287,7 +1308,7 @@ export default function StrongStocksPage() {
         </div>
 
         {/* 桌機：欄位分組切換（一次最多 8 欄，不橫捲） */}
-        {view === 'table' && !showAll && (
+        {viewReady && view === 'table' && !showAll && (
           <div className="hidden md:flex flex-wrap gap-2 mb-3" role="group" aria-label="欄位分組">
             {GROUP_KEYS.map((g) => (
               <button
@@ -1311,6 +1332,7 @@ export default function StrongStocksPage() {
             關鍵原則——橫向捲動的是 44px 高的控制項，不是資料格。
             點不同顆＝換第 3 欄並依該欄由大到小；點同一顆＝翻轉方向。
             亮哪顆、▼▲、第 3 欄一律看 mobileSort（不看桌機的 effectiveSort），三者才不會分家。 */}
+        {viewReady && (
         <div className={`${view === 'table' ? 'md:hidden ' : ''}mb-3`}>
           <div id="focus-label" className="text-sm text-gray-700 mb-1">
             {view === 'cards' ? '排序依據（點選即排序，再點一次反向）' : '比較欄位（點選即排序）'}
@@ -1342,6 +1364,7 @@ export default function StrongStocksPage() {
             })}
           </div>
         </div>
+        )}
 
         {/* 欄位說明：刻意放在表格「上方」（任何捲動容器之外）。
             InfoTip 的泡泡是 `position: fixed`（見 InfoTip.tsx 檔頭）：**不會**再把水平捲軸撐長，
@@ -1390,17 +1413,23 @@ export default function StrongStocksPage() {
         ) : loading ? (
           view === 'cards' ? <CardGridSkeleton /> : <TableSkeleton rows={12} cols={visibleKeys.length} />
         ) : error ? (
-          <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(selectedDate || undefined)} />
+          <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(picked?.date, picked?.newest)} />
         ) : noTradingDay ? (
           <EmptyState icon="📅" title="尚無可用交易日" description="資料尚未收集完成，請稍後再試" />
         ) : view === 'cards' ? (
           cardRows.length === 0 ? (
             emptyResult
           ) : (
-            <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4" aria-label={`${selectedDate} 強勢股卡片，共 ${cardRows.length} 檔`}>
+            // 欄數依「扣掉側欄後的內容寬」算：卡片要至少約 300px，法人三欄的 6 位數才不會擠出欄位
+            // （768 寬扣掉 256px 側欄只剩 480px，排兩欄每張只有 232px）
+            <ul className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-4" aria-label={`${selectedDate} 強勢股卡片，共 ${cardRows.length} 檔`}>
               {cardRows.map((r) => (
                 <li key={r.stock_id} className="min-w-0">
-                  <StockCard stock={r} strongCountStale={strongCountStale} />
+                  <StockCard
+                    stock={r}
+                    strongCountStale={strongCountStale}
+                    sortExtra={CARD_HIDDEN_KEYS.includes(focusKey) ? { label: COLUMNS[focusKey].fullName, value: COLUMNS[focusKey].render(r, ctx) } : undefined}
+                  />
                 </li>
               ))}
             </ul>

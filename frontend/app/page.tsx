@@ -188,7 +188,7 @@ export default function Home() {
           {strong.length === 0 ? (
             <EmptyState icon="🔥" title="今日尚無強勢股" description="資料更新後即可查看" />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
               {strong.slice(0, 6).map((s) => <StockCard key={s.stock_id} stock={s} />)}
             </div>
           )}

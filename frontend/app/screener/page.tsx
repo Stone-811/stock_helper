@@ -234,8 +234,10 @@ export default function ScreenerPage() {
         ) : stocks.length === 0 ? (
           <EmptyState icon="🔍" title="沒有符合條件的股票" description="試著放寬條件，或移除部分篩選" />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-            {stocks.map((stock) => <StockCard key={stock.stock_id} stock={stock} />)}
+          // 欄數依扣掉側欄後的內容寬：卡片要約 300px 以上，法人 6 位數才放得下（與強勢股頁同一套）
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-4">
+            {/* 選了以前的日期：「強勢 N 日」固定算最近 7 天、與所選日期無關 → 卡片轉灰 */}
+            {stocks.map((stock) => <StockCard key={stock.stock_id} stock={stock} strongCountStale={!!date && !!availableDates[0] && date !== availableDates[0]} />)}
           </div>
         )}
       </div>

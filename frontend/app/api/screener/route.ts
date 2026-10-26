@@ -59,7 +59,8 @@ export async function GET(request: Request) {
     const top = filtered.slice(0, 200)
     const ids = top.map((s: Record<string, unknown>) => String(s.stock_id))
     const countMap = ids.length ? await getStrongCountForStocks(ids, 7) : {}
-    const stocks = top.map((s: Record<string, unknown>) => ({ ...s, strong_count: countMap[String(s.stock_id)] || 0, prev_close: prevClose[String(s.stock_id)] }))
+    // 讀取失敗（null）時強勢天數是「—」，不是 0
+    const stocks = top.map((s: Record<string, unknown>) => ({ ...s, strong_count: countMap ? countMap[String(s.stock_id)] || 0 : null, prev_close: prevClose[String(s.stock_id)] }))
 
     // 產業下拉選項：從當日全市場實際出現的產業抽出
     const industries = Array.from(

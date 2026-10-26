@@ -262,7 +262,7 @@ export async function getStockStrongHistory(stockId: string, limitDays: number =
  *
  * 用於強勢股頁面顯示連續強勢天數
  */
-export async function getStrongCountForStocks(stockIds: string[], days: number = 7): Promise<Record<string, number>> {
+export async function getStrongCountForStocks(stockIds: string[], days: number = 7): Promise<Record<string, number> | null> {
   try {
     const countMap: Record<string, number> = {}
     const dates = await getAvailableDates(days)
@@ -279,8 +279,9 @@ export async function getStrongCountForStocks(stockIds: string[], days: number =
 
     return countMap
   } catch (error) {
+    // 回 null 而不是 {}：呼叫端才分得出「讀取失敗」（顯示「—」）與「最近 7 天真的沒入選」（0）
     console.error('計算強勢次數失敗:', error)
-    return {}
+    return null
   }
 }
 

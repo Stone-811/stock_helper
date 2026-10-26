@@ -62,12 +62,12 @@ export async function GET(request: Request) {
     // 合併資料
     const result = stockDetails.map((stock) => ({
       ...stock,
-      strong_count: countMap[stock.stock_id as string] || 0,
+      strong_count: countMap ? countMap[stock.stock_id as string] || 0 : null, // 讀取失敗是 null（畫面「—」），不是 0
       prev_close: prevClose[stock.stock_id as string]
     }))
 
     // 按強勢次數排序
-    result.sort((a: { strong_count: number }, b: { strong_count: number }) => b.strong_count - a.strong_count)
+    result.sort((a: { strong_count: number | null }, b: { strong_count: number | null }) => (b.strong_count ?? -1) - (a.strong_count ?? -1))
 
     return NextResponse.json({
       stocks: result,

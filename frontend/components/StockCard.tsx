@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import type { StrongStock } from '../lib/firebase'
 import InfoTip from './InfoTip'
 import { DASH, fmtNum, fmtSigned, fmtTradingValue, computeChange, changeColor, signColor } from '../lib/format'
@@ -10,6 +11,9 @@ interface StockCardProps {
   stock: Omit<StrongStock, 'date'>
   /** 所選日期不是最新交易日：「強勢 N 日」固定算最近 7 個交易日、與所選日期無關 → 轉灰並說明 */
   strongCountStale?: boolean
+  /** 依卡片上看不到的欄位排序時（成交量、當沖比、外資連續、外資持股），把那個值顯示出來，
+   *  否則業主看不出卡片為什麼這樣排（2026-10-26 回歸審查）。 */
+  sortExtra?: { label: string; value: ReactNode }
 }
 
 /*
@@ -21,7 +25,7 @@ interface StockCardProps {
  *   MACD 只有「多／空」上紅綠，「-」（資料不足）與空值是灰色「MACD —」，不再被看成空頭。
  * - 缺資料一律「—」，不寫成 0（強勢天數、成交額、法人）。
  */
-export default function StockCard({ stock, strongCountStale = false }: StockCardProps) {
+export default function StockCard({ stock, strongCountStale = false, sortExtra }: StockCardProps) {
   const { change, pct, dir } = computeChange(stock)
   const priceCls = dir === 'flat' ? 'text-gray-900' : changeColor(dir)
   const sign = change != null && change > 0 ? '+' : ''
@@ -36,9 +40,11 @@ export default function StockCard({ stock, strongCountStale = false }: StockCard
   const macdCls =
     macd === '多' ? 'bg-red-100 text-red-700' : macd === '空' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
 
-  const inst = (v: number | null | undefined) => (
-    <div className={`text-base font-semibold tabular-nums ${signColor(v)}`}>{v === 0 ? '0' : fmtSigned(v)}</div>
-  )
+  // 法人欄只有約 65～110px 寬：「+312,708」這種 7 字元以上的數字縮一級，免得擠出欄位壓到隔壁
+  const inst = (v: number | null | undefined) => {
+    const t = v === 0 ? '0' : fmtSigned(v)
+    return <div className={`${t.length >= 7 ? 'text-sm' : 'text-base'} font-semibold tabular-nums ${signColor(v)}`}>{t}</div>
+  }
   const streak = (v: number | null | undefined) =>
     v ? (
       <div className={`text-sm ${signColor(v)}`}>{v > 0 ? `連買 ${v}` : `連賣 ${Math.abs(v)}`}</div>
@@ -59,7 +65,7 @@ export default function StockCard({ stock, strongCountStale = false }: StockCard
               MACD {macd === '多' || macd === '空' ? macd : DASH}
             </span>
             {stock.industry && (
-              <span className="px-2 py-0.5 rounded text-sm bg-blue-50 text-blue-800 truncate max-w-[9em]" title={stock.industry}>
+              <span className="px-2 py-0.5 rounded text-sm bg-blue-50 text-blue-800 truncate max-w-[11em]" title={stock.industry}>
                 {stock.industry}
               </span>
             )}
@@ -73,6 +79,13 @@ export default function StockCard({ stock, strongCountStale = false }: StockCard
             {pct == null ? DASH : `${sign}${pct.toFixed(2)}%`}
           </span>
         </div>
+
+        {sortExtra && (
+          <div className="mb-3 px-3 py-2 rounded bg-blue-50 text-sm text-gray-900">
+            <span className="text-gray-700">排序：{sortExtra.label}</span>
+            <span className="block font-semibold tabular-nums">{sortExtra.value}</span>
+          </div>
+        )}
 
         {/* 成交額與強勢天數（mb-3：法人區用 mt-auto 推到底部，兩者之間要自己留空） */}
         <div className="mb-3">

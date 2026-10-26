@@ -29,12 +29,12 @@ import type { MonthlyReportRow } from '../../lib/monthly-report'
  * 強勢月報（取代業主每月手工維護的 Word《強勢商品篩選》）
  *
  * 版面核心取捨，與強勢股頁的表格檢視（/strong-stocks?view=table）刻意相反：
- * 總表的價值是「同一天多檔比較，欄位可任意取捨」，所以它把 20 欄拆成分組 tab。
+ * 強勢股頁的表格（原總表）價值是「同一天多檔比較，欄位可任意取捨」，所以它把 20 欄拆成分組 tab。
  * 月報的價值是「一張與 Word 同構的 12 欄表」——拆 tab 會毀掉可對照性，
  * 所以 12 欄全上、日期與商品兩欄釘在左側、橫向與縱向捲動**全部關在表格自己的容器裡**。
  *
  * ⚠️ 絕不可讓溢出落到根捲動區：Sidebar 是 fixed left-0，整頁橫捲會讓它蓋住第一欄
- * （總表上週踩過，實測 768px 溢出 345px）。容器同時開縱向捲動，換來的好處是
+ * （原總表 2026-09 踩過，實測 768px 溢出 345px）。容器同時開縱向捲動，換來的好處是
  * 表頭可以用「相對捲動容器」的 sticky top-0 固定住——631 列的表沒有固定表頭是不能用的。
  *
  * ⚠️ 兩個「待定義」欄位（KD／均線）保留欄位位置並顯示「待定義」，
@@ -519,7 +519,7 @@ export default function StrongMonthlyPage() {
 
   const sortedRows = useMemo(() => {
     const col = COLUMNS[effectiveSort.key] ?? COLUMNS.firstDate
-    // 一律複製再排：這裡是瀏覽器端的 JSON.parse 產物，但保持與總表同一習慣
+    // 一律複製再排：這裡是瀏覽器端的 JSON.parse 產物，但保持與強勢股頁的表格同一習慣
     return [...filteredRows].sort((a, b) => {
       const c = compareNullLast(col.sortValue(a), col.sortValue(b), effectiveSort.dir)
       if (c !== 0) return c
