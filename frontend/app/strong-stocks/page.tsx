@@ -1,150 +1,1122 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { PageHeader, TableSkeleton, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
+import InfoTip from '../../components/InfoTip'
 import StockCard from '../../components/StockCard'
-import { StrongStock as TodayStrongStock } from '../../lib/firebase'
-import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
+import {
+  DASH,
+  fmtNum,
+  fmtPct,
+  fmtSigned,
+  fmtTradingValue,
+  computeChange,
+  changeColor,
+  signColor,
+  compareNullLast,
+} from '../../lib/format'
+import { NullCell } from '../../components/table'
+import { SELECT, alignClass, justifyClass, type ColDef } from '../../lib/table'
+import type { StrongStock } from '../../lib/firebase'
 
-interface StrongStocksResponse {
-  stocks: TodayStrongStock[]
-  latestDate: string
+/* ------------------------------------------------------------------ *
+ * 強勢股（卡片／表格兩種檢視，2026-10-26 由 /strong-stocks 卡片頁與 /strong-table 總表合併）
+ *
+ * 兩頁原本讀同一支 /api/strong-stocks，只差呈現方式；業主要求合併成一頁、上方切換。
+ * 日期、搜尋、快速篩選、MACD／成交量／產業、排序、統計列、舊日期警示由兩種檢視共用，
+ * 切換不打 API、條件與順序不變。表格專屬：隱藏無資料的列、全部欄位／分組、手機展開列。
+ * 卡片的排序用「排序依據」按鈕列（與表格手機版的比較欄位同一份清單），預設漲跌幅由大到小。
+ * 舊網址 /strong-table 由 next.config.ts 轉到 /strong-stocks?view=table。
+ *
+ * ⚠️ 切換檢視只用按鈕＋history.replaceState 改網址，不用 router.push／useSearchParams：
+ *    Next 16 同一路由只換 search 不會重新掛載（layout-router 的 cache key 不含 search params），
+ *    掛載時讀一次網址的 ?view 就好；useSearchParams 不包 Suspense 會讓正式建置失敗。
+ *
+ * 表格版面取捨：寧可一次少看幾欄，也不縮字級、不擠行高。
+ * 全部欄位一次全上（22 欄）在本站 @theme 放大後的 text-sm(15.2px) 下總寬約 2,000px，
+ * 桌機必然橫捲；溢出關在表格自己的捲動容器（[contain:paint]），整頁不橫捲。
+ * 「改用分組檢視」一次只顯示固定 3 欄＋一組 4~5 欄，桌機寬度內不捲動。
+ * ------------------------------------------------------------------ */
+
+/** ⚠️ 刻意不 import lib/firebase.ts 的 StrongStock：
+ *  那個型別把下列 4 欄宣告成非空 number，但 API 會原樣送 null
+ *  （firebase_writer.py 的 _opt_num 明確寫 None），
+ *  `stock.foreign_hold_ratio.toFixed(2)` 會編譯得過、上線後 TypeError 白畫面。 */
+/** 直接由共用型別衍生，避免同一份 payload 有兩套會各自漂移的宣告。
+ *  Omit 掉 date：firebase_writer._convert_stock_row 並不寫入 date 欄位，
+ *  /api/strong-stocks 也不補，所以 DailyStock.date 對這份 payload 而言不成立。
+ *  可為 null 的 4 個欄位（當沖量、外資三比例）的語意見 lib/firebase.ts 的註解。 */
+type StrongTableRow = Omit<StrongStock, 'date'>
+
+interface StrongTableResponse {
+  stocks: StrongTableRow[]
+  /** API 完全無可用日期時會早退回 null，且**沒有 totalCount** */
+  latestDate: string | null
   availableDates: string[]
-  totalCount: number
+  totalCount?: number
   dataMissing?: boolean
 }
 
-// 快速篩選（突破/爆量需個股 history，暫以成交量近似）
+/* ----------------------------- 共用片段 ----------------------------- */
+/* NullCell / SELECT / Align / alignClass / justifyClass / ColDef 已抽到
+   components/table.tsx 與 lib/table.ts（強勢月報頁共用同一份，避免兩頁各自漂移）。 */
+
+interface RenderCtx {
+  /** 所選日期不是最新交易日 → strong_count 是錯的（見下方 STALE 說明） */
+  strongCountStale: boolean
+  /** 手機摘要列：省略次要的第二行 */
+  compact: boolean
+  /** 手機第 3 欄：省略漲跌幅前的 ▲▼。375 寬時這欄內容只剩約 76px（360 寬約 70px），
+   *  「▲ 」就佔約 20px，會把「+9.98%」「+10.00%」擠成省略號——被截斷的數字比少一個箭頭更糟。
+   *  方向仍由正負號＋紅綠表達。只影響漲跌幅，其他欄位的 render 不看這個旗標。 */
+  noArrow?: boolean
+}
+
+/* --------------------------- 衍生值計算 --------------------------- */
+
+const tradingValueOf = (r: StrongTableRow): number | null =>
+  r.close == null || r.volume == null ? null : r.volume * r.close * 1000
+
+/** ⚠️ 母數是 null 時回 null，**不可回 0%**（StockCard 的 `|| 0` 正是錯誤示範） */
+const dayTradingRatioOf = (r: StrongTableRow): number | null =>
+  r.day_trading_volume != null && r.volume > 0 ? (r.day_trading_volume / r.volume) * 100 : null
+
+const numCell = (v: number | null | undefined, digits = 0, cls = 'text-gray-900') =>
+  v == null ? <NullCell /> : <span className={cls}>{fmtNum(v, digits)}</span>
+
+const signedCell = (v: number | null | undefined) =>
+  v == null ? <NullCell /> : <span className={signColor(v)}>{fmtSigned(v)}</span>
+
+const pctCell = (v: number | null | undefined, digits = 2, cls = 'text-gray-900') =>
+  v == null ? <NullCell /> : <span className={cls}>{fmtPct(v, digits)}</span>
+
+/** 連買／連賣：0 顯示「0」，只有 undefined 才是「—」。⚠️ 收集程式目前把缺法人資料也寫成 0（streak.py fillna(0)），
+ *  所以這裡的 0 分不出「真的無連續」與「沒資料」；根治要改收集器寫 null。 */
+const streakCell = (v: number | null | undefined) => {
+  if (v == null) return <NullCell />
+  if (v === 0) return <span className="text-gray-700">0</span>
+  return (
+    <span className={signColor(v)}>{v > 0 ? `連買 ${v}` : `連賣 ${Math.abs(v)}`}</span>
+  )
+}
+
+/* ------------------------------ 欄位 registry ------------------------------ *
+ * 單一定義來源：分組只是 ColKey[] 清單，所以 volume / foreign_buy 可以同時出現在
+ * 「總覽」與它的本家組，而定義只有一份、不會漂移。
+ * ------------------------------------------------------------------------- */
+
+type ColKey =
+  | 'stock' | 'close' | 'change_pct'
+  | 'macd_status' | 'strong_count' | 'volume' | 'foreign_buy' | 'industry'
+  | 'open' | 'high' | 'low' | 'prev_close'
+  | 'trading_value' | 'day_trading_volume' | 'day_trading_ratio'
+  | 'trust_buy' | 'dealer_buy' | 'foreign_streak' | 'trust_streak'
+  | 'foreign_hold_ratio' | 'foreign_remain_ratio' | 'foreign_limit_ratio'
+
+const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
+  /* --- 固定欄（所有分頁恆常顯示） --- */
+  stock: {
+    header: '股票',
+    fullName: '股票名稱與代號',
+    align: 'left',
+    sortable: true,
+    sortValue: (r) => r.stock_id,
+    desc: '點擊可前往個股頁查看 K 線與籌碼。排序依股票代號。',
+    render: (r) => (
+      <Link href={`/stock/${r.stock_id}`} className="block min-h-[44px] hover:text-blue-600">
+        <span className="block font-medium text-gray-900 truncate max-w-[16ch]" title={r.stock_name || r.stock_id}>
+          {r.stock_name || r.stock_id}
+        </span>
+        <span className="block text-sm text-gray-700 tabular-nums">{r.stock_id}</span>
+      </Link>
+    ),
+  },
+  close: {
+    header: '收盤',
+    fullName: '收盤價（元）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.close ?? null,
+    desc: '當日收盤價。顏色與漲跌方向一致（漲紅、跌綠、平盤黑）。',
+    render: (r) => {
+      if (r.close == null) return <NullCell />
+      const { dir } = computeChange(r)
+      const cls = dir === 'flat' ? 'text-gray-900' : changeColor(dir)
+      return <span className={`font-medium ${cls}`}>{fmtNum(r.close, 2)}</span>
+    },
+  },
+  change_pct: {
+    header: '漲跌幅',
+    fullName: '漲跌幅（%，基準為前一交易日收盤）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => computeChange(r).pct,
+    desc: '（收盤 − 昨收）÷ 昨收。沒有昨收資料時才退回以當日開盤價為基準。不是「收盤 − 開盤」（那是當日振幅）。',
+    render: (r, ctx) => {
+      const { change, pct, dir } = computeChange(r)
+      if (pct == null || change == null) return <NullCell />
+      const arrow = ctx.noArrow ? '' : dir === 'up' ? '▲' : dir === 'down' ? '▼' : ''
+      const sign = change > 0 ? '+' : ''
+      return (
+        <span className={`font-semibold ${changeColor(dir)}`}>
+          {arrow && <span aria-hidden="true">{arrow} </span>}
+          {sign}
+          {pct.toFixed(2)}%
+          {!ctx.compact && (
+            <span className="block text-xs font-normal text-gray-700">
+              {sign}
+              {change.toFixed(2)}
+            </span>
+          )}
+        </span>
+      )
+    },
+  },
+
+  /* --- 總覽 --- */
+  macd_status: {
+    header: 'MACD',
+    fullName: 'MACD 狀態',
+    align: 'center',
+    sortable: false,
+    sortValue: (r) => r.macd_status || null,
+    desc: 'MACD 柱狀體方向：「多」為柱體翻正、「空」為翻負。這是技術面狀態描述，不是買賣建議。',
+    render: (r) => {
+      const m = r.macd_status
+      if (!m) return <NullCell />
+      const cls =
+        m === '多'
+          ? 'bg-red-100 text-red-700'
+          : m === '空'
+            ? 'bg-green-100 text-green-800'
+            : 'bg-gray-100 text-gray-700'
+      return (
+        <span className={`inline-flex items-center min-h-[28px] px-2 rounded text-sm font-medium ${cls}`}>
+          {m}
+        </span>
+      )
+    },
+  },
+  strong_count: {
+    header: '強勢日',
+    fullName: '近 7 個交易日入選強勢股的次數',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.strong_count ?? null,
+    desc: '固定以「最近 7 個交易日」計算，與所選日期無關。因此選擇非最新交易日時，此欄會停用排序並轉為灰字。',
+    render: (r, ctx) => {
+      if (r.strong_count == null) return <NullCell />
+      const cls = ctx.strongCountStale
+        ? 'text-gray-600'
+        : r.strong_count >= 5
+          ? 'font-bold text-gray-900'
+          : 'text-gray-900'
+      return (
+        <span className={cls} title={ctx.strongCountStale ? '此欄以最近 7 個交易日計算，與所選日期無關' : undefined}>
+          {r.strong_count}
+        </span>
+      )
+    },
+  },
+  volume: {
+    header: '成交量',
+    fullName: '成交量（張）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.volume ?? null,
+    desc: '當日成交張數。此欄的 0 是真的 0，不是缺資料。',
+    render: (r) => numCell(r.volume),
+  },
+  foreign_buy: {
+    header: '外資',
+    fullName: '外資買賣超（張）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.foreign_buy ?? null,
+    desc: '外資當日買進 − 賣出。正數（紅）買超、負數（綠）賣超。⚠️ 0 也可能是當天沒有法人資料（收集程式目前把缺漏寫成 0）。',
+    render: (r) => signedCell(r.foreign_buy),
+  },
+  industry: {
+    header: '產業',
+    fullName: '產業別',
+    align: 'left',
+    sortable: false,
+    sortValue: (r) => r.industry || null,
+    desc: '資料來源的產業分類。少數個股為空字串，顯示為「—」。',
+    render: (r) =>
+      r.industry ? (
+        <span className="block truncate max-w-[10ch] text-gray-700" title={r.industry}>
+          {r.industry}
+        </span>
+      ) : (
+        <NullCell />
+      ),
+  },
+
+  /* --- 價格 --- */
+  open: {
+    header: '開盤',
+    fullName: '開盤價（元）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.open ?? null,
+    desc: '當日開盤價。整排價格刻意不上紅綠，方向資訊由固定欄的漲跌幅承擔。',
+    render: (r) => numCell(r.open, 2),
+  },
+  high: {
+    header: '最高',
+    fullName: '當日最高價（元）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.high ?? null,
+    desc: '當日盤中最高成交價。',
+    render: (r) => numCell(r.high, 2),
+  },
+  low: {
+    header: '最低',
+    fullName: '當日最低價（元）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.low ?? null,
+    desc: '當日盤中最低成交價。',
+    render: (r) => numCell(r.low, 2),
+  },
+  prev_close: {
+    header: '昨收',
+    fullName: '前一交易日收盤價（元）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.prev_close ?? null,
+    desc: '漲跌幅的計算基準。顯示「—」時代表查無前一交易日資料，該檔的漲跌幅改以當日開盤價為基準。',
+    render: (r) => numCell(r.prev_close, 2, 'text-gray-700'),
+  },
+
+  /* --- 量能 --- */
+  trading_value: {
+    header: '成交額',
+    fullName: '成交金額（成交量 × 收盤價 × 1000）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => tradingValueOf(r),
+    desc: '成交量（張）× 收盤價 × 1000 股。顯示級距在「9999萬」之後會跳為「1.00億」。排序依原始金額，不是依顯示文字。',
+    render: (r) => {
+      const v = tradingValueOf(r)
+      return v == null ? <NullCell /> : <span className="text-gray-900">{fmtTradingValue(v)}</span>
+    },
+  },
+  day_trading_volume: {
+    header: '當沖量',
+    fullName: '當沖成交量（張）',
+    align: 'right',
+    sortable: true,
+    nullable: true,
+    sortValue: (r) => r.day_trading_volume,
+    desc: 'FinMind 當沖資料集未涵蓋的個股顯示「—」（多為上櫃／新掛牌），這不代表當日沒有當沖，而是沒有這筆資料。',
+    render: (r) => numCell(r.day_trading_volume),
+  },
+  day_trading_ratio: {
+    header: '當沖比',
+    fullName: '當沖比例（當沖量 ÷ 成交量，%）',
+    align: 'right',
+    sortable: true,
+    nullable: true,
+    sortValue: (r) => dayTradingRatioOf(r),
+    desc: '當沖量 ÷ 成交量。當沖量無資料時整格顯示「—」，不會顯示 0%。比例偏高（≥30%）以粗體標示，代表短線交易熱絡。',
+    render: (r) => {
+      const v = dayTradingRatioOf(r)
+      if (v == null) return <NullCell />
+      return <span className={v >= 30 ? 'font-semibold text-gray-900' : 'text-gray-900'}>{fmtPct(v, 1)}</span>
+    },
+  },
+
+  /* --- 法人買賣超 --- */
+  trust_buy: {
+    header: '投信',
+    fullName: '投信買賣超（張）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.trust_buy ?? null,
+    desc: '投信當日買進 − 賣出。⚠️ 0 也可能是當天沒有法人資料（收集程式目前把缺漏寫成 0）。',
+    render: (r) => signedCell(r.trust_buy),
+  },
+  dealer_buy: {
+    header: '自營',
+    fullName: '自營商買賣超（張，含自行買賣與避險）',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.dealer_buy ?? null,
+    desc: '自營商當日買進 − 賣出，含自行買賣與避險。⚠️ 0 也可能是當天沒有法人資料。',
+    render: (r) => signedCell(r.dealer_buy),
+  },
+  foreign_streak: {
+    header: '外資連續',
+    fullName: '外資連續買賣超天數',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.foreign_streak ?? null,
+    desc: '正數為連續買超天數、負數為連續賣超天數。「0」＝今日無連續，或缺法人資料（收集程式目前把缺漏寫成 0）；「—」＝舊資料沒有這個欄位。',
+    render: (r) => streakCell(r.foreign_streak),
+  },
+  trust_streak: {
+    header: '投信連續',
+    fullName: '投信連續買賣超天數',
+    align: 'right',
+    sortable: true,
+    sortValue: (r) => r.trust_streak ?? null,
+    desc: '同「外資連續」：0 是無連續或缺法人資料，「—」是無此欄資料。',
+    render: (r) => streakCell(r.trust_streak),
+  },
+
+  /* --- 外資持股（null 最密集的一組） --- */
+  foreign_hold_ratio: {
+    header: '外資持股',
+    fullName: '外資持股比例（占已發行股數，%）',
+    align: 'right',
+    sortable: true,
+    nullable: true,
+    sortValue: (r) => r.foreign_hold_ratio,
+    desc: '外資目前持股占已發行股數的比例。FinMind 未涵蓋此股時顯示「—」。',
+    render: (r) => pctCell(r.foreign_hold_ratio),
+  },
+  foreign_remain_ratio: {
+    header: '尚可投資',
+    fullName: '外資尚可投資比例（%）',
+    align: 'right',
+    sortable: true,
+    nullable: true,
+    sortValue: (r) => r.foreign_remain_ratio,
+    desc: '距離外資投資上限還可買進的比例。FinMind 未涵蓋此股時顯示「—」。',
+    render: (r) => pctCell(r.foreign_remain_ratio),
+  },
+  foreign_limit_ratio: {
+    header: '投資上限',
+    fullName: '外資投資上限比例（%）',
+    align: 'right',
+    sortable: true,
+    nullable: true,
+    sortValue: (r) => r.foreign_limit_ratio,
+    desc: '法規／公司章程訂定的外資持股上限。此欄曾因把無資料寫成 0 而出現過「0.00%」這種不可能值，所以無資料一律顯示「—」。',
+    render: (r) => pctCell(r.foreign_limit_ratio),
+  },
+}
+
+/* ------------------------------- 分組 ------------------------------- */
+
+const FIXED_KEYS: ColKey[] = ['stock', 'close', 'change_pct']
+
+const GROUPS = {
+  overview: { label: '總覽', columns: ['macd_status', 'strong_count', 'volume', 'foreign_buy', 'industry'] as ColKey[] },
+  price: { label: '價格', columns: ['open', 'high', 'low', 'prev_close'] as ColKey[] },
+  liquidity: { label: '量能', columns: ['volume', 'trading_value', 'day_trading_volume', 'day_trading_ratio'] as ColKey[] },
+  institution: { label: '法人買賣超', columns: ['foreign_buy', 'trust_buy', 'dealer_buy', 'foreign_streak', 'trust_streak'] as ColKey[] },
+  holding: { label: '外資持股', columns: ['foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'] as ColKey[] },
+} as const
+
+type GroupKey = keyof typeof GROUPS
+const GROUP_KEYS = Object.keys(GROUPS) as GroupKey[]
+
+/** 「顯示全部欄位」用：去重後的全部資料欄 */
+const ALL_DATA_KEYS: ColKey[] = Array.from(
+  new Set(GROUP_KEYS.flatMap((g) => GROUPS[g].columns))
+)
+
+/** 手機展開列：一次列出全部欄位，刻意去重並重新編組（不照桌機分頁走） */
+const DETAIL_GROUPS: { label: string; columns: ColKey[] }[] = [
+  { label: '價格', columns: ['close', 'change_pct', 'open', 'high', 'low', 'prev_close'] },
+  { label: '量能', columns: ['volume', 'trading_value', 'day_trading_volume', 'day_trading_ratio'] },
+  { label: '法人買賣超', columns: ['foreign_buy', 'trust_buy', 'dealer_buy', 'foreign_streak', 'trust_streak'] },
+  { label: '外資持股', columns: ['foreign_hold_ratio', 'foreign_remain_ratio', 'foreign_limit_ratio'] },
+  { label: '其他', columns: ['macd_status', 'industry', 'strong_count'] },
+]
+
+/** 手機第 3 欄的候選（焦點欄 chip）。橫向捲動的是 44px 高的控制項，不是資料格。
+ *  漲跌幅排第一顆：它是預設排序（DEFAULT_SORT）。少了這顆，手機一開始亮的會是別顆
+ *  （看起來像依成交量排、實際卻依漲跌幅排），而且只要點過任何一顆就回不到依漲跌幅排序
+ *  ——桌機可以點表頭，手機沒有表頭可點。 */
+const MOBILE_FOCUS_KEYS: ColKey[] = [
+  'change_pct', 'volume', 'trading_value', 'day_trading_ratio', 'foreign_buy', 'trust_buy',
+  'dealer_buy', 'foreign_streak', 'foreign_hold_ratio', 'strong_count',
+]
+
 const QUICK_FILTERS = [
-  { key: 'all', label: '全部', macd: 'all', minVolume: 0, foreignBuy: false },
-  { key: 'tech', label: '技術多頭', macd: '多', minVolume: 0, foreignBuy: false },
-  { key: 'foreign', label: '法人買超', macd: 'all', minVolume: 0, foreignBuy: true },
-  { key: 'volume', label: '爆量', macd: 'all', minVolume: 10000, foreignBuy: false },
+  { key: 'all', label: '全部', macd: 'all', minVolume: 0, foreignBuy: false, streakMin: 0 },
+  { key: 'tech', label: '技術多頭', macd: '多', minVolume: 0, foreignBuy: false, streakMin: 0 },
+  { key: 'foreign', label: '法人買超', macd: 'all', minVolume: 0, foreignBuy: true, streakMin: 0 },
+  { key: 'volume', label: '爆量', macd: 'all', minVolume: 10000, foreignBuy: false, streakMin: 0 },
+  { key: 'streak', label: '外資連買 3 日以上', macd: 'all', minVolume: 0, foreignBuy: false, streakMin: 3 },
 ] as const
 
+const STORAGE_KEY = 'strong-stocks-state' // 篩選、排序、主動選的舊日期：同一個分頁內保留（從個股頁返回）
+const VIEW_KEY = 'strong-stocks-view'     // 卡片／表格：長期記住（localStorage，手機與電腦各自記）
+const LEGACY_KEYS = ['strong-filters', 'strong-table-view'] // 合併前兩頁各自的 sessionStorage
+
+type View = 'cards' | 'table'
+const isView = (v: unknown): v is View => v === 'cards' || v === 'table'
+
+type SortState = { key: ColKey; dir: 'asc' | 'desc' }
+
+const DEFAULT_SORT: SortState = { key: 'change_pct', dir: 'desc' }
+
+/** 任一指定欄位「無資料」（sortValue 為 null）就回 true —— 給「隱藏無資料的列」用 */
+const hasNullIn = (r: StrongTableRow, keys: ColKey[]) =>
+  keys.some((k) => COLUMNS[k].sortValue(r) == null)
+
+// 排序一律在前端做：瀏覽器拿到的是 JSON.parse 出來的全新物件，怎麼 sort 都安全。
+// （伺服器端 getStocksByDate 的回傳陣列是跨請求共用的 process 級記憶體，
+//   對它 sort/reverse 會汙染 dayCache 五分鐘並影響 /api/screener 與個股頁。）
+const sortRowsBy = (list: StrongTableRow[], s: SortState) => {
+  const col = COLUMNS[s.key] ?? COLUMNS.change_pct
+  return [...list].sort((a, b) => {
+    const c = compareNullLast(col.sortValue(a), col.sortValue(b), s.dir)
+    if (c !== 0) return c
+    return a.stock_id.localeCompare(b.stock_id) // 同值時穩定排序
+  })
+}
+
+/** 統計列的排序說明（含「幾檔無資料排在最後」） */
+const sortSummaryOf = (sorted: StrongTableRow[], s: SortState) => {
+  const col = COLUMNS[s.key] ?? COLUMNS.change_pct
+  const nullCount = sorted.filter((r) => col.sortValue(r) == null).length
+  return `已依「${COLUMNS[s.key]?.fullName ?? ''}」${
+    s.dir === 'desc' ? '由大到小' : '由小到大'
+  }排序，共 ${sorted.length} 檔${nullCount > 0 ? `，其中 ${nullCount} 檔無資料排在最後` : ''}`
+}
+
+/* ------------------------------ 頁面 ------------------------------ */
+
 export default function StrongStocksPage() {
-  const [data, setData] = useState<StrongStocksResponse | null>(null)
+  const [data, setData] = useState<StrongTableResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [ready, setReady] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string>('')
+  const [ready, setReady] = useState(false) // 還原完成前不存檔，也避免用預設條件多抓一次
+  const [view, setView] = useState<View>('cards')
+  const [viewReady, setViewReady] = useState(false) // 決定檢視前只顯示中性骨架，不先閃卡片再跳表格
+  // 只記住使用者「主動」選的舊日期，並記下當時的最新交易日：之後出了新交易日就自動回到最新一天
+  //（合併前兩頁都把第一次看到的最新日存起來，隔天在同一個分頁打開會停在前一天）
+  const [picked, setPicked] = useState<{ date: string; newest: string } | null>(null)
+  const reqSeq = useRef(0) // 只採用最後一次送出的請求：慢網路時舊回應晚到，不可把資料與日期蓋回去
+
+  const [selectedDate, setSelectedDate] = useState('')
+  const [group, setGroup] = useState<GroupKey>('overview')
+  const [sort, setSort] = useState(DEFAULT_SORT)
   const [filter, setFilter] = useState({
     macd: 'all',
     minVolume: 0,
     industry: 'all',
     foreignBuy: false,
+    streakMin: 0,
   })
+  const [hideNullRows, setHideNullRows] = useState(false)
+  // 預設「固定全欄位表格」：業主要的是一次看到全部欄位，而非在分組間切換。
+  // 代價是桌機會水平捲動（表格天生寬約 2,000px），但溢出關在表格自己的捲動容器裡，
+  // 整頁不橫捲、Sidebar 不會被蓋住（見下方 [contain:paint] 註解）。
+  const [showAll, setShowAll] = useState(true)
+  const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  // 取得所有產業類別
-  const industries = data?.stocks
-    ? Array.from(new Set(data.stocks.map(s => s.industry).filter(Boolean))).sort()
-    : []
+  const dateTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 載入資料
-  const fetchData = async (date?: string) => {
+  /* --------------------------- 資料抓取 --------------------------- */
+
+  // days 一律送整數字面值 7：route.ts 的 parseInt 沒有 isNaN 檢查，
+  // 送非數字會讓所有 strong_count 靜默變 0 而完全不報錯。
+  const fetchData = async (date?: string, newestWhenPicked?: string) => {
+    const seq = ++reqSeq.current
     setLoading(true)
     setError(false)
     try {
       const url = date
-        ? `/api/strong-stocks?days=7&date=${date}`
+        ? `/api/strong-stocks?days=7&date=${encodeURIComponent(date)}`
         : '/api/strong-stocks?days=7'
       const res = await fetch(url)
       if (!res.ok) throw new Error('http')
-      const json = await res.json()
-      setData(json)
-      if (!date && json.latestDate) {
-        setSelectedDate(json.latestDate)
+      const json: StrongTableResponse = await res.json()
+      if (seq !== reqSeq.current) return
+      // 記住的舊日期之後又出了新交易日 → 回到最新一天
+      if (newestWhenPicked && json.availableDates?.[0] && json.availableDates[0] !== newestWhenPicked) {
+        setPicked(null)
+        fetchData()
+        return
       }
+      setData(json)
+      // API 對不在白名單的日期是「靜默退回最新日」而不是回 400，
+      // 所以一律以回應的 latestDate 為準，不要相信自己送出去的 date。
+      setSelectedDate(json.latestDate || '')
+      if (date && json.latestDate !== date) setPicked(null)
     } catch (e) {
-      console.error('Failed to fetch:', e)
+      if (seq !== reqSeq.current) return
+      console.error('Failed to fetch strong stocks:', e)
       setError(true)
     } finally {
-      setLoading(false)
+      if (seq === reqSeq.current) setLoading(false)
     }
   }
 
-  // 還原上次篩選 + 日期（sessionStorage）→ 從個股頁返回時保留
-  useEffect(() => {
-    let savedDate: string | undefined
+  // 切換檢視：不打 API、不換頁。網址同步寫 ?view=（分享、重新整理都回到同一種），長期偏好存 localStorage。
+  const changeView = (v: View) => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch {}
     try {
-      const saved = sessionStorage.getItem('strong-filters')
-      if (saved) {
-        const f = JSON.parse(saved)
-        if (f.filter && typeof f.filter === 'object') setFilter((prev) => ({ ...prev, ...f.filter }))
-        if (typeof f.selectedDate === 'string' && f.selectedDate) {
-          savedDate = f.selectedDate
-          setSelectedDate(f.selectedDate)
+      const u = new URL(window.location.href)
+      u.searchParams.set('view', v)
+      window.history.replaceState(window.history.state, '', u)
+    } catch {}
+  }
+
+  // 還原視圖狀態（sessionStorage）→ 從個股頁返回時保留
+  useEffect(() => {
+    // 檢視：網址 ?view= 優先（月報頁的連結、舊 /strong-table 轉址會帶），其次這台裝置上次的選擇，預設卡片
+    let v: View = 'cards'
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('view')
+      if (isView(fromUrl)) {
+        v = fromUrl
+        localStorage.setItem(VIEW_KEY, v)
+      } else {
+        const stored = localStorage.getItem(VIEW_KEY)
+        if (isView(stored)) v = stored
+      }
+    } catch {}
+    setView(v)
+    setViewReady(true)
+
+    let saved: { date: string; newest: string } | null = null
+    try {
+      for (const k of LEGACY_KEYS) sessionStorage.removeItem(k)
+      const raw = sessionStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const f = JSON.parse(raw)
+        if (f.picked && typeof f.picked.date === 'string' && typeof f.picked.newest === 'string' && f.picked.date) {
+          saved = { date: f.picked.date, newest: f.picked.newest }
+          setPicked(saved)
+          setSelectedDate(saved.date)
+        }
+        // 逐欄檢查，而且要驗證 key 仍存在於現行 registry：
+        // 否則日後改欄位名，舊 storage 會讓比較器拿到 undefined、全表看起來沒排序卻不報錯。
+        if (typeof f.group === 'string' && (GROUP_KEYS as string[]).includes(f.group)) {
+          setGroup(f.group as GroupKey)
+        }
+        if (
+          f.sort &&
+          typeof f.sort.key === 'string' &&
+          Object.prototype.hasOwnProperty.call(COLUMNS, f.sort.key) &&
+          (f.sort.dir === 'asc' || f.sort.dir === 'desc')
+        ) {
+          setSort({ key: f.sort.key as ColKey, dir: f.sort.dir })
+        }
+        if (f.filter && typeof f.filter === 'object') {
+          setFilter((prev) => ({
+            macd: typeof f.filter.macd === 'string' ? f.filter.macd : prev.macd,
+            minVolume: typeof f.filter.minVolume === 'number' ? f.filter.minVolume : prev.minVolume,
+            industry: typeof f.filter.industry === 'string' ? f.filter.industry : prev.industry,
+            foreignBuy: typeof f.filter.foreignBuy === 'boolean' ? f.filter.foreignBuy : prev.foreignBuy,
+            streakMin: typeof f.filter.streakMin === 'number' ? f.filter.streakMin : prev.streakMin,
+          }))
+        }
+        if (typeof f.hideNullRows === 'boolean') setHideNullRows(f.hideNullRows)
+        if (typeof f.showAll === 'boolean') setShowAll(f.showAll)
+        if (typeof f.query === 'string') {
+          setQuery(f.query)
+          setDebouncedQuery(f.query)
         }
       }
     } catch {}
-    fetchData(savedDate)
+    // setState 是非同步的，fetch 讀不到剛 set 的 state → 把記住的日期當參數直接傳進去
+    fetchData(saved?.date, saved?.newest)
     setReady(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => {
+      if (dateTimer.current) clearTimeout(dateTimer.current)
+    }
+  }, []) // 僅在掛載時還原一次（與 /screener、/strong-monthly 的 ready 閘門模式一致）
 
-  // 條件/日期變動即存
+  // 視圖狀態變動即存（ready 閘門：避免第一次跑就用預設值蓋掉 storage）
   useEffect(() => {
     if (!ready) return
     try {
-      sessionStorage.setItem('strong-filters', JSON.stringify({ filter, selectedDate }))
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ picked, group, sort, filter, hideNullRows, showAll, query })
+      )
     } catch {}
-  }, [ready, filter, selectedDate])
+  }, [ready, picked, group, sort, filter, hideNullRows, showAll, query])
 
-  // 切換日期
+  // 搜尋 debounce 200ms（純字串比對，不做中文分詞、不走 Firestore 查詢）
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200)
+    return () => clearTimeout(t)
+  }, [query])
+
+  // 切換日期：先切成骨架讓使用者看到反應，再 debounce 400ms 發請求。
+  // 單次請求會吃掉伺服器端 dayCache 4 格中的 2 格（getStocksByDate ＋ getPrevCloseMap 內部再一次），
+  // 快速前後切換會把命中率打到趨近 0，每次 miss 約 0.9MB Firestore 讀取。
   const handleDateChange = (date: string) => {
+    const newest = data?.availableDates?.[0]
     setSelectedDate(date)
-    fetchData(date)
+    setPicked(date && newest && date !== newest ? { date, newest } : null)
+    reqSeq.current++ // 進行中的請求作廢：等防抖這 400ms 內舊回應回來，也不可把剛選的日期蓋掉
+    setLoading(true)
+    setError(false)
+    if (dateTimer.current) clearTimeout(dateTimer.current)
+    dateTimer.current = setTimeout(() => fetchData(date), 400)
   }
 
-  // 篩選股票
-  const filteredStocks = data?.stocks.filter(stock => {
-    if (filter.macd !== 'all' && stock.macd_status !== filter.macd) return false
-    if (filter.minVolume > 0 && stock.volume < filter.minVolume) return false
-    if (filter.industry !== 'all' && stock.industry !== filter.industry) return false
-    if (filter.foreignBuy && !(stock.foreign_buy > 0)) return false
-    return true
-  }) || []
+  /* --------------------------- 衍生狀態 --------------------------- */
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <PageHeader title="強勢股列表" />
-        <div className="max-w-7xl mx-auto px-4 py-6"><CardGridSkeleton /></div>
-      </div>
+  const rows = useMemo(() => data?.stocks ?? [], [data])
+  const availableDates = data?.availableDates ?? []
+  const newestDate = availableDates[0]
+  const totalCount = data?.totalCount ?? rows.length
+
+  /**
+   * ⚠️ 既有資料 bug：getStrongCountForStocks 只收 (stockIds, days)，內部用
+   * getAvailableDates(days) 取「最新 N 個交易日」，完全不看 targetDate。
+   * 也就是選一週前的日期時，明細是那天的、strong_count 卻是「最近 7 天」的。
+   * 卡片頁看不出來，表格做成可排序欄位就會被當成事實，所以這裡三件事一起做：
+   * 停用該欄排序、數值降為灰字、上方顯示提示。（根治要改 firebase-admin，另開票。）
+   */
+  const strongCountStale = !!(selectedDate && newestDate && selectedDate !== newestDate)
+
+  const visibleKeys = useMemo<ColKey[]>(
+    () => (showAll ? [...FIXED_KEYS, ...ALL_DATA_KEYS] : [...FIXED_KEYS, ...GROUPS[group].columns]),
+    [showAll, group]
+  )
+
+  /**
+   * 桌機實際生效的排序鍵。刻意在 render 期間推導、不用 useEffect + setState：
+   * (a) 切換分組後若排序鍵不在可見欄，回退到預設，不留看不見的排序狀態；
+   * (b) 非最新交易日時 strong_count 是錯的（見上方說明），不可拿它排序。
+   * 使用者原本挑的 sort 保留著，切回該分組就會自動復原。
+   */
+  const effectiveSort = useMemo(() => {
+    if (strongCountStale && sort.key === 'strong_count') return DEFAULT_SORT
+    if (!showAll && ![...FIXED_KEYS, ...GROUPS[group].columns].includes(sort.key)) return DEFAULT_SORT
+    return sort
+  }, [sort, strongCountStale, showAll, group])
+
+  const sortNotice =
+    effectiveSort.key === sort.key
+      ? ''
+      : strongCountStale && sort.key === 'strong_count'
+        ? '所選日期不是最新交易日，「強勢日」欄位無法排序，已改為依漲跌幅排序'
+        : `「${COLUMNS[sort.key].fullName}」不在目前欄位組，已改為依漲跌幅排序`
+
+  /* ---- 手機：自己一套「可見欄＋排序」，不跟桌機的分組／全部欄位走 ----
+   * 手機與桌機兩份表格同時在 DOM 裡、由 md: 斷點切換顯示（全站慣例：不用 JS 量視窗），
+   * 但兩邊「看得到的欄」不同，所以排序、隱藏無資料的列、統計列都各算一份。 */
+
+  // 非最新交易日時拿掉「強勢日」這顆，理由同 effectiveSort 的 (b)
+  const mobileFocusKeys = useMemo(
+    () => MOBILE_FOCUS_KEYS.filter((k) => !(k === 'strong_count' && strongCountStale)),
+    [strongCountStale]
+  )
+
+  /**
+   * 手機實際生效的排序。規則只有一條：排序鍵必須是某一顆比較欄位按鈕，否則退回預設（漲跌幅）。
+   * 預設也在按鈕裡，所以「亮著的按鈕＝第 3 欄＝實際排序」恆成立，
+   * sessionStorage 還原回來的值也一樣——不會出現按鈕亮 A、實際依 B 排。
+   * （排序鍵不在按鈕裡，只會發生在同一分頁先在桌機寬度點了表頭、再轉回直向手機。）
+   * 刻意不看桌機的 showAll／group：手機沒有分組可切，拿看不見的分組去否決手機的選擇，
+   * 會變成「點了成交額卻沒反應」。
+   */
+  const mobileSort = useMemo(
+    () => (mobileFocusKeys.includes(sort.key) ? sort : DEFAULT_SORT),
+    [mobileFocusKeys, sort]
+  )
+  const focusKey: ColKey = mobileSort.key
+
+  const mobileSortNotice =
+    mobileSort.key === sort.key
+      ? ''
+      : strongCountStale && sort.key === 'strong_count'
+        ? '所選日期不是最新交易日，「強勢日」欄位無法排序，已改為依漲跌幅排序'
+        : `「${COLUMNS[sort.key].fullName}」不在手機的比較欄位，已改為依漲跌幅排序`
+
+  const industries = useMemo(
+    () => Array.from(new Set(rows.map((s) => s.industry).filter(Boolean) as string[])).sort(),
+    [rows]
+  )
+
+  // 「隱藏無資料的列」檢查範圍＝目前可見欄 ＋ 目前排序欄
+  const nullableCheckKeys = useMemo(
+    () => Array.from(new Set<ColKey>([effectiveSort.key, ...visibleKeys])).filter((k) => COLUMNS[k].nullable),
+    [effectiveSort.key, visibleKeys]
+  )
+
+  // 手機同一條規則，只是可見欄不同：固定欄（股票／收盤＋漲跌幅）＋第 3 欄，而第 3 欄就是排序欄。
+  // ⚠️ 不可沿用桌機的 visibleKeys：showAll 預設 true → 手機會一律檢查全部 5 個可缺欄位，
+  //    外資持股整欄「—」的日子一勾選就變 0 檔，而手機畫面上根本沒有那一欄，使用者看不出原因。
+  const mobileNullableCheckKeys = useMemo(
+    () => Array.from(new Set<ColKey>([...FIXED_KEYS, focusKey])).filter((k) => COLUMNS[k].nullable),
+    [focusKey]
+  )
+
+  // 「隱藏無資料的列」以外的條件：桌機與手機共用同一份
+  const baseRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (filter.macd !== 'all' && r.macd_status !== filter.macd) return false
+      if (filter.minVolume > 0 && !(r.volume >= filter.minVolume)) return false
+      if (filter.industry !== 'all' && r.industry !== filter.industry) return false
+      if (filter.foreignBuy && !(r.foreign_buy > 0)) return false
+      if (filter.streakMin > 0 && !((r.foreign_streak ?? 0) >= filter.streakMin)) return false
+      if (debouncedQuery) {
+        const idHit = r.stock_id.toLowerCase().startsWith(debouncedQuery)
+        const nameHit = (r.stock_name || '').toLowerCase().includes(debouncedQuery)
+        if (!idHit && !nameHit) return false
+      }
+      return true
+    })
+  }, [rows, filter, debouncedQuery])
+
+  const sortedRows = useMemo(
+    () => sortRowsBy(hideNullRows ? baseRows.filter((r) => !hasNullIn(r, nullableCheckKeys)) : baseRows, effectiveSort),
+    [baseRows, hideNullRows, nullableCheckKeys, effectiveSort]
+  )
+
+  const mobileSortedRows = useMemo(
+    () => sortRowsBy(hideNullRows ? baseRows.filter((r) => !hasNullIn(r, mobileNullableCheckKeys)) : baseRows, mobileSort),
+    [baseRows, hideNullRows, mobileNullableCheckKeys, mobileSort]
+  )
+
+  // 卡片：排序與手機表格同一條規則（排序鍵必須是「排序依據」按鈕之一，否則退回漲跌幅），
+  // 所以手機上切換卡片／表格順序不變。「隱藏無資料的列」是表格欄位的概念，卡片不套用。
+  const cardRows = useMemo(() => sortRowsBy(baseRows, mobileSort), [baseRows, mobileSort])
+  const cardSortSummary = useMemo(() => sortSummaryOf(cardRows, mobileSort), [cardRows, mobileSort])
+  const cardSortNotice =
+    mobileSort.key === sort.key
+      ? ''
+      : strongCountStale && sort.key === 'strong_count'
+        ? '所選日期不是最新交易日，「強勢日」無法排序，已改為依漲跌幅排序'
+        : `「${COLUMNS[sort.key].fullName}」不在排序依據的按鈕裡，卡片改為依漲跌幅排序`
+
+
+  // 還原記住的排序後，把「按下的那顆」排序按鈕捲進可見範圍：按鈕列在 375px 只露出前三、四顆，
+  // 被按下的若在捲動區外，畫面上看不出現在依什麼排。只調整按鈕列自己的 scrollLeft——
+  // 不可用 scrollIntoView，它會連整頁一起上下捲。
+  const chipRowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = chipRowRef.current
+    const btn = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (!row || !btn) return
+    const r = row.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    if (b.left < r.left || b.right > r.right) row.scrollLeft += b.left - r.left - 16
+  }, [focusKey, mobileSort.dir, mobileSortedRows.length])
+
+  const sortSummary = useMemo(() => sortSummaryOf(sortedRows, effectiveSort), [sortedRows, effectiveSort])
+  const mobileSortSummary = useMemo(() => sortSummaryOf(mobileSortedRows, mobileSort), [mobileSortedRows, mobileSort])
+
+  // 只有兩態（desc ⇄ asc），不做「第三次點回預設」——多一個看不見的狀態對視力不佳者是負擔。
+  // current＝使用者眼前那份表格的排序（桌機 effectiveSort、手機 mobileSort）：
+  // 兩者可能不同，要以畫面上亮著的那個決定「這次是翻轉方向還是換欄」。
+  const toggleSort = (key: ColKey, current: SortState = effectiveSort) => {
+    setSort(
+      current.key === key
+        ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' }
+        : { key, dir: key === 'stock' ? 'asc' : 'desc' } // 數值欄首次點擊一律由大到小
     )
   }
 
-  if (error) {
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const ctx: RenderCtx = { strongCountStale, compact: false }
+  const ctxCompact: RenderCtx = { strongCountStale, compact: true }
+  const ctxFocus: RenderCtx = { strongCountStale, compact: true, noArrow: true } // 手機第 3 欄
+
+  /* --------------------------- 表格片段 --------------------------- */
+
+  const renderTh = (key: ColKey, opts: { sticky: boolean; stickyLeft?: boolean }) => {
+    const col = COLUMNS[key]
+    const active = effectiveSort.key === key
+    const canSort = col.sortable && !(key === 'strong_count' && strongCountStale)
+    // ⚠️ sticky 掛在 <th> 而不是 <thead>：Tailwind preflight 讓 table 是 border-collapse:collapse，
+    //    掛在 thead 的相容性較差。top-[65px] 是 TopBar 實測高度（sticky top-0 z-30），
+    //    z 必須小於 30 才會正確滑到 TopBar 底下。
+    const stickyCls = opts.sticky
+      ? 'sticky top-[65px] z-10 bg-gray-50 first:rounded-tl-lg last:rounded-tr-lg'
+      : ''
+    const leftCls = opts.stickyLeft ? 'sticky left-0 z-20 bg-gray-50' : ''
     return (
-      <div className="min-h-screen bg-gray-50">
-        <PageHeader title="強勢股列表" />
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(selectedDate || undefined)} />
-        </div>
-      </div>
+      <th
+        key={key}
+        scope="col"
+        aria-sort={canSort ? (active ? (effectiveSort.dir === 'desc' ? 'descending' : 'ascending') : 'none') : undefined}
+        className={`px-4 py-3 ${alignClass(col.align)} text-sm font-medium text-gray-700 whitespace-nowrap ${stickyCls} ${leftCls}`}
+      >
+        {canSort ? (
+          <button
+            type="button"
+            onClick={() => toggleSort(key)}
+            className={`w-full min-h-[44px] lg:min-h-[36px] flex items-center gap-1 ${justifyClass(col.align)} rounded hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500`}
+          >
+            <span>{col.header}</span>
+            <span aria-hidden="true" className="text-xs">
+              {active ? (effectiveSort.dir === 'desc' ? '▼' : '▲') : '⇅'}
+            </span>
+            <span className="sr-only">
+              {active
+                ? effectiveSort.dir === 'desc'
+                  ? '目前由高到低排序，按下改為由低到高'
+                  : '目前由低到高排序，按下改為由高到低'
+                : '按下以此欄排序'}
+            </span>
+          </button>
+        ) : (
+          <span title={key === 'strong_count' && strongCountStale ? '非最新交易日，此欄無法排序' : undefined}>
+            {col.header}
+          </span>
+        )}
+      </th>
     )
   }
+
+  const captionText = `${selectedDate || '（無日期）'} 強勢股表格，目前顯示「${
+    showAll ? '全部欄位' : GROUPS[group].label
+  }」欄位組，共 ${sortedRows.length} 檔`
+
+  const mobileCaptionText = `${selectedDate || '（無日期）'} 強勢股表格，比較欄位為「${
+    COLUMNS[focusKey].fullName
+  }」，共 ${mobileSortedRows.length} 檔`
+
+  const desktopTable = (
+    // showAll 時 min-w-max 讓表格撐到內容寬度（容器才捲得動）；分組檢視維持 w-full 不捲
+    <table className={`w-full ${showAll ? 'min-w-max' : ''}`}>
+      <caption className="sr-only">{captionText}</caption>
+      <thead className="bg-gray-50">
+        <tr>
+          {visibleKeys.map((k, i) =>
+            renderTh(k, { sticky: !showAll, stickyLeft: showAll && i === 0 })
+          )}
+        </tr>
+      </thead>
+      {/* divide-gray-200 比 watchlist 的 gray-100 深一階，長表更容易追行；
+          每 5 列加粗分隔做視線導引。刻意不做斑馬紋：gray-50 底會把 green-700 壓到 4.74、
+          hover 就沒得再深，而且每兩列換底色對低視力反而更亂。 */}
+      <tbody className="divide-y divide-gray-200">
+        {sortedRows.map((r) => (
+          <tr
+            key={r.stock_id}
+            className="group hover:bg-gray-50 focus-within:bg-gray-50 [&:nth-child(5n)]:border-b-2 [&:nth-child(5n)]:border-gray-300"
+          >
+            {visibleKeys.map((k, i) => (
+              <td
+                key={k}
+                className={`px-4 py-3 ${alignClass(COLUMNS[k].align)} whitespace-nowrap tabular-nums ${
+                  showAll && i === 0 ? 'sticky left-0 z-10 bg-white group-hover:bg-gray-50' : ''
+                }`}
+              >
+                {COLUMNS[k].render(r, ctx)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+
+  const mobileTable = (
+    // table-fixed ＋ colgroup：auto 版面會用儲存格的 min-content 當表格下限，
+    // 在 375px 下算出 507px 而把整頁撐出橫向捲動。固定欄寬才保證手機不橫捲。
+    <table className="w-full table-fixed">
+      <caption className="sr-only">{mobileCaptionText}</caption>
+      {/* ⚠️ 欄寬依 320px 最窄手機推算：第 3 欄預設是漲跌幅，「+10.00%」約 65px。
+          原本 30%／28%／52px 時 320px 下第 3 欄只剩約 53px，會被截成「+3.0…」。
+          第 4 欄只放 w-11（44px）的展開鈕且 td 是 px-0，44px 剛好；第 1 欄讓出 2%，
+          股名改成最多折兩行（不截斷），所以讓出的寬度不會造成更多股名被切掉。 */}
+      <colgroup>
+        <col className="w-[28%]" />
+        <col className="w-[28%]" />
+        <col />
+        <col className="w-[44px]" />
+      </colgroup>
+      {/* 表頭 sticky 掛在 <th>（不是 <thead>）：Tailwind preflight 讓 table 是
+          border-collapse:collapse，掛 thead 相容性較差。top-[65px] 是 TopBar 實測高度。 */}
+      <thead className="bg-gray-50">
+        <tr>
+          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 rounded-tl-lg px-2 py-3 text-left text-sm font-medium text-gray-700">
+            股票
+          </th>
+          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-right text-sm font-medium text-gray-700">
+            收盤
+          </th>
+          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 px-2 py-3 text-right text-sm font-medium text-gray-700 truncate">
+            {COLUMNS[focusKey].header}
+          </th>
+          <th scope="col" className="sticky top-[65px] z-10 bg-gray-50 rounded-tr-lg px-0 py-3 text-center">
+            <span className="sr-only">展開全部欄位</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-200">
+        {mobileSortedRows.map((r) => {
+          const open = expanded.has(r.stock_id)
+          return (
+            <Fragment key={r.stock_id}>
+              <tr className="hover:bg-gray-50 focus-within:bg-gray-50">
+                <td className="px-2 py-3">
+                  <Link href={`/stock/${r.stock_id}`} className="block min-h-[44px] hover:text-blue-600">
+                    {/* 長股名（亞德客-KY、日月光投控）折兩行而不是截成「亞德客-…」：手機看不到 title 提示 */}
+                    <span className="block font-medium text-gray-900 line-clamp-2 [overflow-wrap:anywhere]" title={r.stock_name || r.stock_id}>
+                      {r.stock_name || r.stock_id}
+                    </span>
+                    <span className="block text-sm text-gray-700 tabular-nums">{r.stock_id}</span>
+                  </Link>
+                </td>
+                <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">
+                  {COLUMNS.close.render(r, ctxCompact)}
+                  {/* 第 3 欄已經是漲跌幅時不再重複一次：同一列出現兩個一樣的數字，
+                      視力不佳者會以為是兩個不同指標。列高由第 1 欄的兩行決定，拿掉不會跳動。 */}
+                  {focusKey !== 'change_pct' && (
+                    <span className="block text-sm">{COLUMNS.change_pct.render(r, ctxCompact)}</span>
+                  )}
+                </td>
+                <td className="px-2 py-3 text-right truncate tabular-nums">
+                  {COLUMNS[focusKey].render(r, ctxFocus)}
+                </td>
+                <td className="px-0 py-3 text-center">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-controls={`row-${r.stock_id}-detail`}
+                    onClick={() => toggleExpand(r.stock_id)}
+                    className="w-11 h-11 inline-flex items-center justify-center rounded-full text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+                    <span className="sr-only">
+                      {open ? `收合 ${r.stock_name} 的全部欄位` : `展開 ${r.stock_name} 的全部欄位`}
+                    </span>
+                  </button>
+                </td>
+              </tr>
+              {open && (
+                <tr id={`row-${r.stock_id}-detail`} className="bg-gray-50">
+                  <td colSpan={4} className="px-2 py-3">
+                    {DETAIL_GROUPS.map((g) => (
+                      <div key={g.label} className="mb-3 last:mb-0">
+                        <div className="text-xs font-medium text-gray-600 mb-1">{g.label}</div>
+                        <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 text-sm">
+                          {g.columns.map((k) => (
+                            <Fragment key={k}>
+                              <dt className="text-gray-700">{COLUMNS[k].fullName}</dt>
+                              <dd className="text-right tabular-nums whitespace-nowrap">
+                                {COLUMNS[k].render(r, ctx)}
+                              </dd>
+                            </Fragment>
+                          ))}
+                        </dl>
+                      </div>
+                    ))}
+                    <Link
+                      href={`/stock/${r.stock_id}`}
+                      className="mt-1 inline-flex items-center min-h-[44px] px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors"
+                    >
+                      查看 K 線與籌碼 →
+                    </Link>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+
+  /* ------------------------------ 畫面 ------------------------------ */
+
+  const noTradingDay = !!data && !data.latestDate
+
+  const emptyResult = (
+    <EmptyState
+      icon={data?.dataMissing ? '📅' : '🔍'}
+      title={data?.dataMissing ? '這一天沒有明細資料' : '沒有符合條件的股票'}
+      description={data?.dataMissing ? '請改選其他交易日' : '試著放寬搜尋、MACD／成交量／產業等條件'}
+    />
+  )
+  // 手機專用：「隱藏無資料的列」只檢查第 3 欄＋排序欄，第 3 欄選到一整天都沒資料的欄位
+  // （例如外資持股在 22:00 收集前整欄是「—」）時會變 0 檔。這時真正的原因是那個勾選框，
+  // 提示要直接講出來，不能叫人去放寬 MACD／成交量（2026-10-22 實測 124 檔 → 0 檔）。
+  const mobileEmptyResult =
+    hideNullRows && baseRows.length > 0 && !data?.dataMissing ? (
+      <EmptyState
+        icon="🔍"
+        title="勾選了「隱藏無資料的列」"
+        description={`「${COLUMNS[focusKey].fullName}」這一天全部沒有資料，所以整份表格被藏起來了。取消勾選即可看到 ${baseRows.length} 檔，或改選其他比較欄位。`}
+      />
+    ) : emptyResult
+
+  const statsBar = (cls: string, count: number, summary: string, notice: string) => (
+    <div className={`${cls} flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-sm`} aria-live="polite">
+      <span className="text-gray-700">
+        篩選 <span className="font-bold text-gray-900 tabular-nums">{count}</span> 檔 ／ 當日{' '}
+        <span className="font-medium text-gray-900 tabular-nums">{totalCount}</span> 檔
+      </span>
+      <span className="text-gray-700">{summary}</span>
+      {notice && <span className="text-amber-900">{notice}</span>}
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <PageHeader title="強勢股列表" />
+      {/* 容器比全站慣例的 max-w-7xl 寬：20 欄表格在 1920 螢幕上才不會白白浪費空間。
+          PageHeader 也要同步換寬，否則標題會跟表格左緣差 280px。 */}
+      <PageHeader
+        title="強勢股"
+        maxWidth="max-w-[1560px]"
+        subtitle={
+          <>
+            {noTradingDay ? '尚無可用交易日' : `資料日期 ${selectedDate || '—'}`}
+            ｜卡片一眼看一檔，表格一次比較多檔
+          </>
+        }
+      />
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* 檢視切換：同一份資料的兩種呈現（卡片／表格）。底部導覽與側邊欄也都有總表、月報，
-            這裡是就地切換的捷徑（2026-10-22 手機底部導覽改 6 格後，不再是手機唯一入口）。 */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span
-            aria-current="page"
-            className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-blue-600 text-white border border-blue-600"
-          >
-            卡片檢視
-          </span>
-          <Link
-            href="/strong-table"
-            className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-white text-gray-700 border border-gray-300 hover:border-blue-400 transition-colors"
-          >
-            表格檢視（全部欄位）
-          </Link>
+      <div className="max-w-[1560px] mx-auto px-4 py-6">
+        {/* 檢視切換：同一份資料的兩種呈現。按了只換呈現，不打 API、條件與順序不變。
+            按下的那顆打勾＋實心，不只靠顏色分辨（業主視力不佳）。決定檢視前兩顆都不顯示按下。 */}
+        <div className="flex flex-wrap items-center gap-2 mb-4" role="group" aria-label="檢視方式">
+          {([['cards', '卡片'], ['table', '表格']] as const).map(([v, label]) => {
+            const on = viewReady && view === v
+            return (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={on}
+                onClick={() => changeView(v)}
+                className={`inline-flex items-center gap-2 min-h-[48px] px-6 rounded-full text-base font-semibold border-2 transition-colors ${
+                  on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-900 border-gray-500 hover:border-blue-600'
+                }`}
+              >
+                <span aria-hidden="true">{on ? '✓' : v === 'cards' ? '▦' : '☰'}</span>
+                {label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* 大字日期卡（原卡片頁的）：顯示的是 API 實際回傳的日期，跟下面的資料一定是同一天 */}
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            <div className="text-sm text-gray-700">資料日期</div>
+            <div className="text-2xl font-bold text-gray-900 tabular-nums">{selectedDate || DASH}</div>
+          </div>
+          {availableDates.length > 0 && (
+            <div className="sm:border-l sm:border-gray-300 sm:pl-6">
+              <div className="text-sm text-gray-700">可選範圍</div>
+              <div className="text-base text-gray-900 tabular-nums">
+                {availableDates[availableDates.length - 1]} ~ {availableDates[0]}
+                <span className="text-gray-700 ml-2">（{availableDates.length} 個交易日）</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 月報入口：刻意**不放進上面那組「檢視切換」膠囊**——那組的語意是「同一份資料的
@@ -159,15 +1131,43 @@ export default function StrongStocksPage() {
           </Link>
         </div>
 
+        {strongCountStale && (
+          <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 text-sm text-amber-900">
+            <span aria-hidden="true">⚠️</span>
+            <span>
+              「強勢日」（卡片上的「強勢 N 日」）固定以<strong>最近 7 個交易日</strong>計算，
+              與所選日期（{selectedDate}）無關，因此已停用排序並轉為灰字。
+            </span>
+          </div>
+        )}
+
         {/* 快速篩選 */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_FILTERS.map((q) => {
-            const active = filter.macd === q.macd && filter.minVolume === q.minVolume && filter.foreignBuy === q.foreignBuy
+            const active =
+              filter.macd === q.macd &&
+              filter.minVolume === q.minVolume &&
+              filter.foreignBuy === q.foreignBuy &&
+              filter.streakMin === q.streakMin
             return (
               <button
                 key={q.key}
-                onClick={() => setFilter((f) => ({ ...f, macd: q.macd, minVolume: q.minVolume, foreignBuy: q.foreignBuy }))}
-                className={`px-3 min-h-[40px] rounded-full text-sm border transition-colors ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'}`}
+                type="button"
+                aria-pressed={active}
+                onClick={() =>
+                  setFilter((f) => ({
+                    ...f,
+                    macd: q.macd,
+                    minVolume: q.minVolume,
+                    foreignBuy: q.foreignBuy,
+                    streakMin: q.streakMin,
+                  }))
+                }
+                className={`px-4 min-h-[44px] rounded-full text-sm border transition-colors ${
+                  active
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                }`}
               >
                 {q.label}
               </button>
@@ -175,114 +1175,293 @@ export default function StrongStocksPage() {
           })}
         </div>
 
-        {/* 日期資訊卡片 */}
+        {/* 篩選卡（恆常渲染：切日期時不可以整塊消失再長回來） */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div>
-              <span className="text-sm text-gray-700">當前日期</span>
-              <div className="text-2xl font-bold text-gray-800">{selectedDate}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-3 items-center">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <label htmlFor="stock-search" className="text-gray-700 text-sm shrink-0">
+                搜尋
+              </label>
+              <input
+                id="stock-search"
+                type="search"
+                inputMode="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="代號或名稱"
+                className={`${SELECT} w-full sm:w-44`}
+              />
             </div>
-            <div className="border-l border-gray-200 pl-4">
-              <span className="text-sm text-gray-700">可選範圍</span>
-              <div className="text-sm text-gray-700">
-                {data?.availableDates && data.availableDates.length > 0 && (
-                  <>
-                    {data.availableDates[data.availableDates.length - 1]} ~ {data.availableDates[0]}
-                    <span className="text-gray-600 ml-2">({data.availableDates.length} 個交易日)</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* 日期選擇與篩選條件 */}
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="flex flex-wrap gap-4 items-center justify-between">
-            {/* 左側：日期 + 篩選 */}
-            <div className="flex flex-wrap gap-4 items-center">
+            {availableDates.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-700 text-sm">切換日期</span>
+                <label htmlFor="date-select" className="text-gray-700 text-sm">日期</label>
                 <select
+                  id="date-select"
                   value={selectedDate}
                   onChange={(e) => handleDateChange(e.target.value)}
-                  className="border border-gray-300 rounded px-3 py-1.5 text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={SELECT}
                 >
-                  {data?.availableDates?.map((date) => (
-                    <option key={date} value={date}>
-                      {date}
-                    </option>
+                  {availableDates.map((d) => (
+                    <option key={d} value={d}>{d}</option>
                   ))}
                 </select>
               </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <label htmlFor="macd-select" className="text-gray-700 text-sm">MACD</label>
+              <select
+                id="macd-select"
+                value={filter.macd}
+                onChange={(e) => setFilter((f) => ({ ...f, macd: e.target.value }))}
+                className={SELECT}
+              >
+                <option value="all">全部</option>
+                <option value="多">多頭</option>
+                <option value="空">空頭</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label htmlFor="volume-select" className="text-gray-700 text-sm">成交量</label>
+              <select
+                id="volume-select"
+                value={filter.minVolume}
+                onChange={(e) => setFilter((f) => ({ ...f, minVolume: parseInt(e.target.value, 10) }))}
+                className={SELECT}
+              >
+                <option value="0">不限</option>
+                <option value="1000">1000張+</option>
+                <option value="5000">5000張+</option>
+                <option value="10000">1萬張+</option>
+              </select>
+            </div>
+
+            {industries.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-700 text-sm">MACD</span>
+                <label htmlFor="industry-select" className="text-gray-700 text-sm">產業</label>
                 <select
-                  value={filter.macd}
-                  onChange={(e) => setFilter({ ...filter, macd: e.target.value })}
-                  className="border rounded px-2 py-1.5 text-sm"
+                  id="industry-select"
+                  value={filter.industry}
+                  onChange={(e) => setFilter((f) => ({ ...f, industry: e.target.value }))}
+                  className={`${SELECT} max-w-[18ch]`}
                 >
-                  <option value="all">全部</option>
-                  <option value="多">多頭</option>
-                  <option value="空">空頭</option>
+                  <option value="all">全部產業</option>
+                  {industries.map((ind) => (
+                    <option key={ind} value={ind}>{ind}</option>
+                  ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700 text-sm">成交量</span>
-                <select
-                  value={filter.minVolume}
-                  onChange={(e) => setFilter({ ...filter, minVolume: parseInt(e.target.value) })}
-                  className="border rounded px-2 py-1.5 text-sm"
-                >
-                  <option value="0">不限</option>
-                  <option value="1000">1000張+</option>
-                  <option value="5000">5000張+</option>
-                  <option value="10000">1萬張+</option>
-                </select>
-              </div>
-              {industries.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-700 text-sm">產業</span>
-                  <select
-                    value={filter.industry}
-                    onChange={(e) => setFilter({ ...filter, industry: e.target.value })}
-                    className="border rounded px-2 py-1.5 text-sm max-w-[150px]"
-                  >
-                    <option value="all">全部產業</option>
-                    {industries.map((ind) => (
-                      <option key={ind} value={ind}>
-                        {ind}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-            {/* 右側：統計 */}
-            <div className="flex items-center gap-4 text-sm">
-              <span className="text-gray-700">
-                篩選：<span className="font-medium text-gray-700">{filteredStocks.length}</span> 檔
-              </span>
-              <span className="text-gray-700">
-                當日：<span className="font-bold text-orange-500">{data?.totalCount || 0}</span> 檔
-              </span>
-            </div>
+            )}
+
+            {/* 預設關閉：預設要誠實呈現有多少檔沒資料。只在表格出現：卡片沒有「欄」的概念 */}
+            {view === 'table' && (
+            <label className="flex items-center gap-2 min-h-[44px] lg:min-h-[36px] text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hideNullRows}
+                onChange={(e) => setHideNullRows(e.target.checked)}
+                className="w-5 h-5 rounded"
+              />
+              隱藏無資料的列
+            </label>
+            )}
+
+            {/* 檢視切換：全欄位（預設）↔ 分組。全欄位會水平捲動，捲動關在表格容器內 */}
+            {view === 'table' && (
+            <button
+              type="button"
+              aria-pressed={showAll}
+              onClick={() => setShowAll((v) => !v)}
+              className={`hidden md:inline-flex items-center min-h-[44px] lg:min-h-[36px] px-4 rounded-full text-sm border transition-colors ${
+                showAll
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+              }`}
+            >
+              {showAll ? '改用分組檢視（不捲動）' : '顯示全部欄位'}
+            </button>
+            )}
           </div>
         </div>
 
-        {/* 股票列表 */}
-        {filteredStocks.length === 0 ? (
-          <EmptyState
-            icon={data?.dataMissing ? '📅' : '🔍'}
-            title={data?.dataMissing ? '這一天沒有明細資料' : '沒有符合條件的股票'}
-            description={data?.dataMissing ? '請改選其他交易日' : '試著放寬 MACD／成交量／產業等條件'}
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-            {filteredStocks.map((stock) => (
-              <StockCard key={stock.stock_id} stock={stock} />
+        {/* 桌機：欄位分組切換（一次最多 8 欄，不橫捲） */}
+        {view === 'table' && !showAll && (
+          <div className="hidden md:flex flex-wrap gap-2 mb-3" role="group" aria-label="欄位分組">
+            {GROUP_KEYS.map((g) => (
+              <button
+                key={g}
+                type="button"
+                aria-pressed={group === g}
+                onClick={() => setGroup(g)}
+                className={`px-4 min-h-[44px] lg:min-h-[40px] rounded-full text-sm border transition-colors ${
+                  group === g
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                }`}
+              >
+                {GROUPS[g].label}
+              </button>
             ))}
           </div>
+        )}
+
+        {/* 手機：焦點欄 chip 列。
+            關鍵原則——橫向捲動的是 44px 高的控制項，不是資料格。
+            點不同顆＝換第 3 欄並依該欄由大到小；點同一顆＝翻轉方向。
+            亮哪顆、▼▲、第 3 欄一律看 mobileSort（不看桌機的 effectiveSort），三者才不會分家。 */}
+        <div className={`${view === 'table' ? 'md:hidden ' : ''}mb-3`}>
+          <div id="focus-label" className="text-sm text-gray-700 mb-1">
+            {view === 'cards' ? '排序依據（點選即排序，再點一次反向）' : '比較欄位（點選即排序）'}
+          </div>
+          <div
+            ref={chipRowRef}
+            className={`-mx-4 px-4 pb-1 flex gap-2 overflow-x-auto snap-x ${view === 'cards' ? 'md:mx-0 md:px-0 md:flex-wrap md:overflow-visible' : ''}`}
+            role="group"
+            aria-labelledby="focus-label"
+          >
+            {mobileFocusKeys.map((k) => {
+              const on = focusKey === k
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleSort(k, mobileSort)}
+                  className={`snap-start shrink-0 px-4 min-h-[44px] rounded-full text-sm border transition-colors ${
+                    on
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  {COLUMNS[k].header}
+                  {on && <span aria-hidden="true"> {mobileSort.dir === 'desc' ? '▼' : '▲'}</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 欄位說明：刻意放在表格「上方」（任何捲動容器之外）。
+            InfoTip 的泡泡是 `position: fixed`（見 InfoTip.tsx 檔頭）：**不會**再把水平捲軸撐長，
+            但會被祖先的 `[contain:paint]`／`overflow` 裁切，所以仍然一律放在捲動容器之外。
+            另外 20 顆 32px 的 ⓘ 放進表頭也會多出 640px 寬度負擔。 */}
+        <details className="bg-white rounded-lg shadow-sm mb-4">
+          <summary className="min-h-[44px] flex items-center px-4 text-sm font-medium text-gray-700 cursor-pointer">
+            欄位說明（單位與計算方式）
+          </summary>
+          <div className="px-4 pb-4">
+            <p className="text-sm text-gray-700 mb-3">
+              <span aria-hidden="true">{DASH}</span>
+              <span className="sr-only">破折號</span>
+              　表示資料來源未涵蓋此股此欄（多為上櫃或新掛牌），
+              <strong>不是 0</strong>。⚠️ 法人買賣超與連續天數例外：缺資料時目前會顯示 0（收集程式的已知問題）。
+              <InfoTip title="漲跌幅怎麼算">
+                （收盤 − 前一交易日收盤）÷ 前一交易日收盤。沒有昨收資料時才退回以當日開盤價為基準；不是「收盤 − 開盤」。
+              </InfoTip>
+            </p>
+            <dl className="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+              {[...FIXED_KEYS, ...ALL_DATA_KEYS].map((k) => (
+                <div key={k} className="flex flex-col sm:flex-row sm:gap-2">
+                  <dt className="font-medium text-gray-900 whitespace-nowrap">{COLUMNS[k].fullName}</dt>
+                  <dd className="text-gray-700">{COLUMNS[k].desc}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </details>
+
+        {/* 統計列：篩選/排序造成筆數變動時播報。
+            手機與桌機的筆數／排序可能不同（見 mobileSort），所以各一份、用 md: 切換；
+            display:none 的那份不在無障礙樹裡，不會重複播報。 */}
+        {view === 'cards' ? (
+          statsBar('flex', cardRows.length, cardSortSummary, cardSortNotice)
+        ) : (
+          <>
+            {statsBar('flex md:hidden', mobileSortedRows.length, mobileSortSummary, mobileSortNotice)}
+            {statsBar('hidden md:flex', sortedRows.length, sortSummary, sortNotice)}
+          </>
+        )}
+
+        {/* 結果區三元鏈：篩選列與分組切換恆常渲染，只有這裡換 */}
+        {!viewReady ? (
+          <div className="h-64 rounded-lg bg-gray-100 animate-pulse" aria-hidden="true" />
+        ) : loading ? (
+          view === 'cards' ? <CardGridSkeleton /> : <TableSkeleton rows={12} cols={visibleKeys.length} />
+        ) : error ? (
+          <ErrorState message="無法取得強勢股資料" onRetry={() => fetchData(selectedDate || undefined)} />
+        ) : noTradingDay ? (
+          <EmptyState icon="📅" title="尚無可用交易日" description="資料尚未收集完成，請稍後再試" />
+        ) : view === 'cards' ? (
+          cardRows.length === 0 ? (
+            emptyResult
+          ) : (
+            <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4" aria-label={`${selectedDate} 強勢股卡片，共 ${cardRows.length} 檔`}>
+              {cardRows.map((r) => (
+                <li key={r.stock_id} className="min-w-0">
+                  <StockCard stock={r} strongCountStale={strongCountStale} />
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
+          <>
+            {/* 手機：3 欄常駐 ＋ 可展開列（展開後一次列出全部欄位），不做橫捲資料表。
+                ⚠️ 這裡刻意不用 watchlist 的 overflow-hidden：overflow 非 visible 會讓卡片
+                變成 sticky 表頭的參考容器，而卡片高度＝表格高度，表頭等於完全沒黏住。
+                圓角改由表頭第一／最後一個 th 自己處理。
+                「沒有符合條件」要手機、桌機各自判斷：兩邊隱藏無資料列的範圍不同，筆數可能一邊 0 一邊不是。 */}
+            {mobileSortedRows.length === 0 ? (
+              <div className="md:hidden">{mobileEmptyResult}</div>
+            ) : (
+              <div className="md:hidden bg-white rounded-lg shadow-sm">{mobileTable}</div>
+            )}
+
+            {/* 桌機 */}
+            {sortedRows.length === 0 ? (
+              <div className="hidden md:block">{emptyResult}</div>
+            ) : showAll ? (
+              <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
+                <p className="px-4 py-2 text-sm text-gray-700 bg-gray-50 border-b border-gray-200">
+                  ← 左右捲動查看全部欄位 →（此模式表頭不固定；若想免捲動可切換為分組檢視）
+                </p>
+                {/* tabIndex + role=region：否則鍵盤使用者捲不動這個容器。
+                    overflow-x-auto 放在頁面內層，不可讓 body 橫捲（會跟 fixed Sidebar 錯位）。
+                    ⚠️ [contain:paint] 不是裝飾：實測 Chrome 會把這個巢狀捲動容器的溢出
+                    併進「根捲動區」（documentElement.scrollWidth 2489 / 視窗可橫捲 1049px），
+                    即使父層已經 overflow-hidden、每一層的 scrollWidth 都等於 clientWidth。
+                    加上 paint containment 後根捲動區才回到 1440。移掉它整頁就會又橫捲。 */}
+                <div
+                  className="overflow-x-auto [contain:paint]"
+                  role="region"
+                  tabIndex={0}
+                  aria-label="全部欄位表格，可左右捲動"
+                >
+                  {desktopTable}
+                </div>
+              </div>
+            ) : (
+              /* 同上：不可加 overflow-hidden，否則 sticky 表頭會黏在卡片而不是視窗。
+                 ⚠️ 實測：分組表格的天生寬度約 1113px（8 欄 × px-4 + nowrap）。
+                 視窗 < 1128px 時若沒有捲動容器，溢出會落到「根捲動區」→ 整頁橫捲，
+                 而 Sidebar 是 fixed 不會跟著捲 → 直接蓋住第一欄的股名與代號。
+                 實測 768/900/1024 分別溢出 345/213/89px，1128 以上為 0。
+                 解法：xl(1280) 以下把溢出關進表格自己的捲動容器（此時 sticky 表頭失效，
+                 屬可接受的降級）；xl 以上還原成無容器，sticky 表頭照常運作。
+                 改這裡前請先用 documentElement.scrollWidth 對 768/1024/1280 量一次。 */
+              <div className="hidden md:block bg-white rounded-lg shadow-sm">
+                <div
+                  className="overflow-x-auto [contain:paint] xl:overflow-x-visible xl:[contain:none]"
+                  role="region"
+                  tabIndex={0}
+                  aria-label="強勢股表格，視窗較窄時可左右捲動"
+                >
+                  {desktopTable}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

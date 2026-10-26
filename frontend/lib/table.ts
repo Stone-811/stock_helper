@@ -1,7 +1,7 @@
 /**
  * 表格共用型別與純函式（無 React / 無 JSX，server 與 client 皆可 import）
  *
- * 由 app/strong-table/page.tsx 抽出：那頁的「欄位 registry」模式（單一 Record<Key, ColDef>
+ * 由強勢股表格（原 app/strong-table/page.tsx，2026-10-26 併入 app/strong-stocks/page.tsx）抽出：那頁的「欄位 registry」模式（單一 Record<Key, ColDef>
  * 當唯一定義來源，每欄同時帶 header / fullName / align / sortValue / render / desc）
  * 在強勢月報頁要再用一次，抄第二份就會開始漂移。
  *
@@ -44,6 +44,6 @@ export interface ColDef<T, Ctx = unknown> {
 }
 
 /** 表單控件統一樣式（觸控 ≥44px；桌機才降到 36px）。
- *  ⚠️ 以 strong-table 這份為準，不要沿用 screener 的 `py-1.5 text-sm`（不符 44px）。 */
+ *  ⚠️ 以強勢股表格這份為準，不要沿用 screener 的 `py-1.5 text-sm`（不符 44px）。 */
 export const SELECT =
   'border border-gray-300 rounded px-3 min-h-[44px] lg:min-h-[36px] text-base md:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'

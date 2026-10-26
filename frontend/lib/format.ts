@@ -3,7 +3,7 @@
  *
  * 為什麼要有這個檔：漲跌幅基準、億/萬 級距、紅綠配色、連買連賣字串
  * 原本散在 StockCard.tsx / watchlist / StockDetailClient / lib/signals.ts 四處各一份。
- * 強勢股總表一次要用到 20 欄，再抄一次就是第五份，因此把「重複且無爭議」的邏輯抽到這裡。
+ * 強勢股頁的表格檢視一次要用到 22 欄，再抄一次就是第五份，因此把「重複且無爭議」的邏輯抽到這裡。
  *
  * 遷移策略只做加法：新頁面直接用本檔；StockCard 的私有 formatTradingValue 改成 import。
  * watchlist / StockDetailClient / signals.ts 各有語境差異（latestData 可能 undefined、
@@ -97,7 +97,7 @@ export function computeChange(s: {
  *   green-700 4.94 / 4.74 ← 用這個
  * 表格內文 text-sm 在本站 @theme 下 = 15.2px，屬「一般文字」，吃不到
  * 「≥24px 或 ≥18.66px 粗體」的 3:1 大字例外（首頁/個股頁用 text-lg 粗體所以還在例外內）。
- * 這也是強勢股總表不做斑馬紋、hover 停在 gray-50 的原因：底色再深一階，red-600 就會跌破 4.5。
+ * 這也是強勢股頁的表格不做斑馬紋、hover 停在 gray-50 的原因：底色再深一階，red-600 就會跌破 4.5。
  */
 export function changeColor(dir: ChangeDir): string {
   if (dir === 'up') return 'text-red-600'

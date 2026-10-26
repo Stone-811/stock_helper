@@ -1,109 +1,120 @@
 'use client'
 
 import Link from 'next/link'
-import { StrongStock as TodayStrongStock } from '../lib/firebase'
+import type { StrongStock } from '../lib/firebase'
 import InfoTip from './InfoTip'
-import { fmtTradingValue } from '../lib/format'
+import { DASH, fmtNum, fmtSigned, fmtTradingValue, computeChange, changeColor, signColor } from '../lib/format'
 
 interface StockCardProps {
-  stock: TodayStrongStock
+  /** date 不用：/api/strong-stocks 與 /api/screener 的每檔資料本來就沒有 date（firebase_writer 不寫） */
+  stock: Omit<StrongStock, 'date'>
+  /** 所選日期不是最新交易日：「強勢 N 日」固定算最近 7 個交易日、與所選日期無關 → 轉灰並說明 */
+  strongCountStale?: boolean
 }
 
-export default function StockCard({ stock }: StockCardProps) {
-  // 漲跌幅基準＝前一交易日收盤（台股慣例）；無前一日資料時退回當日開盤
-  const base = stock.prev_close && stock.prev_close > 0 ? stock.prev_close : stock.open
-  const isPositive = stock.close >= base
-  const priceChange = stock.close - base
-  const priceChangePct = base > 0 ? ((priceChange / base) * 100).toFixed(2) : '0.00'
+/*
+ * 首頁「今日強勢」、強勢股頁的卡片檢視、選股頁共用。
+ * 2026-10-26 業主同意放大加深（看過改前改後截圖）：
+ * - 數字由 text-xs（13.6px）改為 text-sm／text-base，標籤 gray-700、數值 gray-900。
+ * - 紅綠改用 lib/format 的 changeColor／signColor（green-600 3.22、orange-500 約 2.6、cyan 都不過 AA）。
+ * - 平盤顯示灰色「0.00%」而不是紅色「+0.00%」；法人 0 顯示灰色「0」而不是紅色「+0」；
+ *   MACD 只有「多／空」上紅綠，「-」（資料不足）與空值是灰色「MACD —」，不再被看成空頭。
+ * - 缺資料一律「—」，不寫成 0（強勢天數、成交額、法人）。
+ */
+export default function StockCard({ stock, strongCountStale = false }: StockCardProps) {
+  const { change, pct, dir } = computeChange(stock)
+  const priceCls = dir === 'flat' ? 'text-gray-900' : changeColor(dir)
+  const sign = change != null && change > 0 ? '+' : ''
 
-  // 計算成交額和當沖額（volume 是張數，每張 1000 股）
-  const tradingValue = stock.volume * stock.close * 1000
-  const dayTradingValue = (stock.day_trading_volume || 0) * stock.close * 1000
-  const dayTradingRatio = stock.volume > 0 ? ((stock.day_trading_volume || 0) / stock.volume) * 100 : 0
+  // 成交額、當沖額：volume 是張數，每張 1000 股。缺任一邊就是「—」，當沖量缺就不顯示那一行
+  const tradingValue = stock.volume != null && stock.close != null ? stock.volume * stock.close * 1000 : null
+  const dtv = stock.day_trading_volume
+  const dayTradingValue = dtv != null && dtv > 0 && stock.close != null ? dtv * stock.close * 1000 : null
+  const dayTradingRatio = dtv != null && stock.volume > 0 ? (dtv / stock.volume) * 100 : null
+
+  const macd = stock.macd_status
+  const macdCls =
+    macd === '多' ? 'bg-red-100 text-red-700' : macd === '空' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+
+  const inst = (v: number | null | undefined) => (
+    <div className={`text-base font-semibold tabular-nums ${signColor(v)}`}>{v === 0 ? '0' : fmtSigned(v)}</div>
+  )
+  const streak = (v: number | null | undefined) =>
+    v ? (
+      <div className={`text-sm ${signColor(v)}`}>{v > 0 ? `連買 ${v}` : `連賣 ${Math.abs(v)}`}</div>
+    ) : null
 
   return (
     <Link href={`/stock/${stock.stock_id}`} className="block h-full">
-      <div className="bg-white rounded-lg shadow-md p-3 md:p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 h-full flex flex-col">
-        {/* 股票代碼和名稱 */}
-        <div className="flex justify-between items-start mb-2">
-          <div className="min-w-0 flex-1 mr-2">
-            <span className="text-base md:text-lg font-bold text-gray-800">{stock.stock_id}</span>
-            <span className="ml-1.5 md:ml-2 text-sm text-gray-600 truncate inline-block max-w-[80px] md:max-w-[100px] align-bottom">{stock.stock_name}</span>
+      <div className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 h-full flex flex-col">
+        {/* 代號與名稱分兩行：同一行時 4 欄卡片寬度不夠，「巨生醫」會被斷成「巨生／醫」。
+            名稱最多兩行、不截斷（手機看不到 title 提示，不截成「亞德客-…」） */}
+        <div className="flex justify-between items-start gap-2 mb-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-bold text-gray-900 tabular-nums leading-tight">{stock.stock_id}</div>
+            <div className="text-base text-gray-700 line-clamp-2">{stock.stock_name}</div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className={`px-2 py-1 rounded text-xs font-medium ${
-              stock.macd_status === '多'
-                ? 'bg-red-100 text-red-600'
-                : 'bg-green-100 text-green-600'
-            }`}>
-              MACD {stock.macd_status}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className={`px-2 py-0.5 rounded text-sm font-medium ${macdCls}`}>
+              MACD {macd === '多' || macd === '空' ? macd : DASH}
             </span>
             {stock.industry && (
-              <span className="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600 truncate max-w-[100px]">
+              <span className="px-2 py-0.5 rounded text-sm bg-blue-50 text-blue-800 truncate max-w-[9em]" title={stock.industry}>
                 {stock.industry}
               </span>
             )}
           </div>
         </div>
 
-        {/* 價格 */}
-        <div className="mb-2 md:mb-3">
-          <span className={`text-xl md:text-2xl font-bold ${isPositive ? 'text-red-600' : 'text-green-600'}`}>
-            ${stock.close.toFixed(2)}
-          </span>
-          <span className={`ml-1.5 md:ml-2 text-xs md:text-sm ${isPositive ? 'text-red-500' : 'text-green-500'}`}>
-            {isPositive ? '+' : ''}{priceChangePct}%
+        {/* 價格與漲跌幅（基準＝前一交易日收盤；沒有昨收才退回當日開盤） */}
+        <div className="mb-3 tabular-nums">
+          <span className={`text-2xl font-bold ${priceCls}`}>{stock.close != null ? fmtNum(stock.close, 2) : DASH}</span>
+          <span className={`ml-2 text-base font-semibold ${priceCls}`}>
+            {pct == null ? DASH : `${sign}${pct.toFixed(2)}%`}
           </span>
         </div>
 
-        {/* 成交額和當沖額 */}
-        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 font-medium">
+        {/* 成交額與強勢天數（mb-3：法人區用 mt-auto 推到底部，兩者之間要自己留空） */}
+        <div className="mb-3">
+        <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
           <div>
-            <span className="text-gray-600">成交額</span><InfoTip title="成交額">當日成交量（張）× 收盤價 × 1000 股，代表這檔今天的資金流動規模。</InfoTip>
-            <span className="ml-1 font-medium">{fmtTradingValue(tradingValue)}</span>
+            成交額<InfoTip title="成交額">當日成交量（張）× 收盤價 × 1000 股，代表這檔今天的資金流動規模。</InfoTip>
+            <span className="ml-1 font-semibold text-gray-900 tabular-nums">{fmtTradingValue(tradingValue)}</span>
           </div>
           <div>
-            <span className="text-gray-600">強勢</span><InfoTip title="強勢天數">最近 7 個交易日中被選入「當日強勢股」的天數。</InfoTip>
-            <span className="ml-1 font-medium text-orange-500">{stock.strong_count || 0} 日</span>
+            強勢<InfoTip title="強勢天數">最近 7 個交易日中被選入「當日強勢股」的天數。固定算最近 7 天，選以前的日期時這個數字與所選日期無關，會變灰。</InfoTip>
+            <span
+              className={`ml-1 font-semibold tabular-nums ${strongCountStale ? 'text-gray-600' : 'text-gray-900'}`}
+              title={strongCountStale ? '以最近 7 個交易日計算，與所選日期無關' : undefined}
+            >
+              {stock.strong_count == null ? DASH : `${stock.strong_count} 日`}
+            </span>
           </div>
         </div>
-        {dayTradingValue > 0 && (
-          <div className="mt-1 text-xs text-gray-600 font-medium">
-            <span className="text-gray-600">當沖額</span><InfoTip title="當沖額與比例">當沖成交量 × 收盤價 × 1000 股；括號內為當沖量佔總成交量的百分比，比例高代表短線交易熱絡。</InfoTip>
-            <span className="ml-1 font-medium text-cyan-600">{fmtTradingValue(dayTradingValue)}</span>
-            <span className="ml-1 text-cyan-500">({dayTradingRatio.toFixed(1)}%)</span>
+        {dayTradingValue != null && (
+          <div className="mt-1 text-sm text-gray-700">
+            當沖額<InfoTip title="當沖額與比例">當沖成交量 × 收盤價 × 1000 股；括號內為當沖量佔總成交量的百分比，比例高代表短線交易熱絡。</InfoTip>
+            <span className="ml-1 font-semibold text-gray-900 tabular-nums">{fmtTradingValue(dayTradingValue)}</span>
+            {dayTradingRatio != null && <span className="ml-1 tabular-nums">（{dayTradingRatio.toFixed(1)}%）</span>}
           </div>
         )}
+        </div>
 
-        {/* 三大法人 */}
-        <div className="mt-auto pt-2 border-t border-gray-100 grid grid-cols-3 gap-1 text-xs">
-          <div className="text-center">
-            <div className="text-gray-600">外資<InfoTip title="法人買賣超（張）">當日買進張數 − 賣出張數；正數（紅）買超、負數（綠）賣超。下方「連買 N」為連續買超天數。自營＝自行買賣＋避險。</InfoTip></div>
-            <div className={stock.foreign_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
-              {stock.foreign_buy >= 0 ? '+' : ''}{stock.foreign_buy}
-            </div>
-            {!!stock.foreign_streak && (
-              <div className={`text-xs ${stock.foreign_streak > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {stock.foreign_streak > 0 ? `連買${stock.foreign_streak}` : `連賣${Math.abs(stock.foreign_streak)}`}
-              </div>
-            )}
+        {/* 三大法人（張） */}
+        <div className="mt-auto pt-3 border-t border-gray-200 grid grid-cols-3 gap-1 text-center">
+          <div>
+            <div className="text-sm text-gray-700">外資<InfoTip title="法人買賣超（張）">當日買進張數 − 賣出張數；正數（紅）買超、負數（綠）賣超。下方「連買 N」為連續買超天數。自營＝自行買賣＋避險。⚠️ 0 也可能是當天沒有法人資料。</InfoTip></div>
+            {inst(stock.foreign_buy)}
+            {streak(stock.foreign_streak)}
           </div>
-          <div className="text-center">
-            <div className="text-gray-600">投信</div>
-            <div className={stock.trust_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
-              {stock.trust_buy >= 0 ? '+' : ''}{stock.trust_buy}
-            </div>
-            {!!stock.trust_streak && (
-              <div className={`text-xs ${stock.trust_streak > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {stock.trust_streak > 0 ? `連買${stock.trust_streak}` : `連賣${Math.abs(stock.trust_streak)}`}
-              </div>
-            )}
+          <div>
+            <div className="text-sm text-gray-700">投信</div>
+            {inst(stock.trust_buy)}
+            {streak(stock.trust_streak)}
           </div>
-          <div className="text-center">
-            <div className="text-gray-600">自營</div>
-            <div className={stock.dealer_buy >= 0 ? 'text-red-500' : 'text-green-500'}>
-              {stock.dealer_buy >= 0 ? '+' : ''}{stock.dealer_buy}
-            </div>
+          <div>
+            <div className="text-sm text-gray-700">自營</div>
+            {inst(stock.dealer_buy)}
           </div>
         </div>
       </div>

@@ -44,7 +44,7 @@ export function TbdCell({ reason }: { reason?: string }) {
 /**
  * 表格捲動容器。
  *
- * ⚠️ 為什麼一定要有這層（強勢股總表上週踩過的 critical bug）：
+ * ⚠️ 為什麼一定要有這層（強勢股表格〔原 /strong-table〕踩過的 critical bug）：
  * 表格比容器寬時，若溢出沒有被關進容器，就會落到「根捲動區」→ 整頁橫捲，
  * 而 Sidebar 是 `fixed left-0` 不跟著捲 → 直接蓋住第一欄的股名與代號。
  * 實測 768/900/1024 分別溢出 345/213/89px。

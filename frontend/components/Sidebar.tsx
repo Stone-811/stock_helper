@@ -13,7 +13,7 @@ export interface NavItem {
    *  ⚠️ 必須是 label 的子字串：aria-label 用全名時，語音控制說畫面上的字才點得到（WCAG 2.5.3） */
   shortLabel: string
   icon: string
-  /** 區段標題：三個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
+  /** 區段標題：兩個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
   section?: string
 }
 
@@ -21,13 +21,11 @@ export interface NavItem {
 // 曾經各寫一份而分岔（手機少了總表與月報），改成單一來源後新增頁面只要改這裡。
 export const navItems: NavItem[] = [
   { href: '/', label: '首頁', shortLabel: '首頁', icon: '📊' },
+  // 卡片與表格是同一頁的兩種檢視（2026-10-26 合併；舊的 /strong-table 由 next.config.ts 轉到 ?view=table）
   { href: '/strong-stocks', label: '強勢股', shortLabel: '強勢', icon: '🔥', section: '強勢股' },
-  // ⚠️ 路徑刻意不以 '/strong-stocks' 開頭：下方 isNavActive 是 pathname.startsWith(href)，
-  //    取名 /strong-stocks-table 或 /strong-stocks/table 都會讓「強勢股」與本項同時亮起。
-  { href: '/strong-table', label: '強勢總表', shortLabel: '總表', icon: '📋' },
-  // 月報與上面兩項**同一層、不是總表的子頁**：前兩者是「某一個交易日」的兩種呈現，
-  // 月報是「某一個月」的彙整（主鍵與粒度都不同）。做成子路由會同時點亮兩個導覽項。
-  // 圖示刻意用 🗓️（與 🔥/📋 形狀差異大）：縮排模式下只剩圖示可辨識。
+  // 月報與強勢股**同一層、不是子頁**：強勢股是「某一個交易日」，月報是「某一個月」的彙整（主鍵與粒度都不同）。
+  // ⚠️ 路徑刻意不以 '/strong-stocks' 開頭：下方 isNavActive 是 pathname.startsWith(href)，會同時點亮兩項。
+  // 圖示刻意用 🗓️（與 🔥 形狀差異大）：縮排模式下只剩圖示可辨識。
   { href: '/strong-monthly', label: '強勢月報', shortLabel: '月報', icon: '🗓️' },
   { href: '/screener', label: '選股', shortLabel: '選股', icon: '🔍', section: '工具' },
   { href: '/watchlist', label: '自選股', shortLabel: '自選', icon: '⭐' },

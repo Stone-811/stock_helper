@@ -28,7 +28,7 @@ import type { MonthlyReportRow } from '../../lib/monthly-report'
 /* ------------------------------------------------------------------ *
  * 強勢月報（取代業主每月手工維護的 Word《強勢商品篩選》）
  *
- * 版面核心取捨，與 /strong-table 刻意相反：
+ * 版面核心取捨，與強勢股頁的表格檢視（/strong-stocks?view=table）刻意相反：
  * 總表的價值是「同一天多檔比較，欄位可任意取捨」，所以它把 20 欄拆成分組 tab。
  * 月報的價值是「一張與 Word 同構的 12 欄表」——拆 tab 會毀掉可對照性，
  * 所以 12 欄全上、日期與商品兩欄釘在左側、橫向與縱向捲動**全部關在表格自己的容器裡**。
@@ -258,7 +258,7 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow, Ctx
     align: 'center',
     sortable: false,
     sortValue: (r) => r.macdStatus,
-    desc: '【記法待確認】目前顯示收集器算好的 MACD 柱狀體方向：「多」為柱體正、「空」為負，與強勢股總表同一來源。⚠️ 業主月報用的是「+↗ / –↗ / ↗」記法（疑似同時表達柱體正負與方向），對應規則尚未確認，因此此欄不排序。',
+    desc: '【記法待確認】目前顯示收集器算好的 MACD 柱狀體方向：「多」為柱體正、「空」為負，與強勢股頁的表格同一來源。⚠️ 業主月報用的是「+↗ / –↗ / ↗」記法（疑似同時表達柱體正負與方向），對應規則尚未確認，因此此欄不排序。',
     render: (r) => {
       const m = r.macdStatus
       if (!m) return <NullCell />
@@ -348,7 +348,7 @@ const MOBILE_SORT_KEYS: MKey[] = COL_ORDER.filter(
 /** 手機展開列：一次列出全部 12 欄（含兩個「待定義」欄，不可為了省空間把它們藏掉） */
 const DETAIL_KEYS: MKey[] = COL_ORDER
 
-const STORAGE_KEY = 'strong-monthly-view' // 形狀與 'strong-table-view' 不同，刻意不共用
+const STORAGE_KEY = 'strong-monthly-view' // 形狀與強勢股頁的 'strong-stocks-state' 不同，刻意不共用
 
 /** 預設排序＝第一次入選日，由舊到新：與 Word 月報的閱讀順序一致 */
 const DEFAULT_SORT: { key: MKey; dir: 'asc' | 'desc' } = { key: 'firstDate', dir: 'asc' }
@@ -452,7 +452,7 @@ export default function StrongMonthlyPage() {
     return () => {
       if (monthTimer.current) clearTimeout(monthTimer.current)
     }
-  }, []) // 僅在掛載時還原一次（與 /strong-table、/screener 的 ready 閘門模式一致）
+  }, []) // 僅在掛載時還原一次（與 /strong-stocks、/screener 的 ready 閘門模式一致）
 
   useEffect(() => {
     if (!ready) return
@@ -854,8 +854,8 @@ export default function StrongMonthlyPage() {
       />
 
       <div className="max-w-[1560px] mx-auto px-4 py-6">
-        {/* 頁內互連：月報與「今日」兩頁的時間粒度不同，刻意不混進 strong-table 的
-            「卡片檢視／表格檢視」那組膠囊（那組語意是同一份資料的兩種呈現）。 */}
+        {/* 頁內互連：月報與「今日」強勢股的時間粒度不同，刻意不混進強勢股頁的
+            「卡片／表格」切換（那組語意是同一份資料的兩種呈現）。兩顆連結各自帶 ?view= 直接開對應檢視。 */}
         <div className="flex flex-wrap gap-2 mb-4">
           <span
             aria-current="page"
@@ -864,16 +864,16 @@ export default function StrongMonthlyPage() {
             🗓️ 當月彙整
           </span>
           <Link
-            href="/strong-stocks"
+            href="/strong-stocks?view=cards"
             className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-white text-gray-700 border border-gray-300 hover:border-blue-400 transition-colors"
           >
             今日強勢股（卡片）
           </Link>
           <Link
-            href="/strong-table"
+            href="/strong-stocks?view=table"
             className="inline-flex items-center min-h-[44px] px-4 rounded-full text-sm bg-white text-gray-700 border border-gray-300 hover:border-blue-400 transition-colors"
           >
-            今日強勢股（總表）
+            今日強勢股（表格）
           </Link>
         </div>
 
