@@ -12,7 +12,8 @@ export function PageHeader({
   subtitle,
   maxWidth = 'max-w-7xl',
 }: {
-  title: string
+  /** 一般是字串；強勢月報要控制手機在哪裡換行，所以也收 ReactNode */
+  title: ReactNode
   subtitle?: ReactNode
   /** 寬表格頁可放寬容器；預設等同現況，不影響既有呼叫點。
    *  ⚠️ 改這個就要連內文容器一起改，否則標題會跟內容左緣對不齊。 */

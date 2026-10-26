@@ -16,21 +16,23 @@
  *     dayCache（互相淘汰 + 擠掉個股頁的熱快取）。快取改做在本檔的「成品列」那層。
  *
  * 實測成本（2026-09，18 個交易日）：strong_stocks 段 ~19 次讀取 / 57 KB / 0.2 秒；
- * 數值段 37 個日期 × 6 = ~222 次讀取 / ~30 MB / ~45 秒。共約 241 次文件讀取
- * = 免費額度 50K/天的 0.48%。**瓶頸是傳輸量與延遲，不是讀取次數。**
+ * 數值段只讀「基準日往前 20 個交易日」：20 個日期 × 6 = ~120 次讀取。
+ * **瓶頸是傳輸量與延遲，不是讀取次數。**
  *
- * ⚠️ 數值段的日期窗原本是 27 天（MA10 只要 9 天暖身），2026-09-28 因為
- * 「近 20 日投信買賣超累計」而放大到 37 天（見 WINDOW_WARMUP 的註解與實測數字）。
+ * ⚠️ 2026-10-26 以前每一檔用自己的「最後一次強勢日」當基準日，日期窗要從最早那一檔
+ * 往前暖身到月底（37 天、~222 次讀取）。改成全表同一個基準日後窗固定 20 天。
  * 長遠正解是讓 collector 每天寫一份 monthly_strong/{YYYY-MM} 聚合文件（前端變 1 次讀取），
  * 但那要動收集器並重建 Cloud Run image，不在本次範圍。
  *
- * ── 定義（業主親自確認的部分）─────────────────────────────────────────
+ * ── 定義（業主 2026-10-26 在聊天裡逐題確認，頁面「照 Word 的樣子排」）──────────
  *  日期     = 該檔「當月第一次」被納入強勢股的日子
- *  收盤價   = **最後一次強勢日**的收盤（不是第一次；已用 81 筆實測：70 筆吻合最後一次、0 筆吻合第一次）
- *  成交量   = 最後一次強勢日的成交量（張）
- *  5/10日均價 = 以最後一次強勢日為基準日的 MA5 / MA10
+ *  基準日   = **當月最後一個交易日**（這個月還沒過完＝最新一個交易日）。全表同一天。
+ *             業主的原話是「當天量價」，追問後選「最新一個交易日（今天）」。
+ *             Word 的數字是業主抄寫那天的，網站沒有抄寫日，所以用最新的一天。
+ *  收盤價／成交量／外資持股／5、10日均價／MACD = 基準日當天的值
+ *  漲停     = 基準日收在漲停價 → 收盤價紅字（業主：「紅字＝漲停，只標收盤價」）
  *  當月強勢日期 = 該檔當月所有入選日的「日」
- *  籌碼(投信) = **近 N 個交易日的投信買賣超累計（張）**，終點同樣是最後一次強勢日。
+ *  籌碼(投信) = **近 N 個交易日的投信買賣超累計（張）**，終點是基準日。
  *               ⚠️ 這是流量不是持股，原因見 lib/format.ts 的 TRUST_WINDOWS 註解。
  *               N 由前端切換，所以這裡一次算好 5/10/20 三個視窗（同一份資料，零額外讀取）。
  *
@@ -47,6 +49,7 @@ import {
 import { maFromCloses } from './indicators'
 import {
   holdDeltaDir,
+  isLimitUp,
   TRUST_WINDOWS,
   type HoldDelta,
   type TrustNetSum,
@@ -60,17 +63,19 @@ export interface MonthlyReportRow {
   industry: string | null
   /** 欄位 1：當月第一次入選日（YYYY-MM-DD） */
   firstDate: string
-  /** 收盤／成交量／籌碼／MA 全部以這一天為基準（當月最後一次入選日） */
+  /** 當月最後一次入選日。⚠️ 2026-10-26 起數字欄不再以它為基準（改用 report.baseDate） */
   lastDate: string
   /** 欄位 12：當月所有入選日的「日」，升冪 */
   strongDays: number[]
-  /** lastDate 當天的收盤價 */
+  /** 基準日的收盤價。null＝那天沒有這檔的明細（例如暫停交易） */
   close: number | null
-  /** lastDate 當天的成交量（張） */
+  /** 基準日收在漲停價 → 收盤價紅字。null＝缺前一日收盤或最高價，無法判斷 */
+  limitUp: boolean | null
+  /** 基準日的成交量（張） */
   volume: number | null
-  /** lastDate 當天的外資累積持股張數。null = 無資料（未涵蓋，或該日期根本還沒有這個欄位） */
+  /** 基準日的外資累積持股張數。null = 無資料（未涵蓋，或該日期根本還沒有這個欄位） */
   foreignHoldShares: number | null
-  /** 比較基準：lastDate 的「前一個交易日」的外資持股張數 */
+  /** 比較基準：基準日的「前一個交易日」的外資持股張數 */
   foreignHoldPrev: number | null
   /**
    * 增減方向。
@@ -80,13 +85,13 @@ export interface MonthlyReportRow {
    */
   foreignHoldDir: HoldDelta
   /**
-   * 欄位 6：近 N 個交易日的**投信買賣超累計**（張），終點＝lastDate。
+   * 欄位 6：近 N 個交易日的**投信買賣超累計**（張），終點＝基準日。
    * 三個視窗（5/10/20）一次算好，前端切換不必重新請求（冷算要數十秒）。
    * ⚠️ 流量不是存量：不可與外資那欄的「累積持股張數」混為一談。
    * 每個視窗都附 days（實際累加的交易日數），days < window 時 UI 必須標明。
    */
   trustNet: Record<TrustWindow, TrustNetSum>
-  /** 以 lastDate 為基準日的 MA5；暖身不足或期間內有缺值 → null（顯示「—」，不是 0） */
+  /** 基準日的 MA5；暖身不足或期間內有缺值 → null（顯示「—」，不是 0） */
   ma5: number | null
   ma10: number | null
   /** daily_data 的 macd_status（「多」／「空」）。⚠️ 這不是業主的 +↗ / –↗ 記法 */
@@ -101,6 +106,8 @@ export interface MonthlyReport {
   availableMonths: string[]
   /** metadata/latest_date（權威最新交易日）——表頭要標「統計至」 */
   latestDate: string | null
+  /** 數字欄的基準日（當月最後一個交易日；本月＝最新一個交易日）。沒有任何交易日 → null */
+  baseDate: string | null
   /** 本月實際納入計算的交易日範圍 */
   coverage: { from: string; to: string; tradingDays: number } | null
   /**
@@ -123,6 +130,7 @@ interface DailyRow {
   stock_name?: string
   industry?: string
   close?: number | null
+  high?: number | null
   volume?: number | null
   macd_status?: string
   foreign_hold_shares?: number | null
@@ -143,21 +151,11 @@ const MA_WARMUP = 9
 const MAX_TRUST_WINDOW = Math.max(...TRUST_WINDOWS)
 
 /**
- * 數值段日期窗要往前暖身幾個交易日。
+ * 數值段日期窗要從基準日往前暖身幾個交易日：MA10 要 9 天、近 20 日投信累計要 19 天，取大者。
  *
- * ⚠️ 這個數字直接決定 Firestore 傳輸量，**改動前先看實測**（2026-09、18 個交易日、631 檔）：
- *   warmup 9（原本，只夠 MA10）：窗 27 天 → ~162 次讀取 / 22 MB / ~33 秒，
- *     但近 20 日投信累計會有 **206/631 = 32.6%** 的列拿不到完整 20 天。
- *   warmup 19（現在）：窗 37 天 → ~222 次讀取 / ~30 MB / ~45 秒，20 日視窗 **0% 被截短**。
- *
- * 選 19 的理由：那 32.6% 的資料**明明存在**（available_dates 有 45 天、最舊 2026-07-24，
- * 原本的窗起點還在 index 18），少算就是在一個標榜「累計」的數字上默默漏掉三分之一的列。
- * 本專案的第一原則是「絕不顯示不是它聲稱的那個數字」（同 MA10 絕不用 6 天平均充當），
- * 為此多讀 60 份文件（免費額度 50K/天的 0.12%）是划算的。
+ * ⚠️ 不可縮成 MA_WARMUP 卻留著 TRUST_WINDOWS 的 20：那會讓每一列都變成「實際 10 日」。
+ * 本專案的第一原則是「絕不顯示不是它聲稱的那個數字」（同 MA10 絕不用 6 天平均充當）。
  * 記憶體不受影響：每批讀完仍立刻投影成瘦 map 並釋放整日陣列（見檔頭鐵則 2）。
- *
- * 若哪天要把傳輸量壓回去：把這裡改回 MA_WARMUP，並把 TRUST_WINDOWS 的 20 拿掉
- * （**不要**留著 20 卻縮窗，那會讓三分之一的列變成「實際 10 日」）。
  */
 const WINDOW_WARMUP = Math.max(MA_WARMUP, MAX_TRUST_WINDOW - 1)
 
@@ -200,6 +198,7 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     rows: [],
     availableMonths: [],
     latestDate,
+    baseDate: null,
     coverage: null,
     partialMonth: false,
     foreignHoldUnavailable: false,
@@ -268,6 +267,7 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     const r: MonthlyReport = {
       ...emptyReport(month),
       availableMonths,
+      baseDate: monthDates[monthDates.length - 1],
       coverage: { from: monthDates[0], to: monthDates[monthDates.length - 1], tradingDays: monthDates.length },
       dataMissing: false, // 有交易日、只是當月沒有任何股票入選
     }
@@ -279,30 +279,14 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
   const indexOf = new Map(asc.map((d, i) => [d, i]))
   const aggs = [...agg.values()]
 
-  const lastIdxOf = new Map<string, number>()
-  for (const a of aggs) lastIdxOf.set(a.stockId, indexOf.get(a.lastDate) ?? -1)
-
-  const minLastIdx = Math.min(...aggs.map((a) => lastIdxOf.get(a.stockId)!))
-  const maxLastIdx = Math.max(...aggs.map((a) => lastIdxOf.get(a.stockId)!))
-  // 日期窗＝「最早的 last-strong-day 往前 WINDOW_WARMUP 個交易日」到「最晚的 last-strong-day」，
-  // 用 available_dates 的 index 位移取（不是日曆天）。
-  // WINDOW_WARMUP ≥ MAX_TRUST_WINDOW-1 保證每一檔的 20 日投信視窗都落在窗內
-  // （windowStart = minLastIdx-19 ≤ li-19，因為 minLastIdx ≤ li），所以截短只會發生在
-  // 「往前撞到整個 available_dates 的起點」這種真正的資料不足。
-  const windowStart = Math.max(0, minLastIdx - WINDOW_WARMUP)
-  const windowDates = asc.slice(windowStart, maxLastIdx + 1)
+  // 基準日＝當月最後一個交易日（本月就是最新一天），全表同一天。
+  // 前一交易日、MA、投信累計一律用 available_dates 的 index 位移取（不是日曆天）。
+  const baseDate = monthDates[monthDates.length - 1]
+  const baseIdx = indexOf.get(baseDate)!
+  const prevDate = baseIdx > 0 ? asc[baseIdx - 1] : null
+  const windowDates = asc.slice(Math.max(0, baseIdx - WINDOW_WARMUP), baseIdx + 1)
 
   const needed = new Set(aggs.map((a) => a.stockId))
-
-  /** 反查：哪些股票以這一天為 lastDate（要抓整列）／以這一天為「前一交易日」（只要外資持股） */
-  const lastDateStocks = new Map<string, string[]>()
-  const prevDateStocks = new Map<string, string[]>()
-  for (const a of aggs) {
-    push(lastDateStocks, a.lastDate, a.stockId)
-    const li = lastIdxOf.get(a.stockId)!
-    // li === 0 代表 lastDate 就是資料集最舊的一天 → 沒有前一交易日 → 之後一律「—」、不畫三角
-    if (li > 0) push(prevDateStocks, asc[li - 1], a.stockId)
-  }
 
   /** 日期 × 股票 → 收盤價（只留需要的股票，實測整月僅數百 KB） */
   const closeByDate = new Map<string, Map<string, number | null>>()
@@ -313,7 +297,8 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
    * 與「trust_buy 真的是 0」在語意上必須分開。
    */
   const trustByDate = new Map<string, Map<string, number>>()
-  const rowAtLast = new Map<string, DailyRow>()
+  const rowAtBase = new Map<string, DailyRow>()
+  /** 前一交易日的外資持股與收盤（比 ▲▽、算漲停價用） */
   const holdAtPrev = new Map<string, number | null>()
 
   for (let i = 0; i < windowDates.length; i += DATE_BATCH) {
@@ -326,22 +311,21 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
       const rows = loaded[j]
       const closes = new Map<string, number | null>()
       const trusts = new Map<string, number>()
-      const wantFull = lastDateStocks.get(date)
-      const wantHold = prevDateStocks.get(date)
-      const fullSet = wantFull ? new Set(wantFull) : null
-      const holdSet = wantHold ? new Set(wantHold) : null
+      const isBase = date === baseDate
+      const isPrev = date === prevDate
       for (const r of rows) {
         const id = r?.stock_id ? String(r.stock_id) : ''
         if (!id || !needed.has(id)) continue
         closes.set(id, num(r.close))
         const tb = num(r.trust_buy)
         if (tb !== null) trusts.set(id, tb)
-        if (fullSet?.has(id)) {
-          rowAtLast.set(id, {
+        if (isBase) {
+          rowAtBase.set(id, {
             stock_id: id,
             stock_name: r.stock_name,
             industry: r.industry,
             close: num(r.close),
+            high: num(r.high),
             volume: num(r.volume),
             macd_status: typeof r.macd_status === 'string' ? r.macd_status : undefined,
             // undefined（2026-08-31 及更早沒這個 key）與 null（FinMind 未涵蓋）都收斂成 null，
@@ -349,7 +333,7 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
             foreign_hold_shares: num(r.foreign_hold_shares),
           })
         }
-        if (holdSet?.has(id)) holdAtPrev.set(id, num(r.foreign_hold_shares))
+        if (isPrev) holdAtPrev.set(id, num(r.foreign_hold_shares))
       }
       closeByDate.set(date, closes)
       trustByDate.set(date, trusts)
@@ -360,13 +344,12 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
 
   /* ---- 組列 ---- */
   const rows: MonthlyReportRow[] = aggs.map((a) => {
-    const li = lastIdxOf.get(a.stockId)!
-    const detail = rowAtLast.get(a.stockId)
+    const detail = rowAtBase.get(a.stockId)
 
     // MA：從交易日軸上取「連續」的收盤價序列。缺一格就回 null，絕不用有值的日子擠在一起充數
     const closesFor = (period: number): (number | null | undefined)[] => {
       const out: (number | null | undefined)[] = []
-      for (let k = li - period + 1; k <= li; k++) {
+      for (let k = baseIdx - period + 1; k <= baseIdx; k++) {
         if (k < 0) return [] // 暖身不足 → maFromCloses 會回 null
         out.push(closeByDate.get(asc[k])?.get(a.stockId))
       }
@@ -374,7 +357,7 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     }
 
     /**
-     * 近 N 日投信買賣超累計：終點固定 lastDate（與收盤／成交量／MA 同基準日），
+     * 近 N 日投信買賣超累計：終點固定基準日（與收盤／成交量／MA 同一天），
      * 往前用交易日軸的 index 位移取 N 天（不可用日曆天）。
      *
      * ⚠️ 遇到「該檔該日沒有明細」時**跳過且不計入 days**，不是當成 0——
@@ -385,18 +368,19 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
       let sum = 0
       let days = 0
       let from: string | null = null
-      for (let k = Math.max(0, li - w + 1); k <= li; k++) {
+      for (let k = Math.max(0, baseIdx - w + 1); k <= baseIdx; k++) {
         const v = trustByDate.get(asc[k])?.get(a.stockId)
         if (v === undefined) continue
         sum += v
         days += 1
         if (from === null) from = asc[k]
       }
-      trustNet[w] = { window: w, days, sum: days > 0 ? sum : null, from, to: a.lastDate }
+      trustNet[w] = { window: w, days, sum: days > 0 ? sum : null, from, to: baseDate }
     }
 
     const hold = detail ? (detail.foreign_hold_shares ?? null) : null
     const holdPrev = holdAtPrev.has(a.stockId) ? (holdAtPrev.get(a.stockId) ?? null) : null
+    const prevClose = prevDate ? closeByDate.get(prevDate)?.get(a.stockId) : null
 
     return {
       stockId: a.stockId,
@@ -406,6 +390,7 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
       lastDate: a.lastDate,
       strongDays: [...a.days].sort((x, y) => x - y),
       close: detail?.close ?? null,
+      limitUp: isLimitUp(prevClose, detail?.close, detail?.high, a.stockId),
       volume: detail?.volume ?? null,
       foreignHoldShares: hold,
       foreignHoldPrev: holdPrev,
@@ -417,28 +402,28 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     }
   })
 
-  // 預設排序：第一次入選日、同日以代號穩定排序（與 Word 月報的閱讀順序一致）
-  rows.sort((x, y) => x.firstDate.localeCompare(y.firstDate) || x.stockId.localeCompare(y.stockId))
+  // 預設排序：股票代號（與業主 Word 月報相同）
+  rows.sort((x, y) => x.stockId.localeCompare(y.stockId))
 
   const report: MonthlyReport = {
     month,
     rows,
     availableMonths,
     latestDate,
+    baseDate,
     coverage: {
       from: monthDates[0],
       to: monthDates[monthDates.length - 1],
       tradingDays: monthDates.length,
     },
     /**
-     * 兩種情況都會讓部分列的 MA 必須是「—」，頁面用同一則提示說明：
+     * 兩種情況都會讓部分列的數字必須是「—」，頁面用同一則提示說明：
      *  (a) 本月最早的交易日就是整個 daily_data 的起點 → 月初可能還有交易日沒有明細
      *      （實例：daily_data 最早只到 2026-07-24，做 7 月報表時月初 15 個交易日全缺）
-     *  (b) 最早的「最後強勢日」往前不足 9 個交易日 → MA10 暖身不足
-     *      （實例：做 8 月報表時 2026-08-03 往前只有 6 個交易日）
+     *  (b) 基準日往前不足 9 個交易日 → MA10 暖身不足
      * ⚠️ 絕不可拿 6 天平均充當 MA10。
      */
-    partialMonth: monthDates[0] === asc[0] || minLastIdx - MA_WARMUP < 0,
+    partialMonth: monthDates[0] === asc[0] || baseIdx - MA_WARMUP < 0,
     foreignHoldUnavailable: rows.every((r) => r.foreignHoldShares === null),
     dataMissing: false,
     generatedAt: new Date().toISOString(),
@@ -449,12 +434,6 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
 }
 
 /* --------------------------- 小工具 --------------------------- */
-
-function push<K, V>(m: Map<K, V[]>, k: K, v: V) {
-  const cur = m.get(k)
-  if (cur) cur.push(v)
-  else m.set(k, [v])
-}
 
 /** 分批並行：一次打太多 point get 會被 Firestore 排隊，太少則延遲疊加 */
 async function inBatches<T, R>(

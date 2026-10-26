@@ -135,6 +135,44 @@ export function holdDeltaDir(
   return 'flat'
 }
 
+/**
+ * 是否收在漲停價（強勢月報收盤價的紅字，業主 2026-10-26 確認「紅字＝漲停，只標收盤價」）。
+ *
+ * 漲停價＝前一交易日收盤 × 1.1，再依升降單位**捨去**到一檔（證交所／櫃買規則）。
+ * 一律換成 0.001 元的整數算，避免 33.25 × 1.1 這類浮點誤差。
+ * 另外要求「最高價＝收盤價」：真的漲停時最高價不可能超過漲停價；
+ * 興櫃沒有漲跌幅限制，偶爾剛好收在算出來的價位但盤中更高（實測 8～10 月 14 筆），靠這條排除。
+ *
+ * 已知漏網：除權息當天的參考價不是前一日收盤，那天的漲停會判斷成「沒漲停」。
+ * 2026-08～10 全市場實測：漲停 2,132 筆全部對上「漲幅 ≥9.4% 且收在最高」，
+ * 對不上的 105 筆都是興櫃（沒有漲停限制）。
+ * 任一邊沒有資料 → null（不知道），不可當成「沒漲停」。
+ */
+export function isLimitUp(
+  prevClose: number | null | undefined,
+  close: number | null | undefined,
+  high: number | null | undefined,
+  stockId: string
+): boolean | null {
+  if (isMissing(prevClose) || isMissing(close) || isMissing(high) || prevClose <= 0 || close <= 0) return null
+  const raw = Math.round(prevClose * 100) * 11 // 前收 × 1.1，單位 0.001 元
+  const tick = limitTick(raw / 1000, stockId.startsWith('00'))
+  const limit = Math.floor(raw / tick) * tick
+  const c = Math.round(close * 1000)
+  return c === limit && Math.round(high * 1000) === c
+}
+
+/** 升降單位（0.001 元為單位）。ETF（00 開頭）只有 0.01／0.05 兩級 */
+function limitTick(price: number, etf: boolean): number {
+  if (etf) return price < 50 ? 10 : 50
+  if (price < 10) return 10
+  if (price < 50) return 50
+  if (price < 100) return 100
+  if (price < 500) return 500
+  if (price < 1000) return 1000
+  return 5000
+}
+
 /** 依數值正負上色（法人買賣超、連買連賣）。null 給中性灰，**不上紅綠** */
 export function signColor(v: number | null | undefined): string {
   if (v === null || v === undefined) return 'text-gray-600'
