@@ -16,7 +16,7 @@ Claude Code 處理本專案時的指引說明。
 2. 每日資料收集（批次 API，6 次請求抓完全市場）
 3. 批次歷史資料收集與一次性回補工具（`scripts/`）
 4. 多條件選股篩選（`/screener`）
-5. 強勢股分析網站：卡片 `/strong-stocks`、總表 `/strong-table`、月報 `/strong-monthly`
+5. 強勢股分析網站：強勢股 `/strong-stocks`（上方切換卡片／表格）、月報 `/strong-monthly`
 6. 個股詳情：K 線／技術指標／三大法人／放空籌碼／今日訊號
 7. 自選股與到價提醒（Firebase Auth + Google OAuth）
 
@@ -36,8 +36,8 @@ Claude Code 處理本專案時的指引說明。
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
 │  │ (md 以上)│  首頁：Dashboard（指數＋今日強勢＋自選）      │    │
-│  │ 📊 首頁  │  強勢股：卡片檢視 /strong-stocks              │    │
-│  │ 🔥 強勢股│  總表　：全欄位表格 /strong-table             │    │
+│  │ 📊 首頁  │  強勢股：卡片／表格切換 /strong-stocks        │    │
+│  │ 🔥 強勢股│  （舊 /strong-table 轉到 ?view=table）        │    │
 │  │ 🗓️ 月報  │  月報　：當月彙整 /strong-monthly             │    │
 │  │ 🔍 選股  │  選股　：自訂條件 /screener                   │    │
 │  │ ⭐ 自選股│  自選股：需 Google 登入                       │    │
@@ -119,7 +119,6 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── layout.tsx                  # 根 Layout（Sidebar + TopBar + BottomNav）
 │   │   ├── page.tsx                    # 首頁 Dashboard
 │   │   ├── strong-stocks/page.tsx      # 強勢股（卡片）
-│   │   ├── strong-table/page.tsx       # 強勢股總表（全欄位表格）
 │   │   ├── strong-monthly/page.tsx     # 強勢月報（當月彙整）
 │   │   ├── screener/page.tsx           # 自訂條件選股
 │   │   ├── watchlist/page.tsx          # 自選股
@@ -132,7 +131,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── components/                     # React 元件
 │   │   ├── Sidebar.tsx                 # 側邊導航（hidden md:flex，手機不渲染）
 │   │   ├── TopBar.tsx                  # 置頂搜尋列（手機版右側放登入）
-│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（6 格，與 Sidebar 共用 navItems）
+│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（5 格，與 Sidebar 共用 navItems）
 │   │   ├── AuthButton.tsx              # Google 登入（variant: sidebar | topbar）
 │   │   ├── InfoTip.tsx                 # 說明泡泡（⚠️ 一律 position: fixed）
 │   │   ├── CandleChart.tsx             # K 線主圖
@@ -187,8 +186,7 @@ Claude Code 處理本專案時的指引說明。
 |------|------|
 | app/layout.tsx | 根 Layout：Sidebar（md 以上）+ TopBar + MobileBottomNav |
 | app/page.tsx | 首頁 Dashboard：指數、今日強勢、我的自選 |
-| app/strong-stocks/page.tsx | 強勢股（卡片檢視） |
-| app/strong-table/page.tsx | 強勢股總表（表格，預設全欄位） |
+| app/strong-stocks/page.tsx | 強勢股：上方切換卡片／表格（2026-10-26 由卡片頁與總表合併；表格預設全欄位） |
 | app/strong-monthly/page.tsx | 強勢月報（當月彙整，12 欄對應業主 Word 月報） |
 | app/screener/page.tsx | 自訂條件選股 |
 | app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
@@ -203,7 +201,7 @@ Claude Code 處理本專案時的指引說明。
 | api/quotes/route.ts | API：報價 |
 | components/Sidebar.tsx | 側邊導航欄（`hidden md:flex`，**手機不渲染**）+ AuthButton |
 | components/TopBar.tsx | 置頂搜尋列；手機版右側放登入 |
-| components/MobileBottomNav.tsx | 手機底部導覽（6 格；清單與亮燈規則共用 `Sidebar.tsx` 的 `navItems`／`isNavActive`，改一處兩邊同步） |
+| components/MobileBottomNav.tsx | 手機底部導覽（5 格；清單與亮燈規則共用 `Sidebar.tsx` 的 `navItems`／`isNavActive`，改一處兩邊同步） |
 | components/InfoTip.tsx | 說明泡泡（⚠️ 一律 `position: fixed`，見 skill） |
 | components/StockSignals.tsx | 今日訊號（純前端，零額外 API） |
 | components/InstitutionalChart.tsx | 三大法人籌碼圖 |
@@ -715,6 +713,17 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-10-26
+
+**強勢股卡片頁與總表合併成一頁**（業主決定、看過改前改後截圖；兩輪審查）
+- `/strong-stocks` 上方切換「卡片｜表格」：日期、搜尋、5 顆快速篩選、MACD／成交量／產業、排序、統計列、
+  舊日期警示兩種檢視共用，切換不打 API。第一次卡片，之後記住上次（localStorage `strong-stocks-view`）。
+  兩種都預設漲跌幅由大到小，卡片可用「排序依據」改。`/strong-table` 由 `next.config.ts` 307 轉到 `?view=table`。
+- 底部導覽 5 格、字 text-sm、所在格粗體＋上方色條；Sidebar 拿掉「強勢總表」。
+- `StockCard`（首頁、選股頁共用）字放大、顏色加深、平盤與法人 0 灰色、MACD 缺值「—」；
+  卡片欄數依扣掉側欄的內容寬（1 / lg 2 / xl 3 / 2xl 4），卡片 ≥300px。
+- 強勢天數讀取失敗時 API 送 null（畫面「—」），不再全部顯示「強勢 0 日」。
 
 ### 2026-10-23
 

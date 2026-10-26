@@ -50,7 +50,7 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
 
 ### P0 UI/UX 改版（2026-08-18，已上線；以下取代上方部分 2026-08-13 慣例）
-- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、**2026-10-22 起 6 格：首頁/強勢/總表/月報/選股/自選**，與 Sidebar 共用 `navItems`、safe-area、active 藍、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
+- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、**2026-10-26 起 5 格：首頁/強勢/月報/選股/自選**（總表併進強勢股頁），與 Sidebar 共用 `navItems`、safe-area、所在格藍＋粗體＋上方色條、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
 - **Header 去雙層**：舊「全域 `TopBar` + 每頁 `<header bg-white shadow-sm>`」= 雙層。各頁改用 `states.tsx` 的 **`PageHeader`**（輕量標題、非白底 shadow bar）；`TopBar` 降高去 shadow、移除浮動漢堡的 `pl-16`。
 - **搜尋**：`StockSearchOptimized` 已是 instant（debounce/dropdown/鍵盤/點外關閉），**移除了「查詢」按鈕**。
 - **個股頁 header**：`← [名稱大] [代碼灰] … [☆加入自選] [🔔到價提醒]`；`WatchlistButton`（**原死碼、現已啟用**）接既有 `user_watchlists` 後端。股價階層：大字價格 `text-4xl md:text-5xl` + `▲▼` 漲跌 + 次要「日期·成交量」；金融數字加 `tabular-nums`。
@@ -68,8 +68,8 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（分頁切換 加權/台指期 + `IndexStatStrip` 精簡數據列 + `IndexChart`）。
 - **漲跌家數已移除（2026-08-19，業主表示不需要）**：曾做過 `app/api/market-breadth/route.ts` 抓證交所 `MI_INDEX?type=MS`（FinMind 無此資料）顯示上漲/下跌/漲停/跌停家數，已連同 API route 一併刪除；**若日後要復原，見 git 歷史 commit `ff454c8`（新增）與移除該功能的 commit**。首頁「今日市場」現在只有加權指數收盤與漲跌。
 - **`StockCard` 等高**：卡片內容行數不一（有無「當沖額」那列）會讓同排卡片高矮不齊 → `Link` 加 `block h-full`、卡片 `h-full flex flex-col`、底部三大法人區 `mt-auto`。新增卡片內容時保持這個結構。
-- **快速策略/篩選（近似值，非真訊號）**：選股頁 `QUICK_STRATEGIES`（趨勢多頭/法人佈局/爆量/技術+法人雙多，一鍵帶入條件）＋**已套用條件 Chips**（可單獨移除、清除全部）；強勢股頁 `QUICK_FILTERS`（全部/技術多頭/法人買超/爆量）。⚠️ **「突破」「爆量」目前是用 MACD/連買/成交量近似**，因真正的突破/爆量需個股 history（見下方 B1 待辦）。
-- **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-filters`，掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
+- **快速策略/篩選（近似值，非真訊號）**：選股頁 `QUICK_STRATEGIES`（趨勢多頭/法人佈局/爆量/技術+法人雙多，一鍵帶入條件）＋**已套用條件 Chips**（可單獨移除、清除全部）；強勢股頁 `QUICK_FILTERS`（全部/技術多頭/法人買超/爆量/外資連買 3 日以上；「全部」也清產業）。⚠️ **「突破」「爆量」目前是用 MACD/連買/成交量近似**，因真正的突破/爆量需個股 history（見下方 B1 待辦）。
+- **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-stocks-state`（2026-10-26 合併前是 `strong-filters`／`strong-table-view`，掛載時清掉），掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
 - **圖表全螢幕**：`CandleChart` 的 `isFullscreen` → 容器 `fixed inset-0 z-[70]`、高度由 `window.innerHeight-132` 算（監聽 resize 支援旋轉）、鎖 `body.overflow`，控制列保留、✕ 離開。注意圖表高度要用 `effHeight`（全螢幕時覆寫 `height` prop）並列入 chart useEffect 依賴。
 - **訊號**：`lib/signals.ts` 的 `computeSignals()`（今日大漲≥5%／MACD多頭／外資·投信連買）供自選股頁 banner「今日 N 支出現訊號」＋卡片 chips、首頁我的自選 chips。**`/api/quotes` 已多帶 `macd_status`/`foreign_streak`/`trust_streak`/`foreign_buy`**（同一份 daily_data 讀取、零額外查詢）。個股頁另有「籌碼摘要」badge（🟢連買/買超、🔴連賣/賣超；手機明細收合時仍顯示）。
 - **B2 個股頁 Signal Engine 已完成（2026-08-19）**：`components/StockSignals.tsx` 用個股頁已載入的 `history` 前端即時判讀「今日訊號」（零額外 API）：今日大漲/大跌(對**前一日收盤**)、突破/跌破近20日高低、爆量/量縮(對前5日均量)、均線多/空頭排列、今日站上/跌破 MA20、MACD 金叉死叉、KD 交叉與超買超賣、RSI 超買超賣、當沖比例≥40%。**刻意只列「事件型」訊號**（今天才發生的交叉/突破），避免每天亮同樣的燈；tone: up=紅/down=綠/warn=琥珀。
@@ -95,7 +95,25 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
   （對比 4.84 過 AA；`border-gray-300` 只有 1.47 不可用）、`min-h-[44px]`。
 ⚠️ 桌機登入仍在 Sidebar 底部，**兩邊不可同時出現**（TopBar 那顆是 `md:hidden`）。
 
-### `/strong-table` 預設固定全欄位（2026-10-09）
+### 強勢股頁：卡片與表格合併成一頁（2026-10-26，業主決定）
+- 業主問「強勢跟總表功能類似能否合併」→ 動工前影響分析（3 分析＋1 挑戰）→ 業主選：一頁切換（兩種都留）、
+  第一次卡片之後記住、兩種都依漲跌幅且卡片可改、底部導覽與卡片字放大加深（先看改前改後截圖才上線）。
+- `app/strong-stocks/page.tsx` 以原總表為底；卡片頁原有的缺陷（大字日期與資料不同天、換日期整頁骨架、40px 鈕、
+  下拉沒有 label、舊日期強勢天數沒提醒）一起消失。
+- ⚠️ **切換檢視只用按鈕＋`history.replaceState`**：Next 16 同一路由只換 search **不會重新掛載**
+  （`layout-router.js` 的 `createRouterCacheKey(activeSegment, true)` 不含 search params），掛載時讀一次 `?view`；
+  不用 `useSearchParams`（不包 Suspense 正式建置會失敗）。`replaceState(window.history.state, …)` 帶 `__NA`，
+  App Router 不會派送 restore、不打 API。網址 `?view` > localStorage `strong-stocks-view` > 卡片。
+- 卡片排序＝手機表格的 `mobileSort`（同一份「排序依據」按鈕），手機上兩種檢視順序必相同；
+  依卡片上看不到的欄位（`CARD_HIDDEN_KEYS`：成交量、當沖比、外資連續、外資持股）排序時，每張卡片加一行該值。
+- 記住設定：只記「主動選的舊日期」＋當時最新日（以回應重算），`availableDates[0] > newest` 才跳回最新（用 `>`：CDN 舊清單不可誤判）；
+  請求加序號 `reqSeq`，換日期時先作廢進行中的請求。統計列在資料到之前顯示「—」（不可「當日 0 檔」）。
+- `StockCard`：欄數要依**扣掉側欄的內容寬**算（768 寬扣 256px 側欄只剩 480px，排兩欄每張 232px、法人欄 63px，
+  6 位數會溢出）→ `grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4`，7 字元以上的法人數字縮一級。
+- 驗證腳本（當時 session 的 scratchpad `merge-shots/functional*.mjs`）：切換不打 API、記住檢視、篩選排序共用且檔數順序一致、
+  舊日期、新交易日回最新、轉址、5 格導覽、320～1920 不橫捲、法人不溢出，共 45 項。
+
+### 強勢股表格檢視預設固定全欄位（原 `/strong-table`，2026-09-28）
 `showAll` 預設改 `true`（原本預設精簡欄位＋一顆「顯示全部」）。溢出控制：
 `overflow-x-auto [contain:paint] xl:overflow-x-visible xl:[contain:none]` ＋
 `role="region" tabIndex={0}`（可鍵盤捲動、螢幕閱讀器當 landmark）。
@@ -244,12 +262,12 @@ colgroup 寫死欄寬，left 值才對得準）。實測 375/768/1024/1280/1440 
 ⚠️ 少了 `[contain:paint]` Chrome 會把巢狀溢出併進根捲動區 → 整頁橫捲 → fixed Sidebar 蓋住第一欄。
 
 **導覽**：Sidebar 第 6 項（🗓️ 強勢月報），並加了兩個輕量區段小標（「強勢股」/「工具」）把三個
-同前綴的項目收成一組。路由 **不可以 `/strong-stocks` 或 `/strong-table` 開頭**（isActive 是
-`startsWith`，會雙亮）。~~MobileBottomNav 維持 4 格，只把 isActive 併進「強勢」那顆。~~ **2026-10-22 改 6 格**，與 Sidebar 共用 `navItems`，每格只在自己的頁面亮，不再合併。
-三者是**同一層**：前兩者是「某一交易日」的兩種呈現，月報是「某一個月」的彙整。
+同前綴的項目收成一組。路由 **不可以 `/strong-stocks` 開頭**（isActive 是
+`startsWith`，會雙亮）。~~MobileBottomNav 維持 4 格~~ → 2026-10-22 改 6 格 → **2026-10-26 卡片與總表合併成一頁，變 5 格**。
+強勢股與月報是**同一層**：強勢股是「某一交易日」（卡片／表格兩種呈現），月報是「某一個月」的彙整。
 
 **共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`）與
-`components/table.tsx`（`NullCell`/`TbdCell`/`TableScroll`）由 `/strong-table` 抽出，兩頁共用。
+`components/table.tsx`（`NullCell`/`TbdCell`/`TableScroll`）由強勢股表格（原 `/strong-table`）抽出，與月報共用。
 
 ## 強勢股的四條實際條件（2026-10-09 校正文件；程式才是權威）
 
