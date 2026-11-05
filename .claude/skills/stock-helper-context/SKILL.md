@@ -65,6 +65,10 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - 觸控目標一律 ≥44px；`viewport` 已移除 `maximumScale: 1`（原本禁止手機雙指放大，違反 WCAG 1.4.4）。
 
 ### 首頁 Dashboard 與 P1（2026-08-18/19，已上線）
+- ⚠️ **2026-11-05 晚上改版**（業主要的）：首頁**不再放今日強勢股**、不再抓 `/api/strong-stocks`；四區變成
+  今日市場（加權指數＋美股三大指數）／🌡️ 市場溫度四張大卡（`MoodSection`＋`components/MoodStats.tsx`）／⭐我的自選／指數走勢。
+  `PageHeader` 也**沒有 subtitle 了**（業主：「標題下那行灰字不用顯示」）——頁面要寫日期就放在內容裡，不要加回副標題。
+  下面這條「四區」是 2026-08 的舊版，留著當脈絡。
 - **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（分頁切換 加權/台指期 + `IndexStatStrip` 精簡數據列 + `IndexChart`）。
 - **漲跌家數已移除（2026-08-19，業主表示不需要）**：曾做過 `app/api/market-breadth/route.ts` 抓證交所 `MI_INDEX?type=MS`（FinMind 無此資料）顯示上漲/下跌/漲停/跌停家數，已連同 API route 一併刪除；**若日後要復原，見 git 歷史 commit `ff454c8`（新增）與移除該功能的 commit**。首頁「今日市場」現在只有加權指數收盤與漲跌。
 - **`StockCard` 等高**：卡片內容行數不一（有無「當沖額」那列）會讓同排卡片高矮不齊 → `Link` 加 `block h-full`、卡片 `h-full flex flex-col`、底部三大法人區 `mt-auto`。新增卡片內容時保持這個結構。
@@ -423,12 +427,13 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
   `InstitutionalChart.tsx` 當沖分頁圖例改成一律標日期，且最後一筆早於個股頁最新交易日（`latestDate` prop）時加一行「M/D 無當沖數字（處置股…）」。沒選 A（標「處置中」要收集器多抓處置資料），日後要做可用 FinMind `TaiwanStockDispositionSecuritiesPeriod`，注意公告期間遇休市要自己順延。
 - 順帶發現：`CandleChart.tsx:492` 週／月 K 合併用 `(day_trading_volume || 0)`（目前技術圖沒畫當沖，未影響）；`strong-stocks/page.tsx:81` 註解說 StockCard 用 `|| 0` 已過時。
 
-## 市場溫度 `/market-mood`：大盤當沖比、融資融券、恐慌指數（2026-11-05 已實作，等業主看改前改後）
+## 市場溫度 `/market-mood`：大盤當沖比、融資融券、恐慌指數（2026-11-05 已上線）
 
 業主決定（記憶 `stock-helper-sentiment-page`）：新頁＋首頁兩行、底部維持 5 格、金額口徑、上市上櫃各一、台股＋美股 VIX、
 融資＋融券餘額、2023 起、**不貼標籤**。程式：`stock_collector/sentiment_collector.py`、`firebase_writer.write_market_sentiment`、
 `scripts/backfill_market_sentiment.py`、`frontend/lib/sentiment.ts`、`components/SentimentStat.tsx`／`SentimentChart.tsx`、
-`app/market-mood/`、`app/api/market-sentiment/`、首頁 `MoodRows`。
+`app/market-mood/`、`app/api/market-sentiment/`、首頁 `MoodSection`、`components/MoodStats.tsx`（兩邊共用的四張卡）。
+⚠️ 2026-11-05 晚上業主改成「首頁不放今日強勢股，當沖比、恐慌指數展開放上，補上美國恐慌指數」：首頁那兩行已換成四張大卡。
 
 **鐵則（收集器檔頭也有）**
 - 休市／停市／當天未公布，官方回應**一模一樣**（stat OK＋空表）→ `_find_table` 用表名找、再比對 `fields` 關鍵字；空就回 None、不寫。
@@ -437,7 +442,7 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 融資：D 日的值＝D+1 回應的「前日餘額」（官方：今日餘額只是輔助參考）；視窗最後一天永遠是初值、下一班修正。
 - 每班重抓近 3 個交易日（`recent_trading_days` 帶 `with_actual=True`）；批次模式（--days／--backfill-gaps）迴圈內跳過、結束後 `_run_sentiment_once` 一次。
 - 17:00 那班當沖／融資 0 天正常；`_check_staleness` 在最新日期落後視窗起點（≈ 兩個交易日沒抓到）或 VIX 一週沒更新時寄非關鍵告警。
-- 前端：首頁用 `?last=3`（日曆天切窗在春節會切成空的）；「本站自 X 起統計」用回應的 `first`（trim 前）；
+- 前端：首頁用 `?days=400`（四張卡要算近一年最高最低；400 個日曆天不會被春節切空。舊的兩行摘要用 `?last=3`）；「本站自 X 起統計」用回應的 `first`（trim 前）；
   「比 M/D 高…」一定寫出比較的日期（prev 是前一筆有值的日子）；圖 resize 後要 `fitContent()`；手機看某一天要**長按再滑**（畫面有寫）。
 - **Cloud Run 連不連得到櫃買／期交所（Cloudflare）還沒測**：重建 image 後要用 `--date` 實跑一次看 log。
 
@@ -469,6 +474,20 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 撞名：站上個股「當沖比」是股數口徑（`strong-stocks/page.tsx:322`、`StockSignals.tsx:105` ≥40% 偏高），大盤用金額口徑要另取名（例如「大盤當沖占成交金額」）。🌡️ 已被 RSI 訊號用掉（`StockSignals.tsx:98`）。
 - 首頁 `page.tsx:84-102` 的 `load()` 用 Promise.all，任一 fetch 失敗整頁變錯誤畫面 → 新資料要獨立抓。
 - 高 VIX 不代表會繼續跌（高檔三分位之後 20 日加權平均 +4.0%），畫面附「不是投資建議」。
+
+## 美股三大指數（費半、S&P 500、道瓊；2026-11-05 晚上）
+
+- 來源 FinMind `USStockPrice`，data_id `^SOX`／`^GSPC`／`^DJI`（2000 年起都有；美國假日沒有列）。存 `market_index/{SOX|SPX|DJI}`，
+  跟 TAIEX 同一支 `/api/market-index/[id]`（首頁帶 `?last=2`）。
+- **日期是美東交易日**：台灣 11/5 晚上最新是 11/4（美股 11/5 收盤＝台灣 11/6 清晨），畫面一律標「美股 M/D 收盤」。
+  所以 `collect_and_save` 每班往回抓 7 個日曆天，不是只抓今天。
+- **SOX 的 Volume 永遠是 0** → 收集器把 ≤0 的量改成 NA、writer 寫 null；美股沒有未平倉／結算價也是 null。
+- 🔴 **`collect_and_save` 的回傳值只算台股**：`daily_collector.collect_index` 用「回傳非空＝成功」。美股往回抓 7 天幾乎永遠有列，
+  若算進去，加權指數抓不到的日子就**不會重試、不會寄告警**（審查前自己抓到的）。新增任何「附帶」資料源都要守這條。
+- `write_market_index` 從這次起缺值寫 null（以前 `row.get(...,0)`；NaN 反而會讓 `int()` 丟例外）。前端 `IndexStatStrip`、
+  `CandleChart` 的量已改成缺值顯示「—」／畫空白。
+- 版面：美股那塊用 container query（`@container` ＋ `@min-[26rem]:grid-cols-3`）依**自己的寬度**排；不夠寬就三列（名稱左、數字右）。
+  量過 390px 三格並排會讓道瓊數字頂到框邊、▲ 自己掉一行；768px 有側欄時內容只剩約 430px。
 
 ## 投信累積持股：確認無可靠來源（2026-10-09 完整調查，不要再重查）
 
@@ -969,7 +988,7 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sto
 ## Firestore 只有 5 個 collection（2026-09-05 清理後 4 個；2026-11-05 加 `market_sentiment`）
 
 `daily_data`（約 31 天熱資料，分片每片 500 檔）、`strong_stocks`（每日聚合，886 天）、
-`market_index`（TAIEX/TX 各一份文件，history 陣列）、`metadata`（latest_date／available_dates）。
+`market_index`（TAIEX/TX＋2026-11-05 起美股 SOX/SPX/DJI，各一份文件，history 陣列）、`metadata`（latest_date／available_dates）。
 
 **已刪除的舊架構**：`strong_stock_matrix`（19,000 文件，停在 2024-07-03）、
 `market_index_daily`（520 文件，停在 2026-07-23）。兩者的日期都被現行結構 100% 涵蓋，
