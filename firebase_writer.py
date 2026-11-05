@@ -7,6 +7,7 @@ Firebase Firestore 資料寫入模組（優化版）
 - daily_data/{date}/chunks/chunk_{n}   # 股票分片（每片 500 筆）
 - strong_stocks/{date}                 # 每日強勢股（單一文件）
 - market_index/{index_id}              # 指數歷史（聚合）
+- market_sentiment/{doc_id}            # 市場溫度：daytrade／margin／taivix／vix（聚合，null-aware）
 - metadata/latest_date                 # 最新日期
 - metadata/available_dates             # 可用日期列表
 """
@@ -535,6 +536,44 @@ def write_market_index(df: pd.DataFrame) -> int:
 
     logging.info(f"✓ 成功寫入 market_index: {len(df['index_id'].unique())} 個指數")
     return len(df)
+
+
+def write_market_sentiment(doc_id: str, rows: list) -> int:
+    """寫入市場溫度資料（當沖比／融資融券／臺指VIX／美股 VIX）到 market_sentiment/{doc_id}。
+
+    與 write_market_index 同樣是「單一文件＋history 陣列、依 date upsert」，但**null-aware**：
+    缺的欄位存 null，不是 0（write_market_index 用 row.get(..., 0) 會把缺的開高低寫成 0，
+    對當沖比／VIX 這種「沒有就是沒有」的資料是錯的）。同一天重寫會整列覆蓋（T+2 修正值）。
+    rows 為空就不碰文件（17:00 那班官方還沒公布是正常的，不算失敗）。
+    寫入次數：每個 doc 1 次。
+    """
+    if not rows:
+        logging.info(f"  market_sentiment/{doc_id}: 沒有新資料，不寫")
+        return 0
+    db = get_firestore_client()
+    doc_ref = db.collection('market_sentiment').document(doc_id)
+    doc = doc_ref.get()
+    merged = {}
+    if doc.exists:
+        merged = {h['date']: h for h in doc.to_dict().get('history', [])}
+    for row in rows:
+        d = str(row['date'])
+        clean = {'date': d}
+        for k, v in row.items():
+            if k == 'date':
+                continue
+            clean[k] = _opt_num(v, float)
+        merged[d] = clean
+    history = sorted(merged.values(), key=lambda x: x['date'])
+    doc_ref.set({
+        'doc_id': doc_id,
+        'history': history,
+        'latest_date': history[-1]['date'],
+        'record_count': len(history),
+        'updated_at': firestore.SERVER_TIMESTAMP,
+    })
+    logging.info(f"  market_sentiment/{doc_id}: 寫入/更新 {len(rows)} 天，總計 {len(history)} 天（最新 {history[-1]['date']}）")
+    return len(rows)
 
 
 def test_connection():

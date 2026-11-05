@@ -17,7 +17,7 @@ export default function MobileBottomNav() {
       aria-label="主要導覽"
     >
       <div className="flex">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !item.desktopOnly).map((item) => {
           const active = isNavActive(pathname, item.href)
           return (
             // 320px 寬 ÷ 5 = 64px：flex-1 + min-w-0 讓每格永遠等分、不會因內容把導覽列撐出視窗；

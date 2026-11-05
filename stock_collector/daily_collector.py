@@ -46,6 +46,7 @@ class DailyCollector:
         self.results = {
             'stock': {'success': False, 'count': 0, 'error': None},
             'index': {'success': False, 'count': 0, 'error': None},
+            'sentiment': {'success': False, 'count': 0, 'error': None},
             'matrix': {'success': False, 'count': 0, 'error': None},
         }
         # 休市日的說明（None＝有開盤或不確定）。不放進 self.results：print_summary／告警會逐項讀
@@ -162,6 +163,18 @@ class DailyCollector:
         else:
             raise ValueError("無指數資料")
 
+    def collect_sentiment(self, date=None):
+        """市場溫度（大盤當沖比、融資融券、恐慌指數）。官方來源，不經 FinMind。
+
+        ⚠️ 不算關鍵任務：17:00 那班官方當沖／融資通常還沒公布，抓到 0 天是正常的，
+        不可因此 exit 1 或寄告警；寫入與否由 write_market_sentiment 自己判斷（空就不寫）。
+        """
+        from stock_collector.sentiment_collector import collect_and_save
+        counts = collect_and_save(date)
+        self.results['sentiment']['success'] = True
+        self.results['sentiment']['count'] = sum(counts.values())
+        return counts
+
     def update_strong_matrix(self):
         """更新強勢股矩陣"""
         try:
@@ -277,6 +290,16 @@ class DailyCollector:
             except Exception as e:
                 self.results['index']['error'] = str(e)
                 logging.error(f"  ❌ 失敗: {e}")
+
+        # 2.5 市場溫度（當沖比／融資融券／恐慌指數）：自己包 try，失敗只記錄、不影響其他步驟
+        if not skip_index:
+            logging.info("\n🌡️ [2.5/3] 收集市場溫度...")
+            try:
+                self.collect_sentiment(date)
+                logging.info(f"  ✅ 完成: {self.results['sentiment']['count']} 筆")
+            except Exception as e:
+                self.results['sentiment']['error'] = str(e)
+                logging.error(f"  ❌ 失敗（不影響其他步驟）: {e}")
 
         # 3. 更新強勢股矩陣
         if not skip_matrix:
@@ -456,6 +479,7 @@ class DailyCollector:
             task_name = {
                 'stock': '股票資料',
                 'index': '指數資料',
+                'sentiment': '市場溫度',
                 'matrix': '強勢股矩陣'
             }.get(task, task)
 
@@ -487,7 +511,7 @@ def _alert_failure(reason: str, collector):
     except Exception:
         return
     r = collector.results
-    task_names = {'stock': '股票資料', 'index': '指數資料', 'matrix': '強勢股矩陣'}
+    task_names = {'stock': '股票資料', 'index': '指數資料', 'sentiment': '市場溫度', 'matrix': '強勢股矩陣'}
     lines = [
         '選股小幫手 每日收集器 — 異常告警',
         '=' * 40,

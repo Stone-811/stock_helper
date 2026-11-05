@@ -15,6 +15,8 @@ import {
 import { PageHeader, ChartSkeleton, CardGridSkeleton, ErrorState, EmptyState } from '../components/states'
 import { computeSignals } from '../lib/signals'
 import InfoTip from '../components/InfoTip'
+import { DASH } from '../lib/format'
+import { DELTA_ARROW, deltaDir, deltaText, fmtMd, statOf, type SentimentResponse, type Stat } from '../lib/sentiment'
 
 interface IndexResponse {
   index_id: string
@@ -38,6 +40,75 @@ interface Quote {
 }
 interface WatchRow extends WatchlistItem {
   q?: Quote
+}
+
+/**
+ * 首頁「市場溫度」摘要（2026-11-05 業主選「新頁＋首頁兩行摘要」）：
+ * 第一行上市／上櫃當沖比、第二行台股恐慌指數，整行可點進 /market-mood。
+ * 跟 PageHeader／加權指數卡同一套大字；箭頭與差值用中性深灰（紅綠在本站代表股價漲跌）。
+ * 業主選「不貼偏高／偏低標籤」：只有數字、日期、跟前一天比。缺值顯示 DASH、不顯示 0。
+ * ⚠️ 自己 fetch、自己失敗：絕不可併進上面的 Promise.all（任一 reject 會把整個首頁變錯誤畫面）。
+ */
+/** 跟前一天比（中性深灰，不用紅綠） */
+function Delta({ st, unit, digits }: { st: Stat | null; unit: '個百分點' | ''; digits: number }) {
+  if (st?.delta == null) return null
+  return (
+    <span className="text-gray-900 tabular-nums"><span aria-hidden="true">{DELTA_ARROW[deltaDir(st.delta, digits)!]} </span>{deltaText(st.delta, unit, digits)}</span>
+  )
+}
+/** 大字數值；沒有就是 DASH，不是 0 */
+function Val({ st, digits, unit }: { st: Stat | null; digits: number; unit: string }) {
+  return st ? (
+    <strong className="text-2xl md:text-3xl text-gray-900 tabular-nums">{st.value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}{unit}</strong>
+  ) : (
+    <strong className="text-2xl md:text-3xl text-gray-600"><span aria-hidden="true">{DASH}</span><span className="sr-only">無資料</span></strong>
+  )
+}
+
+function MoodRows() {
+  const [data, setData] = useState<SentimentResponse | null | undefined>(undefined) // undefined=載入中、null=失敗
+  useEffect(() => {
+    let alive = true
+    fetch('/api/market-sentiment?days=10')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('http'))))
+      .then((j) => { if (alive) setData(j) })
+      .catch(() => { if (alive) setData(null) })
+    return () => { alive = false }
+  }, [])
+  const dtTwse = data ? statOf(data.daytrade, (r) => r.twse_buy_pct) : null
+  const dtTpex = data ? statOf(data.daytrade, (r) => r.tpex_buy_pct) : null
+  const taivix = data ? statOf(data.taivix, (r) => r.close) : null
+
+  const rowCls = 'flex flex-wrap items-baseline gap-x-3 gap-y-1 min-h-[56px] px-4 py-2 text-base text-gray-700 hover:bg-blue-50 transition-colors'
+  return (
+    <section className="bg-white rounded-lg shadow-sm divide-y divide-gray-200" aria-label="市場溫度摘要">
+      <Link href="/market-mood" className={rowCls}>
+        <span className="font-medium text-gray-900">大盤當沖比</span>
+        {data === undefined ? <span className="text-gray-600">載入中…</span> : (
+          <>
+            <span>上市 <Val st={dtTwse} digits={1} unit="%" /></span>
+            <span>上櫃 <Val st={dtTpex} digits={1} unit="%" /></span>
+            {dtTwse && <span>（{fmtMd(dtTwse.date)}）</span>}
+            <Delta st={dtTwse} unit="個百分點" digits={1} />
+            {data === null && <span className="text-gray-600">暫無資料</span>}
+          </>
+        )}
+        <span className="ml-auto text-blue-700 font-medium whitespace-nowrap">詳情 →</span>
+      </Link>
+      <Link href="/market-mood" className={rowCls}>
+        <span className="font-medium text-gray-900">台股恐慌指數</span>
+        {data === undefined ? <span className="text-gray-600">載入中…</span> : (
+          <>
+            <Val st={taivix} digits={2} unit="" />
+            {taivix && <span>（{fmtMd(taivix.date)}）</span>}
+            <Delta st={taivix} unit="" digits={2} />
+            {data === null && <span className="text-gray-600">暫無資料</span>}
+          </>
+        )}
+        <span className="ml-auto text-blue-700 font-medium whitespace-nowrap">詳情 →</span>
+      </Link>
+    </section>
+  )
 }
 
 // 指數數據列（跟著「指數走勢」分頁走；加權的收盤/漲跌已在上方「今日市場」，此處只補明細）
@@ -178,6 +249,9 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {/* 市場溫度兩行摘要（2026-11-05）：放在加權指數卡下面、今日強勢股上面 */}
+        <MoodRows />
 
         {/* 今日強勢股 */}
         <section>

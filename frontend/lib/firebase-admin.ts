@@ -223,6 +223,21 @@ export async function getMarketIndex(indexId: string): Promise<any[]> {
 }
 
 /**
+ * 市場溫度：market_sentiment/{docId} 的 history 陣列（daytrade／margin／taivix／vix）。
+ * 同 market_index 的「單一文件、完整歷史」寫法，1 次讀取。沒有文件回空陣列（不是錯誤）。
+ * ⚠️ history 裡缺的欄位是 null（collector 是 null-aware），前端不可 `?? 0`。
+ */
+export async function getMarketSentiment(docId: string): Promise<any[]> {
+  try {
+    const doc = await db.collection('market_sentiment').doc(docId).get()
+    return doc.exists ? (doc.data()?.history || []) : []
+  } catch (error) {
+    console.error('取得市場溫度資料失敗:', error)
+    return []
+  }
+}
+
+/**
  * 取得個股強勢股歷史（優化版）
  *
  * 從 strong_stocks/{date} 聚合文件中搜尋

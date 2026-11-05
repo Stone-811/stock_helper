@@ -9,18 +9,23 @@ export interface NavItem {
   href: string
   /** 全名：桌機側邊欄顯示；手機底部導覽拿來當 aria-label／title */
   label: string
-  /** 手機底部導覽的兩字標籤（320px 寬要擠 6 格，每格約 53px）。
+  /** 手機底部導覽的兩字標籤（5 格，320px 寬每格 64px）。
    *  ⚠️ 必須是 label 的子字串：aria-label 用全名時，語音控制說畫面上的字才點得到（WCAG 2.5.3） */
   shortLabel: string
   icon: string
   /** 區段標題：兩個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
   section?: string
+  /** 只在桌機側欄顯示、不進手機底部導覽（2026-11-05「市場溫度」：業主選手機底部維持 5 格，入口是首頁那兩行） */
+  desktopOnly?: boolean
 }
 
 // 桌機側邊欄與手機底部導覽（MobileBottomNav）共用這一份：兩邊的順序、目的地、圖示
 // 曾經各寫一份而分岔（手機少了總表與月報），改成單一來源後新增頁面只要改這裡。
 export const navItems: NavItem[] = [
   { href: '/', label: '首頁', shortLabel: '首頁', icon: '📊' },
+  // 市場溫度（當沖比、融資融券、恐慌指數）：桌機側欄有、手機底部沒有（維持 5 格）。
+  // 圖示避開 🌡️：RSI 超買／超賣訊號已經在用（StockSignals.tsx）。
+  { href: '/market-mood', label: '市場溫度', shortLabel: '溫度', icon: '🌤️', desktopOnly: true },
   // 卡片與表格是同一頁的兩種檢視（2026-10-26 合併；舊的 /strong-table 由 next.config.ts 轉到 ?view=table）
   { href: '/strong-stocks', label: '強勢股', shortLabel: '強勢', icon: '🔥', section: '強勢股' },
   // 月報與強勢股**同一層、不是子頁**：強勢股是「某一個交易日」，月報是「某一個月」的彙整（主鍵與粒度都不同）。
