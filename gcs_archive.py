@@ -85,9 +85,10 @@ def require_authoritative_archive(writes_firestore: bool):
     會把錯的強勢名單與 daily_data 寫進正式站，而且本機不上傳，Storage 也缺那一天。
     要在本機跑正式資料：設 USE_GCS_ARCHIVE=1（開頭下載、結尾上傳）。確定只是本機實驗：設 ALLOW_LOCAL_ARCHIVE=1。
 
-    writes_firestore 由呼叫端傳入（stock_collector.config.firebase_enabled()）。⚠️ 這裡不可自己
-    `from stock_collector import config`：用 `python stock_collector/update_strong_matrix.py` 執行時，
-    stock_collector/ 目錄在 sys.path 上，會把 stock_collector/stock_collector.py 當成頂層套件載入而崩潰。
+    writes_firestore 由呼叫端傳入（stock_collector.config.firebase_enabled()）：呼叫端各自決定會不會寫
+    Firestore（例：scripts/backfill_incomplete_days.py 把 sc.FIREBASE_ENABLED 設成 False 不寫 daily_data）。
+    （以前還有「不可在這裡 import stock_collector」的限制：腳本模式下 stock_collector.py 會蓋掉同名套件。
+    2026-11-06 起 stock_collector/ 有 __init__.py，且只支援 `python -m stock_collector.<模組>`。）
     """
     if writes_firestore and not gcs_enabled() and os.getenv('ALLOW_LOCAL_ARCHIVE') != '1':
         raise ArchiveSyncError('會寫入正式 Firestore，但沒有設 USE_GCS_ARCHIVE=1：本機年度檔不是最新的完整歷史。'

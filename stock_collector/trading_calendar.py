@@ -27,10 +27,7 @@ FinMind `TaiwanStockTradingDate`：
 import logging
 from datetime import date as _date
 
-try:
-    from . import config
-except ImportError:  # 直接執行或從 scripts/ 匯入時
-    import config  # type: ignore
+from . import config
 
 _cache = {}       # 年 → set(交易日) 或 None（抓取失敗）
 _twse_cache = {}  # 'YYYYMM' → set(交易日) 或 None
@@ -107,14 +104,11 @@ def _twse_month(day: str):
 
 
 def _notify_mismatch(day: str, detail: str):
-    """日曆說休市、實際卻有成交：照常收集，另寄一封信讓業主知道日曆可能有誤。"""
-    try:
-        from notify import send_alert
-        send_alert('[選股小幫手] 交易日曆與實際成交不一致',
-                   f'日期：{day}\nFinMind 交易日曆顯示休市，但{detail}。\n'
-                   '收集器已照常收集這一天；請留意日曆是否有誤（日曆出錯時，下次若資料又晚到，可能被誤判成休市）。')
-    except Exception as e:
-        logging.warning(f"寄送日曆不一致通知失敗：{e}")
+    """日曆說休市、實際卻有成交：照常收集，另寄一封信讓業主知道日曆可能有誤（失敗只記 log）。"""
+    from notify import send_nonfatal
+    send_nonfatal('[選股小幫手] 交易日曆與實際成交不一致',
+                  f'日期：{day}\nFinMind 交易日曆顯示休市，但{detail}。\n'
+                  '收集器已照常收集這一天；請留意日曆是否有誤（日曆出錯時，下次若資料又晚到，可能被誤判成休市）。')
 
 
 def _has_index_bar(day: str):

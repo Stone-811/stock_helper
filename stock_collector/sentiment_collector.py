@@ -42,10 +42,7 @@ from datetime import date as _date, datetime, timedelta
 
 import requests
 
-try:
-    from . import config  # noqa: F401  （保留：與其他收集器一致，未來要用 token 時直接取）
-except ImportError:  # 直接執行或從 scripts/ 匯入時
-    import config  # type: ignore  # noqa: F401
+from . import config   # collect_and_save 用 config.firebase_enabled()
 
 UA = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'}
 TIMEOUT = 60
@@ -98,19 +95,6 @@ def _find_table(j, keyword, expect_fields=None):
                         return None
             return t
     return None
-
-
-def _roc_date(s):
-    """'115/11/04' 或 '1151104' → '2026-11-04'；解析失敗回 None。"""
-    m = re.match(r'^\s*(\d{2,3})/(\d{1,2})/(\d{1,2})\s*$', str(s))
-    if m:
-        y, mo, d = m.groups()
-    else:
-        m = re.match(r'^\s*(\d{3})(\d{2})(\d{2})\s*$', str(s))
-        if not m:
-            return None
-        y, mo, d = m.groups()
-    return f'{int(y) + 1911:04d}-{int(mo):02d}-{int(d):02d}'
 
 
 # --------------------------------------------------------------------- 當沖
@@ -304,18 +288,9 @@ def collect_days(days, gap: float = REQUEST_GAP):
     return [dt_rows[d] for d in days if d in dt_rows], [mg_rows[d] for d in days if d in mg_rows]
 
 
-def collect_day(day: str, gap: float = REQUEST_GAP):
-    """單日版（回補腳本用）：回 (daytrade_row|None, margin_row|None)。融資是初值（今日餘額）。"""
-    dt, mg = collect_days([day], gap)
-    return (dt[0] if dt else None), (mg[0] if mg else None)
-
-
 def recent_trading_days(day: str, n: int = RECHECK_DAYS):
     """day 以及往前共 n 個交易日（升冪）。用 trading_calendar，不可用日曆天。"""
-    try:
-        from .trading_calendar import trading_days_between
-    except ImportError:
-        from trading_calendar import trading_days_between  # type: ignore
+    from .trading_calendar import trading_days_between
     end = _date.fromisoformat(day)
     # with_actual：日曆誤標休市但加權指數有 K 棒的日子也要抓（寧可多試；官方沒資料自然回 None）
     days = trading_days_between(end - timedelta(days=n * 3 + 7), end, with_actual=True)
@@ -352,9 +327,6 @@ def collect_and_save(day: str = None, write: bool = True):
 
     counts = {'daytrade': len(daytrade_rows), 'margin': len(margin_rows), 'taivix': len(taivix_rows), 'vix': len(vix_rows)}
     if write and config.firebase_enabled():
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from firebase_writer import write_market_sentiment, get_market_sentiment_latest
         write_market_sentiment('daytrade', daytrade_rows)
         write_market_sentiment('margin', margin_rows)
@@ -386,14 +358,11 @@ def _check_staleness(day, window, get_latest):
     if not problems:
         return
     logging.error("⚠️ 市場溫度斷料：" + '；'.join(problems))
-    try:
-        from notify import send_alert
-        send_alert('[選股小幫手] 市場溫度資料斷了',
-                   f'執行日 {day}\n' + '\n'.join(problems) +
-                   '\n\n可能原因：Cloud Run 被證交所／櫃買／期交所擋（Cloudflare）、官方改版、網路問題。'
-                   '\n網站 /market-mood 與首頁兩行會停在舊日期。可用 scripts/backfill_market_sentiment.py --start <日期> --write 補。')
-    except Exception as e:
-        logging.warning(f"寄送市場溫度告警失敗：{e}")
+    from notify import send_nonfatal
+    send_nonfatal('[選股小幫手] 市場溫度資料斷了',
+                  f'執行日 {day}\n' + '\n'.join(problems) +
+                  '\n\n可能原因：Cloud Run 被證交所／櫃買／期交所擋（Cloudflare）、官方改版、網路問題。'
+                  '\n網站 /market-mood 與首頁兩行會停在舊日期。可用 scripts/backfill_market_sentiment.py --start <日期> --write 補。')
 
 
 if __name__ == '__main__':

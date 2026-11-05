@@ -22,6 +22,13 @@ venv/
 # 機密與本機設定（token 由 --set-secrets 注入）
 .env
 .env.*
+# 憑證檔：Cloud Run 用 ADC，不需要金鑰；不排除的話 --source=. 會把它打包上傳到 Cloud Build 的 source bucket
+# （.env.example 建議放在根目錄的 service-account.json 就會被帶上去）。不加前導 / ＝任何子目錄都排除。
+service-account*.json
+*-key.json
+*.pem
+*.p12
+*.key
 
 # 其他
 .claude/

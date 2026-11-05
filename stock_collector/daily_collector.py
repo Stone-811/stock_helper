@@ -4,11 +4,13 @@
 
 功能：
 1. 收集當日股票資料
-2. 收集指數資料（TAIEX + TX）
-3. 更新強勢股矩陣
-4. 增量更新（只抓缺少的日期）
-5. 資料驗證
-6. 錯誤重試機制
+2. 收集指數資料（TAIEX + TX ＋ 美股三大指數）
+3. 市場溫度（大盤當沖比、融資融券、恐慌指數）
+4. 更新強勢股矩陣
+5. 回補缺漏交易日（--backfill-gaps）
+6. 資料驗證、錯誤重試、到價提醒
+
+執行方式：在專案根目錄 `python -m stock_collector.daily_collector`（Cloud Run ENTRYPOINT 同此）。
 """
 
 import logging
@@ -16,9 +18,8 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
-import os
 
-# 確保可以導入同層模組
+# 入口：確保專案根目錄在 sys.path（根目錄的 firebase_writer／gcs_archive／notify）。用 -m 從根目錄執行時重複但無害。
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -54,29 +55,6 @@ class DailyCollector:
         self.market_closed = None
         self.day_log = []   # 批次模式逐日結果 (日期, 結果)，迴圈結束後印一份總表
 
-    def get_latest_date_from_db(self, table='daily_stocks'):
-        """從 Firestore 取得最新資料日期"""
-        try:
-            from firebase_writer import get_firestore_client
-            db = get_firestore_client()
-
-            # 從 metadata 集合取得最新日期
-            if table == 'daily_stocks':
-                metadata_ref = db.collection('metadata').document('latest_date')
-                doc = metadata_ref.get()
-                if doc.exists:
-                    return doc.to_dict().get('date')
-            elif table == 'market_index_daily':
-                # 查詢最新指數日期
-                docs = db.collection('market_index_daily').order_by('date', direction='DESCENDING').limit(1).get()
-                for doc in docs:
-                    return doc.to_dict().get('date')
-
-            return None
-        except Exception as e:
-            logging.warning(f"無法從資料庫取得最新日期: {e}")
-            return None
-
     def get_trading_days(self, start_date, end_date):
         """取得交易日列表：依台股交易日曆，排除國定假日、補假與颱風停市（不只排除週末）。
 
@@ -86,24 +64,6 @@ class DailyCollector:
         from stock_collector.trading_calendar import trading_days_between
         # with_actual：再聯集加權指數實際有 K 棒的日子——日曆萬一誤標休市，找缺口時也不會跟著漏
         return trading_days_between(start_date, end_date, with_actual=True)
-
-    def get_missing_dates(self, table='daily_stocks'):
-        """取得缺少資料的日期"""
-        latest = self.get_latest_date_from_db(table)
-        today = datetime.now().date()
-
-        if latest:
-            latest_date = datetime.strptime(latest, '%Y-%m-%d').date()
-            # 從最新日期的下一天開始
-            start = latest_date + timedelta(days=1)
-        else:
-            # 沒有資料，從今天開始
-            start = today
-
-        if start > today:
-            return []
-
-        return self.get_trading_days(start, today)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -148,7 +108,8 @@ class DailyCollector:
         retry=retry_if_exception_type(Exception)
     )
     def collect_index(self, date=None, include_us=True):
-        """收集指數資料（含重試機制）。include_us=False：批次迴圈內不抓美股，結束後 _run_us_once 一次。"""
+        """收集指數資料（含重試機制）。include_us=False：批次迴圈內不抓美股，結束後 _collect_us_only 一次。
+        ⚠️ 美股斷料檢查不在這裡（會跟著 tenacity 重試寄 3 封），由 run_daily 在重試外呼叫 _check_us_stale。"""
         from stock_collector.index_collector import collect_and_save
 
         if date:
@@ -238,13 +199,14 @@ class DailyCollector:
             跳過市場溫度（當沖比／融資融券／恐慌指數）。批次模式每天都會重抓 3 天的視窗，
             所以 --days／--backfill-gaps 迴圈內一律跳過、結束後只跑一次（2026-11-05 審查 W3）。
         include_us : bool
-            美股三大指數。批次迴圈內傳 False、結束後 _run_us_once 一次（審查 F4）。
+            美股三大指數。批次迴圈內傳 False、結束後 _collect_us_only 一次（審查 F4）。
         """
         logging.info("=" * 70)
         logging.info(f"📅 開始每日資料收集: {date or '今日'}")
         logging.info("=" * 70)
 
-        # 休市日（國定假日、補假、颱風停市）：不收集、不重算、不告警。
+        # 台股休市日（國定假日、補假、颱風停市）：股票與台股指數不收集、不重算、不檢查提醒、不寄「收集失敗」告警；
+        # 美股照常更新（斷料仍會寄非關鍵告警）。
         # ⚠️ 三個來源（交易日曆、加權指數 K 棒、證交所當月成交清單）都說沒交易才跳過；
         #    日曆沒涵蓋（下一年度行事曆未公布）、任一來源抓不到、或來源互相矛盾時一律照常收集——
         #    寧可多一封誤報，也不要把真的交易日安靜漏掉（見 trading_calendar.py）。
@@ -264,12 +226,12 @@ class DailyCollector:
         elif closed:
             self.market_closed = why
             self.day_log.append((target, '休市跳過'))
-            logging.info(f"🏖️ {target} 休市，本次不收集股票與台股指數、不重算強勢股、不檢查提醒、不寄告警")
+            logging.info(f"🏖️ {target} 台股休市，本次不收集股票與台股指數、不重算強勢股、不檢查提醒、不寄「收集失敗」告警")
             # 台股休市、美股照常開（春節可連休 11 天）：只抓美股，否則首頁停在封關前一晚、
             # 那幾天美股也永遠補不回來（審查 F1）。失敗只記錄，不影響 exit code。
             if not skip_index and include_us:
-                logging.info("🇺🇸 台股休市，只更新美股三大指數")
-                _collect_us_only(end_date=target)
+                logging.info("🇺🇸 台股休市，只更新美股三大指數（斷料仍會告警）")
+                _collect_us_only(end_date=target)   # 內含一次斷料檢查
             self.print_summary()
             return
 
@@ -300,6 +262,10 @@ class DailyCollector:
             except Exception as e:
                 self.results['index']['error'] = str(e)
                 logging.error(f"  ❌ 失敗: {e}")
+            # 美股斷料檢查：在 collect_index 的 tenacity 重試外、不論台股成敗只做一次（2026-11-06 審查 F1）。
+            # 批次迴圈內（include_us=False）不做，結束後 _collect_us_only 會做。
+            if include_us:
+                _check_us_stale(target)
 
         # 2.5 市場溫度（當沖比／融資融券／恐慌指數）：自己包 try，失敗只記錄、不影響其他步驟。
         #     獨立旗標 --skip-sentiment（不綁 --skip-index，審查 W4）。
@@ -345,7 +311,8 @@ class DailyCollector:
         # 5. self-check：確認當日資料「真的寫進 Firestore」，而非只落在本地 CSV/GCS
         self._verify_firestore_written(date, skip_stock)
 
-        # 6. 檢查使用者到價/訊號警示，達成則 Email 通知（僅在當日股票確實寫入後）
+        # 6. 檢查使用者到價/訊號警示，達成則 Email 通知（僅在當日股票確實寫入後）。
+        #    補舊日期（--date 舊日、--days、--backfill-gaps）由 check_alerts 自己跳過。
         if not skip_stock and self.results['stock']['success']:
             try:
                 from stock_collector.alert_checker import check_alerts
@@ -404,8 +371,7 @@ class DailyCollector:
     def get_gap_dates(self):
         """找出 daily_data 已有資料範圍內「缺漏的交易日」（C3）。
 
-        get_missing_dates 只看 latest_date 之後，抓不到中間缺口；此處掃 daily_data 實際
-        日期，與「最早～最新」之間應有的交易日比對，回傳缺漏日期（升冪）。
+        掃 daily_data 實際日期，與「最早～最新」之間應有的交易日比對，回傳缺漏日期（升冪）。
         """
         try:
             from firebase_writer import list_daily_data_dates
@@ -420,55 +386,6 @@ class DailyCollector:
         expected = set(self.get_trading_days(start, end))
         return sorted(expected - set(have))
 
-    def run_incremental(self):
-        """執行增量更新（只收集缺少的日期）"""
-        logging.info("=" * 70)
-        logging.info("📅 開始增量更新")
-        logging.info("=" * 70)
-
-        # 檢查缺少的股票資料日期
-        missing_stock_dates = self.get_missing_dates('daily_stocks')
-        logging.info(f"缺少股票資料的日期: {len(missing_stock_dates)} 天")
-
-        # 檢查缺少的指數資料日期
-        missing_index_dates = self.get_missing_dates('market_index_daily')
-        logging.info(f"缺少指數資料的日期: {len(missing_index_dates)} 天")
-
-        if not missing_stock_dates and not missing_index_dates:
-            logging.info("✅ 資料已是最新，無需更新")
-            return
-
-        # 收集缺少的資料
-        all_dates = set(missing_stock_dates + missing_index_dates)
-
-        for date in sorted(all_dates):
-            logging.info(f"\n{'='*50}")
-            logging.info(f"處理日期: {date}")
-
-            if date in missing_stock_dates:
-                try:
-                    self.collect_stocks(date)
-                    logging.info(f"  股票: ✅")
-                except Exception as e:
-                    logging.error(f"  股票: ❌ {e}")
-
-            if date in missing_index_dates:
-                try:
-                    self.collect_index(date)
-                    logging.info(f"  指數: ✅")
-                except Exception as e:
-                    logging.error(f"  指數: ❌ {e}")
-
-        # 更新強勢股矩陣
-        logging.info("\n更新強勢股矩陣...")
-        try:
-            self.update_strong_matrix()
-            logging.info("  ✅ 完成")
-        except Exception as e:
-            logging.error(f"  ❌ {e}")
-
-        self.print_summary()
-
     def print_summary(self):
         """輸出收集結果總結"""
         elapsed = datetime.now() - self.start_time
@@ -478,7 +395,7 @@ class DailyCollector:
         logging.info("=" * 70)
 
         if self.market_closed:
-            logging.info(f"🏖️ 休市日，沒有收集任何資料（{self.market_closed}）")
+            logging.info(f"🏖️ 台股休市，沒有收集股票與台股指數（{self.market_closed}）")
             logging.info(f"⏱️ 耗時: {elapsed}")
             return
 
@@ -513,10 +430,19 @@ def _collect_us_only(start_date=None, end_date=None):
         return 0
 
 
+def _check_us_stale(day):
+    """美股三大指數斷料檢查（非關鍵：不 raise、不影響 exit code）。不可放進有 @retry 的函式裡。"""
+    try:
+        from stock_collector.index_collector import check_us_staleness
+        check_us_staleness(day)
+    except Exception as e:
+        logging.warning(f"美股斷料檢查失敗（不影響其他步驟）: {e}")
+
+
 def _us_batch_start(first_date):
-    """批次模式結束後那一次美股的抓窗起點：涵蓋整個批次的第一天再往前 US_LOOKBACK_DAYS 天。"""
-    from stock_collector.index_collector import US_LOOKBACK_DAYS
-    return (datetime.strptime(first_date, '%Y-%m-%d') - timedelta(days=US_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
+    """批次模式結束後那一次美股的抓窗起點：涵蓋整個批次的第一天再往前 US_LOOKBACK_DAYS 天（與每班抓窗同一條規則）。"""
+    from stock_collector.index_collector import _us_window_start
+    return _us_window_start(first_date)
 
 
 def _run_sentiment_once(collector):
@@ -541,17 +467,18 @@ def _raise_batch_upload_errors(failed):
 
 
 def _alert_failure(reason: str, collector):
-    """組裝並寄出收集失敗告警（分區塊純文字）。缺 SMTP 設定時自動略過。"""
+    """組裝並寄出收集失敗告警（分區塊純文字）。缺 SMTP 設定時只記 log；不 raise（在 main 的 except 裡呼叫）。"""
     try:
-        from notify import send_alert
-    except Exception:
+        from notify import send_nonfatal, tw_now
+    except Exception as e:
+        logging.error(f"告警模組載入失敗，這封收集異常告警沒有寄出：{e}")
         return
     r = collector.results
     task_names = {'stock': '股票資料', 'index': '指數資料', 'sentiment': '市場溫度', 'matrix': '強勢股矩陣'}
     lines = [
         '選股小幫手 每日收集器 — 異常告警',
         '=' * 40,
-        f'時間　：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+        f'時間　：{tw_now().strftime("%Y-%m-%d %H:%M:%S")}（台灣時間）',
         f'原因　：{reason}',
         '',
         '── 各任務結果 ──',
@@ -571,7 +498,7 @@ def _alert_failure(reason: str, collector):
         '2. 手動補跑單日：python -m stock_collector.daily_collector --date YYYY-MM-DD',
         '3. 回補中間缺口：python -m stock_collector.daily_collector --backfill-gaps',
     ]
-    send_alert('[選股小幫手] 收集異常告警', '\n'.join(lines))
+    send_nonfatal('[選股小幫手] 收集異常告警', '\n'.join(lines))
 
 
 def main():
@@ -588,8 +515,8 @@ def main():
   # 收集指定日期
   python -m stock_collector.daily_collector --date 2026-06-19
 
-  # 增量更新（只收集缺少的日期）
-  python -m stock_collector.daily_collector --incremental
+  # 回補歷史區間內缺漏的交易日
+  python -m stock_collector.daily_collector --backfill-gaps
 
   # 只收集指數
   python -m stock_collector.daily_collector --skip-stock --skip-matrix
@@ -601,7 +528,6 @@ def main():
 
     parser.add_argument('--date', type=str, help='指定日期 (YYYY-MM-DD)')
     parser.add_argument('--days', type=int, help='收集過去 N 天')
-    parser.add_argument('--incremental', action='store_true', help='增量更新模式')
     parser.add_argument('--backfill-gaps', action='store_true', help='回補歷史區間內缺漏的交易日（C3）')
     parser.add_argument('--test-alert', action='store_true', help='寄一封測試告警信後結束（驗證 Email 設定）')
     parser.add_argument('--skip-stock', action='store_true', help='跳過股票資料')
@@ -651,12 +577,6 @@ def main():
                 collector.print_batch_summary()
                 _raise_batch_upload_errors(failed_upload)
             return 0
-
-        elif args.incremental:
-            # ⚠️ 已停用：run_incremental 不經過年度檔下載／上傳（Cloud Run 上用空目錄收集，MACD 全是「-」、
-            #    年度檔永遠缺那天），get_missing_dates 查的 collection 也早就不存在，實際只會補今天。
-            logging.error("--incremental 已停用：補缺口請用 --backfill-gaps，補單日請用 --date YYYY-MM-DD")
-            return 2
 
         elif args.days:
             # 批次收集過去 N 天
@@ -717,10 +637,10 @@ def main():
         return 1
 
     # 依收集結果決定 exit code（僅單日排程模式）：關鍵任務（股票/指數）未成功 → 非 0，
-    # 讓 Cloud Run execution 真的 FAIL，「假成功」才可觀測。批次/增量/回補有自身語意，不套用。
-    single_day_mode = not (args.incremental or args.backfill_gaps or args.days)
+    # 讓 Cloud Run execution 真的 FAIL，「假成功」才可觀測。批次/回補有自身語意，不套用。
+    single_day_mode = not (args.backfill_gaps or args.days)
     if single_day_mode and collector.market_closed:
-        logging.info("🏖️ 休市日 → exit 0（不寄告警）")
+        logging.info("🏖️ 台股休市 → exit 0（不寄「收集失敗」告警；美股斷料仍會告警）")
         return 0
     if single_day_mode:
         r = collector.results

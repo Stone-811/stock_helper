@@ -1,14 +1,13 @@
 """
 強勢股矩陣更新工具
-讀取所有每日報表，計算強勢股標記，產生 pivot table 格式的 CSV
+讀取 data/daily_reports/archive/ 的年度檔，計算強勢股標記，產生 pivot table 格式的 CSV 並寫入 strong_stocks
+（執行：USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix）
 """
 
 import pandas as pd
-import os
 from pathlib import Path
 import glob
 import logging
-import sys
 from dotenv import load_dotenv
 
 # 載入環境變數
@@ -16,10 +15,7 @@ env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Firebase 寫入：憑證檔存在，或在 GCP/Cloud Run 環境（ADC）。判斷集中於 config.firebase_enabled()
-try:
-    from . import config
-except ImportError:  # 被當獨立腳本直接執行時（python stock_collector/update_strong_matrix.py）
-    import config
+from . import config
 FIREBASE_ENABLED = config.firebase_enabled()
 
 # 設定日誌
@@ -107,10 +103,9 @@ def _assert_prev_close_sane(df: pd.DataFrame, prev_close: pd.Series) -> None:
 
     為什麼需要這道防線
     ------------------
-    `update_matrix()` 在找不到年度檔時會退用 `daily_stock_*.csv`（每檔只有一天），
-    而 `gcs_archive.download_archives()` 以前下載失敗時只記 warning 就回傳 0
+    `gcs_archive.download_archives()` 以前下載失敗時只記 warning 就回傳 0
     （2026-10-24 起改成 raise、整輪中止）→ stateless 的 Cloud Run 會用當天資料重建出
-    「只含一個日期」的 stocks_YYYY.csv。這兩種情況下每一列都取不到前一日
+    「只含一個日期」的 stocks_YYYY.csv（新年度第一個交易日也是這樣）。這種情況下每一列都取不到前一日
     → 全部 fallback 回 open → change_pct **又變回當日振幅**，
     而且日誌上完全看不出異常，卻會把 strong_stocks/{date} 覆寫成錯的判定。
 
@@ -218,7 +213,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     Parameters:
     -----------
     data_dir : str
-        每日報表目錄
+        年度檔所在目錄（讀它底下的 archive/stocks_YYYY.csv）
     output_dir : str
         輸出目錄
     output_filename : str
@@ -232,25 +227,17 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     # 會寫正式 strong_stocks：不可拿本機的舊年度檔算；這次執行還沒下載過就先從 Storage 下載
     # （本機直接跑、--days 全是休市日時的最後重算，都不會經過 run_daily 的下載）
     if FIREBASE_ENABLED:
-        import sys as _sys   # ⚠️ 不可直接用 sys：本函式後段有區域 `import sys`，前面用會 UnboundLocalError
-        _sys.path.insert(0, str(base_path))
         from gcs_archive import require_authoritative_archive, ensure_downloaded
         require_authoritative_archive(True)
         ensure_downloaded(data_path / 'archive')
 
-    # 讀取年度合併檔案（優先）或每日報表（備用）
-    archive_files = sorted(glob.glob(str(data_path / 'archive' / 'stocks_*.csv')))
-    daily_files = sorted(glob.glob(str(data_path / 'daily_stock_*.csv')))
-
-    if archive_files:
-        all_files = archive_files
-        logging.info(f"找到 {len(all_files)} 個年度合併檔案")
-    elif daily_files:
-        all_files = daily_files
-        logging.info(f"找到 {len(all_files)} 個每日報表")
-    else:
-        logging.error(f"找不到資料檔案：{data_path}")
+    # 讀取年度合併檔案。⚠️ 以前還有「找不到年度檔就讀 daily_stock_*.csv」的退路，但每日檔只有一天，
+    # 每個檔都會被 _assert_prev_close_sane 擋下，那條路永遠回 None，已刪（2026-11-06）。
+    all_files = sorted(glob.glob(str(data_path / 'archive' / 'stocks_*.csv')))
+    if not all_files:
+        logging.error(f"找不到年度檔：{data_path / 'archive'}")
         return None
+    logging.info(f"找到 {len(all_files)} 個年度合併檔案")
 
     all_data = []
     day_stats = []
@@ -267,7 +254,6 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
             # 統計
             strong_count = df['strong'].sum()
-            date = df['date'].iloc[0] if len(df) > 0 else 'unknown'
             logging.info(f"  {Path(file).name}: {strong_count} 檔強勢股")
 
         except Exception as e:
@@ -306,8 +292,6 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     if FIREBASE_ENABLED:
         logging.info("寫入 Firestore...")
         try:
-            import sys
-            sys.path.insert(0, str(base_path))
             from firebase_writer import write_strong_stock_matrix
             write_strong_stock_matrix(pivot, complete_dates=complete_dates)
             logging.info("✓ Firestore 寫入完成")
@@ -335,9 +319,10 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 def main():
     """主程式"""
     import argparse
+    from gcs_archive import ArchiveSyncError
 
     parser = argparse.ArgumentParser(description='強勢股矩陣更新工具')
-    parser.add_argument('--data-dir', type=str, default='data/daily_reports', help='每日報表目錄')
+    parser.add_argument('--data-dir', type=str, default='data/daily_reports', help='年度檔所在目錄（讀它底下的 archive/）')
     parser.add_argument('--output', type=str, default='strong_stock_matrix.csv', help='輸出檔案名稱')
 
     args = parser.parse_args()
@@ -347,9 +332,7 @@ def main():
             data_dir=args.data_dir,
             output_filename=args.output
         )
-    except Exception as e:
-        if type(e).__name__ != 'ArchiveSyncError':
-            raise
+    except ArchiveSyncError as e:
         print(f"\n❌ {e}")
         return 1
 

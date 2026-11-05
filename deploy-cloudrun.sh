@@ -33,6 +33,10 @@ gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:${RUN_SA}" --role="roles/datastore.user" --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:${RUN_SA}" --role="roles/run.invoker" --condition=None >/dev/null
+# 到價提醒的收件人用 Firebase Auth 查 uid 的 email（不信任提醒文件裡的 email 欄位），需要 firebaseauth.users.get。
+# 沒有這個權限時提醒不會寄出、也不會被停用，log 會記「警示收件人查詢失敗」。
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${RUN_SA}" --role="roles/firebaseauth.viewer" --condition=None >/dev/null
 gcloud secrets add-iam-policy-binding FINMIND_API_TOKEN \
   --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor" --condition=None >/dev/null
 gcloud storage buckets add-iam-policy-binding gs://stock-analysis-b5602-archive \

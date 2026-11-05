@@ -9,14 +9,14 @@
    ⚠️ 美股收盤＝台灣清晨，所以每班往回抓 US_LOOKBACK_DAYS（21）個日曆天而不是只抓今天；SOX 的 Volume 永遠是 0，存 null 不存 0。
    ⚠️ 台股休市日（春節可連休 11 天）daily_collector 也會只抓美股（collect_us_and_save），否則首頁停在封關前一晚、
       美股那幾天也永遠補不回來（2026-11-05 審查 F1）。斷料超過 US_STALE_DAYS 天寄非關鍵告警（審查 F2）。
+   ⚠️ 斷料檢查（check_us_staleness）不放在 collect_and_save 裡：daily_collector.collect_index 有 tenacity 重試，
+      放在裡面一班會寄 3 封。由 daily_collector.run_daily 在重試外呼叫一次；collect_us_and_save 自己檢查一次。
 """
 
 import pandas as pd
 from datetime import datetime, timedelta
 from FinMind.data import DataLoader
 import logging
-import os
-from pathlib import Path
 from . import config
 
 # Firebase 寫入：憑證檔存在，或在 GCP/Cloud Run 環境（ADC）。判斷集中於 config.firebase_enabled()
@@ -205,16 +205,13 @@ def collect_us_indices(start_date, end_date):
     """美股三大指數（FinMind USStockPrice）→ 與 TAIEX 同形狀的 DataFrame。
     抓不到就回空（不中止其他指數）。成交量 0（SOX 永遠是 0）存成 NaN，由 writer 寫 null。"""
     frames = []
-    try:
-        from .config import FINMIND_API_TOKEN
-    except ImportError:
-        from config import FINMIND_API_TOKEN  # type: ignore
+    token = config.FINMIND_API_TOKEN
     import requests
     for index_id, (sym, name) in US_INDICES.items():
         try:
             r = requests.get('https://api.finmindtrade.com/api/v4/data',
                              params={'dataset': 'USStockPrice', 'data_id': sym, 'start_date': start_date, 'end_date': end_date},
-                             headers={'Authorization': f'Bearer {FINMIND_API_TOKEN}'} if FINMIND_API_TOKEN else {}, timeout=60)
+                             headers={'Authorization': f'Bearer {token}'} if token else {}, timeout=60)
             j = r.json()
             rows = j.get('data') or []
             if j.get('status') != 200 or not rows:
@@ -242,18 +239,13 @@ def _us_window_start(start_date):
 
 def check_us_staleness(day):
     """美股三大指數斷料不可無聲（2026-11-05 審查 F2）：Firestore 最新日期比 day 舊超過 US_STALE_DAYS 天 → 非關鍵告警。
-    不改 exit code；比照 sentiment_collector._check_staleness。只讀 latest_date 欄位（不拉整份 history）。"""
+    不改 exit code、不 raise；比照 sentiment_collector._check_staleness。只讀 latest_date 欄位（不拉整份 history）。
+    ⚠️ 每次呼叫都可能寄一封：不可放進會被重試的函式（collect_and_save 被 collect_index 的 tenacity 包著）。"""
     if not FIREBASE_ENABLED:
         return
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from firebase_writer import get_firestore_client
-        db = get_firestore_client()
-        latest = {}
-        for index_id in US_INDICES:
-            snap = db.collection('market_index').document(index_id).get(field_paths=['latest_date'])
-            latest[index_id] = (snap.to_dict() or {}).get('latest_date') if snap.exists else None
+        from firebase_writer import get_latest_dates
+        latest = get_latest_dates('market_index', US_INDICES)
     except Exception as e:
         logging.warning(f"美股指數陳舊度檢查失敗：{e}")
         return
@@ -262,36 +254,33 @@ def check_us_staleness(day):
     if not problems:
         return
     logging.error("⚠️ 美股三大指數斷料：" + '；'.join(problems))
-    try:
-        from notify import send_alert
-        send_alert('[選股小幫手] 美股三大指數資料斷了',
-                   f'執行日 {day}\n' + '\n'.join(problems) +
-                   '\n\n可能原因：FinMind USStockPrice 改了權限或代號（^SOX／^GSPC／^DJI）、網路問題。'
-                   '\n首頁加權指數旁的美股三格會停在舊日期。'
-                   '\n手動補：python -m stock_collector.daily_collector --us-only，或 index_collector --start／--end。')
-    except Exception as e:
-        logging.warning(f"寄送美股指數告警失敗：{e}")
+    from notify import send_nonfatal
+    send_nonfatal('[選股小幫手] 美股三大指數資料斷了',
+                  f'執行日 {day}\n' + '\n'.join(problems) +
+                  '\n\n可能原因：FinMind USStockPrice 改了權限或代號（^SOX／^GSPC／^DJI）、網路問題。'
+                  '\n首頁加權指數旁的美股三格會停在舊日期。'
+                  '\n手動補：python -m stock_collector.daily_collector --us-only，或 index_collector --start／--end。')
 
 
-def collect_us_and_save(start_date=None, end_date=None, check_stale=True):
+def collect_us_and_save(start_date=None, end_date=None):
     """只抓美股三大指數並寫入：台股休市日、批次模式結束後、--us-only 用（台股指數不受影響）。
+    寫完做一次斷料檢查（check_us_staleness）。
     失敗只記錄、不 raise（美股不是關鍵任務，不可讓收集器 exit 1）。回傳寫入筆數。"""
     end_date = end_date or datetime.now().strftime('%Y-%m-%d')
     start_date = start_date or _us_window_start(end_date)
     n = 0
     try:
         df = collect_us_indices(start_date, end_date)
-        if not df.empty and FIREBASE_ENABLED:
-            import sys
-            sys.path.insert(0, str(Path(__file__).parent.parent))
+        if df.empty:
+            logging.warning(f"美股三大指數 {start_date}～{end_date} 一筆都沒抓到")
+        elif not FIREBASE_ENABLED:
+            logging.warning(f"未設定 Firebase，美股 {len(df)} 筆跳過寫入")
+        else:
             from firebase_writer import write_market_index
             n = write_market_index(df)
-        elif df.empty:
-            logging.warning(f"美股三大指數 {start_date}～{end_date} 一筆都沒抓到")
     except Exception as e:
         logging.warning(f"美股三大指數收集失敗（不影響台股）：{e}")
-    if check_stale:
-        check_us_staleness(end_date)
+    check_us_staleness(end_date)
     return n
 
 
@@ -300,6 +289,8 @@ def collect_and_save(start_date=None, end_date=None, days=None, include_us=True)
     收集並儲存指數資料（加權指數 + 台指期 + 美股三大指數）
 
     include_us=False：批次模式（--days／--backfill-gaps）迴圈內用，美股改在迴圈結束後跑一次（審查 F4）。
+    ⚠️ 這裡不做美股斷料檢查：本函式被 daily_collector.collect_index 的 tenacity 重試包著，
+       檢查會跟著重試、一班寄 3 封。呼叫端在重試外自己呼叫 check_us_staleness（2026-11-06 審查 F1）。
 
     Parameters:
     -----------
@@ -345,18 +336,14 @@ def collect_and_save(start_date=None, end_date=None, days=None, include_us=True)
 
     # 寫入 Firestore
     if FIREBASE_ENABLED:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from firebase_writer import write_market_index
         count = write_market_index(df)
         logging.info(f"已寫入 Firestore: {count} 筆")
     else:
         logging.warning("未設定 Firebase，跳過資料庫寫入")
-    if include_us:
-        check_us_staleness(end_date)
 
     # ⚠️ 回傳值只算台股（TAIEX／TX）：daily_collector.collect_index 用「回傳非空」判斷成功。
-    # 美股往回抓 7 天幾乎永遠有列，若把它算進去，加權指數抓不到的日子就不會重試、也不會寄告警。
+    # 美股往回抓 US_LOOKBACK_DAYS（21）天幾乎永遠有列，若把它算進去，加權指數抓不到的日子就不會重試、也不會寄告警。
     tw = [d for d in (taiex_df, tx_df) if not d.empty]
     if not tw:
         logging.error("台股指數（加權指數、台指期）都沒有資料；美股指數照常寫入")
@@ -402,6 +389,8 @@ def main():
         parser.error("使用 --start 時必須同時指定 --end")
     else:
         df = collect_and_save()
+    # 斷料檢查不在 collect_and_save 裡（見其 docstring），單獨執行時在這裡做一次
+    check_us_staleness(args.end if (args.start and args.end) else datetime.now().strftime('%Y-%m-%d'))
 
     if df is not None and not df.empty:
         # 顯示統計

@@ -16,7 +16,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 import pandas as pd
 
 # Firebase Admin SDK
@@ -286,50 +286,6 @@ def update_available_dates(keep_recent: int = 100) -> int:
     return len(dates_desc)
 
 
-def write_strong_stocks(df: pd.DataFrame, date: str) -> int:
-    """
-    寫入單日強勢股到 Firestore（優化版：單一文件）
-
-    寫入次數：1 次
-
-    Parameters:
-    -----------
-    df : pd.DataFrame
-        強勢股資料（僅該日）
-    date : str
-        日期
-
-    Returns:
-    --------
-    int : 寫入的強勢股數量
-    """
-    db = get_firestore_client()
-
-    if df.empty:
-        logging.warning("沒有強勢股資料")
-        return 0
-
-    # 轉換資料
-    strong_stocks = []
-    for _, row in df.iterrows():
-        strong_stocks.append({
-            'stock_id': _norm_stock_id(row.get('stock_id', '')),
-            'stock_name': str(row.get('stock_name', '')),
-        })
-
-    # 寫入單一聚合文件
-    doc_ref = db.collection('strong_stocks').document(date)
-    doc_ref.set({
-        'date': date,
-        'stocks': strong_stocks,
-        'count': len(strong_stocks),
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
-
-    logging.info(f"✓ 成功寫入 strong_stocks/{date}: {len(strong_stocks)} 筆")
-    return len(strong_stocks)
-
-
 def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
     """
     寫入強勢股矩陣到 Firestore（優化版：按日期聚合）
@@ -339,7 +295,8 @@ def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
     Parameters:
     -----------
     df : pd.DataFrame
-        強勢股資料（pivot format 或 long format）
+        強勢股矩陣（pivot format：stock_id、stock_name，其餘每欄是一個日期、值 1＝強勢）。
+        唯一的呼叫端是 update_strong_matrix.update_matrix。
     complete_dates : set[str] | None
         資料完整的日期。重算後 0 檔的日子只有在這裡面才會刪掉舊文件；None＝一天都不刪。
 
@@ -353,35 +310,27 @@ def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
         logging.warning("DataFrame 為空，跳過寫入")
         return 0
 
-    # 判斷是 pivot 格式還是 long 格式
-    if 'date' in df.columns and 'stock_id' in df.columns:
-        # Long format
-        strong_df = df[df.get('is_strong', df.get('strong', 0)) == 1].copy()
-    else:
-        # Pivot format: 將日期欄位轉為 long format
-        date_columns = [col for col in df.columns if col not in ['stock_id', 'stock_name']]
-        records = []
+    # Pivot format: 將日期欄位轉為 long format
+    date_columns = [col for col in df.columns if col not in ['stock_id', 'stock_name']]
+    records = []
 
-        for _, row in df.iterrows():
-            stock_id = _norm_stock_id(row['stock_id'])
-            stock_name = str(row.get('stock_name', ''))
+    for _, row in df.iterrows():
+        stock_id = _norm_stock_id(row['stock_id'])
+        stock_name = str(row.get('stock_name', ''))
 
-            for date_col in date_columns:
-                if row[date_col] == 1:  # 強勢股
-                    records.append({
-                        'date': str(date_col),
-                        'stock_id': stock_id,
-                        'stock_name': stock_name
-                    })
+        for date_col in date_columns:
+            if row[date_col] == 1:  # 強勢股
+                records.append({
+                    'date': str(date_col),
+                    'stock_id': stock_id,
+                    'stock_name': stock_name
+                })
 
-        strong_df = pd.DataFrame(records)
+    strong_df = pd.DataFrame(records)
 
     # 這次「真的重算過」的日期：pivot 的日期欄＝年度檔裡實際有資料的日子（0 檔的日子也在，整欄是 0）。
     # 年度檔下載失敗的年份不在這裡 → 不會被當成 0 檔而刪掉。
-    if 'date' in df.columns and 'stock_id' in df.columns:
-        covered_dates = {str(d) for d in df['date'].unique()}
-    else:
-        covered_dates = {str(c) for c in date_columns}
+    covered_dates = {str(c) for c in date_columns}
 
     if strong_df.empty:
         if covered_dates:
@@ -461,14 +410,11 @@ def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
 
 
 def _alert_strong_matrix(msg: str):
-    """強勢股重算異常：記 error 並寄告警（沒設 SMTP 時 send_alert 回 False，也要留下 error 紀錄）。"""
+    """強勢股重算異常：記 error 並寄告警（沒設 SMTP 或寄送失敗時也要留下 error 紀錄）。"""
     logging.error(f"⚠️ {msg}")
-    try:
-        from notify import send_alert
-        if not send_alert('[選股小幫手] 強勢股重算異常', msg):
-            logging.error("⚠️ 強勢股異常告警沒有寄出（未設定 SMTP 或寄送失敗）")
-    except Exception as e:
-        logging.error(f"⚠️ 寄送強勢股異常告警失敗：{e}")
+    from notify import send_nonfatal
+    if not send_nonfatal('[選股小幫手] 強勢股重算異常', msg):
+        logging.error("⚠️ 強勢股異常告警沒有寄出（未設定 SMTP 或寄送失敗）")
 
 
 def write_market_index(df: pd.DataFrame) -> int:
@@ -562,7 +508,7 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
         merged = {h['date']: h for h in doc.to_dict().get('history', [])}
     for row in rows:
         d = str(row['date'])
-        # ⚠️ 逐欄合併、新值是 None 時保留舊值：collect_day 在「上市抓到、上櫃逾時」時會把上櫃欄位填 None，
+        # ⚠️ 逐欄合併、新值是 None 時保留舊值：舊版 collect_day 在「上市抓到、上櫃逾時」時會把上櫃欄位填 None，
         #    整列覆蓋會把前一班已存好的上櫃值洗成 null（2026-11-05 審查 W1，high）。
         #    官方統計不會「有值變沒有」，所以 None 一律當成「這次沒拿到」而不是「要清掉」。
         old = merged.get(d, {})
@@ -586,14 +532,20 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
     return len(rows)
 
 
-def get_market_sentiment_latest() -> dict:
-    """各系列的 latest_date（沒有文件 → None）。給 sentiment_collector 的陳舊度檢查用；4 次讀取。"""
+def get_latest_dates(collection: str, doc_ids) -> dict:
+    """{doc_id: latest_date}（沒有文件或沒有這個欄位 → None）。只讀 latest_date 一欄，不拉整份 history。
+    給斷料檢查共用（market_index 的美股三大指數、market_sentiment 四系列）；每個 doc 1 次讀取。"""
     db = get_firestore_client()
     out = {}
-    for key in ('daytrade', 'margin', 'taivix', 'vix'):
-        doc = db.collection('market_sentiment').document(key).get()
-        out[key] = doc.to_dict().get('latest_date') if doc.exists else None
+    for doc_id in doc_ids:
+        snap = db.collection(collection).document(doc_id).get(field_paths=['latest_date'])
+        out[doc_id] = (snap.to_dict() or {}).get('latest_date') if snap.exists else None
     return out
+
+
+def get_market_sentiment_latest() -> dict:
+    """各系列的 latest_date（沒有文件 → None）。給 sentiment_collector 的陳舊度檢查用；4 次讀取。"""
+    return get_latest_dates('market_sentiment', ('daytrade', 'margin', 'taivix', 'vix'))
 
 
 def test_connection():
