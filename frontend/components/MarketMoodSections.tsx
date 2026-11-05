@@ -1,0 +1,110 @@
+'use client'
+
+import { useId, useMemo } from 'react'
+import SentimentChart from './SentimentChart'
+import { DaytradeStats, MarginStats, VixStats } from './MoodStats'
+import { statOf, thousandsToYi, type SentimentResponse } from '../lib/sentiment'
+
+/**
+ * 市場溫度的三組內容（大盤當沖比、融資融券、恐慌指數：每組大卡＋走勢圖）與「📖 說明」。
+ * /market-mood 與首頁共用（2026-11-06 業主：「市場溫度的融資融卷、走勢圖也放在首頁」）：改一處兩頁同步。
+ *
+ * - data 為 null（抓不到）時每張卡顯示「暫無資料」、圖顯示無資料，不顯示 0。
+ * - level：這三組標題的層級。/market-mood 的頁首是 h1 → 2；首頁還多一層「🌡️ 市場溫度」h2 → 3。
+ * - 業主的決定：不貼「偏高／偏低」標籤；上市藍、上櫃琥珀（紅綠在本站代表股價漲跌）。
+ */
+const TWSE = '#1d4ed8' // 上市：藍
+const TPEX = '#b45309' // 上櫃：琥珀（白底對比 4.9，不用紅綠——紅綠在本站代表股價漲跌）
+
+export default function MarketMoodSections({ data, level = 2 }: { data: SentimentResponse | null; level?: 2 | 3 }) {
+  const uid = useId()
+  const H = level === 2 ? 'h2' : 'h3'
+  const Sub = level === 2 ? 'h3' : 'h4'
+  const hCls = level === 2 ? 'text-xl font-bold text-gray-900 mb-3' : 'text-lg font-bold text-gray-900 mb-3'
+
+  const s = useMemo(() => {
+    const dt = data?.daytrade ?? [], mg = data?.margin ?? [], tv = data?.taivix ?? [], vx = data?.vix ?? []
+    return {
+      dtTwse: statOf(dt, (r) => r.twse_buy_pct),
+      dtTpex: statOf(dt, (r) => r.tpex_buy_pct),
+      mgTwse: statOf(mg, (r) => thousandsToYi(r.twse_margin_balance)),
+      mgTpex: statOf(mg, (r) => thousandsToYi(r.tpex_margin_balance)),
+      shTwse: statOf(mg, (r) => r.twse_short_lots),
+      shTpex: statOf(mg, (r) => r.tpex_short_lots),
+      taivix: statOf(tv, (r) => r.close),
+      vix: statOf(vx, (r) => r.close),
+    }
+  }, [data])
+
+  const dtSeries = useMemo(() => [
+    { key: 'twse', label: '上市', color: TWSE, points: (data?.daytrade ?? []).map((r) => ({ date: r.date, value: r.twse_buy_pct })) },
+    { key: 'tpex', label: '上櫃', color: TPEX, points: (data?.daytrade ?? []).map((r) => ({ date: r.date, value: r.tpex_buy_pct })) },
+  ], [data])
+  const mgSeries = useMemo(() => [
+    { key: 'twse', label: '上市', color: TWSE, points: (data?.margin ?? []).map((r) => ({ date: r.date, value: thousandsToYi(r.twse_margin_balance) })) },
+    { key: 'tpex', label: '上櫃', color: TPEX, points: (data?.margin ?? []).map((r) => ({ date: r.date, value: thousandsToYi(r.tpex_margin_balance) })) },
+  ], [data])
+  const shSeries = useMemo(() => [
+    { key: 'twse', label: '上市', color: TWSE, points: (data?.margin ?? []).map((r) => ({ date: r.date, value: r.twse_short_lots })) },
+    { key: 'tpex', label: '上櫃', color: TPEX, points: (data?.margin ?? []).map((r) => ({ date: r.date, value: r.tpex_short_lots })) },
+  ], [data])
+  const tvSeries = useMemo(() => [
+    { key: 'tv', label: '臺指VIX', color: TWSE, points: (data?.taivix ?? []).map((r) => ({ date: r.date, value: r.close })) },
+  ], [data])
+  const vxSeries = useMemo(() => [
+    { key: 'vx', label: '美股 VIX', color: '#6d28d9', points: (data?.vix ?? []).map((r) => ({ date: r.date, value: r.close })) },
+  ], [data])
+
+  const taivixFrom = data?.first?.taivix ?? null
+
+  return (
+    <>
+      {/* 1. 當沖比 */}
+      <section aria-labelledby={`${uid}-dt-h`}>
+        <H id={`${uid}-dt-h`} className={hCls}>大盤當沖比（占成交金額）</H>
+        <div className="mb-4"><DaytradeStats twse={s.dtTwse} tpex={s.dtTpex} /></div>
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <SentimentChart series={dtSeries} digits={1} unit="%" />
+        </div>
+      </section>
+
+      {/* 2. 融資融券 */}
+      <section aria-labelledby={`${uid}-mg-h`}>
+        <H id={`${uid}-mg-h`} className={hCls}>融資餘額、融券餘額</H>
+        <div className="mb-4"><MarginStats mgTwse={s.mgTwse} mgTpex={s.mgTpex} shTwse={s.shTwse} shTpex={s.shTpex} /></div>
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
+          <Sub className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</Sub>
+          <SentimentChart series={mgSeries} digits={0} unit="億" />
+        </div>
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <Sub className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</Sub>
+          <SentimentChart series={shSeries} digits={0} unit="張" />
+        </div>
+      </section>
+
+      {/* 3. 恐慌指數 */}
+      <section aria-labelledby={`${uid}-vix-h`}>
+        <H id={`${uid}-vix-h`} className={hCls}>恐慌指數</H>
+        <div className="mb-4"><VixStats taivix={s.taivix} vix={s.vix} taivixFrom={taivixFrom} /></div>
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
+          <Sub className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</Sub>
+          <SentimentChart series={tvSeries} digits={2} />
+        </div>
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <Sub className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</Sub>
+          <SentimentChart series={vxSeries} digits={2} />
+        </div>
+      </section>
+
+      <details className="bg-white rounded-lg shadow-sm">
+        <summary className="min-h-[48px] flex items-center px-4 text-base font-medium text-gray-900 cursor-pointer">📖 說明（這些數字怎麼來、什麼時候更新）</summary>
+        <div className="px-4 pb-4 text-base text-gray-800 space-y-2">
+          <p>當沖比、融資融券來自證交所與櫃買中心的每日統計，<strong>當天晚上才公布</strong>，晚上 10 點以前看到的是前一個交易日；官方數字兩天後才定案，網站每天會重抓最近三天。</p>
+          <p>台股恐慌指數來自期貨交易所，收盤後約 16:10 公布；美股恐慌指數來自芝加哥選擇權交易所，台灣時間上午約 10:20 才有前一晚的收盤。</p>
+          <p>「近一年最高最低」是跟本站存的最近 365 天比，括號裡的天數就是比較的樣本；台股恐慌指數本站從 2026 年 3 月才開始有資料，天數會比較少。</p>
+          <p>這些數字描述的是市場的熱度和緊張程度，<strong>不是買賣建議</strong>：歷史上恐慌指數高的時候，之後一個月的大盤有漲有跌，沒有固定方向。</p>
+        </div>
+      </details>
+    </>
+  )
+}

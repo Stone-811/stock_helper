@@ -2,9 +2,9 @@ import SentimentStat from './SentimentStat'
 import { fmtMd, type Stat } from '../lib/sentiment'
 
 /**
- * 大盤當沖比（上市、上櫃）與恐慌指數（台股、美股）的指標卡組。
- * 首頁（2026-11-05 業主：「首頁不要放今日強勢股，把大盤當沖比、恐慌指數展開放上」「補上美國恐慌指數」）
- * 與 /market-mood 共用同一組卡與說明文字：改一處兩邊同步，不會出現兩套說法。
+ * 大盤當沖比（上市、上櫃）、融資融券（上市、上櫃）與恐慌指數（台股、美股）的指標卡組。
+ * 由 MarketMoodSections 組成三組（卡＋走勢圖），首頁與 /market-mood 共用（2026-11-05／11-06 業主要求首頁也放）。
+ * 說明文字只有這一份：改一處兩頁同步，不會出現兩套說法。
  *
  * ⚠️ stat 為 null（沒資料／抓不到）時卡片顯示「暫無資料」，不可傳 0 進來。
  */
@@ -20,6 +20,33 @@ export function DaytradeStats({ twse, tpex }: { twse: Stat | null; tpex: Stat | 
         title="上櫃當沖比" stat={tpex} digits={1} unit="%" deltaUnit="個百分點" size="lg"
         tipTitle="上櫃當沖比"
         tip="櫃買中心公布的「當日沖銷交易買進金額 ÷ 上櫃市場成交金額」。上櫃股票多為中小型股，當沖比通常比上市高，兩個數字不要直接相比。"
+      />
+    </div>
+  )
+}
+
+export function MarginStats({ mgTwse, mgTpex, shTwse, shTpex }: { mgTwse: Stat | null; mgTpex: Stat | null; shTwse: Stat | null; shTpex: Stat | null }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+      <SentimentStat
+        title="上市融資餘額" stat={mgTwse} digits={0} unit=" 億" deltaUnit="億元"
+        tipTitle="融資餘額"
+        tip="投資人向券商借錢買股票、還沒還的總金額（證交所每天公布，單位換成億元）。餘額增加代表借錢買股的人變多。"
+      />
+      <SentimentStat
+        title="上櫃融資餘額" stat={mgTpex} digits={0} unit=" 億" deltaUnit="億元"
+        tipTitle="上櫃融資餘額"
+        tip="櫃買中心公布的上櫃市場融資餘額合計（億元）。"
+      />
+      <SentimentStat
+        title="上市融券餘額" stat={shTwse} digits={0} unit=" 張" deltaUnit="張"
+        tipTitle="融券餘額"
+        tip="投資人向券商借股票先賣、還沒買回的總張數（證交所每天公布）。餘額增加代表看空的人變多。這裡不含借券賣出。"
+      />
+      <SentimentStat
+        title="上櫃融券餘額" stat={shTpex} digits={0} unit=" 張" deltaUnit="張"
+        tipTitle="上櫃融券餘額"
+        tip="櫃買中心公布的上櫃市場融券餘額合計（張）。"
       />
     </div>
   )

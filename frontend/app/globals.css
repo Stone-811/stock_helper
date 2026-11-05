@@ -45,3 +45,9 @@ body {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
 }
+
+/* 彈跳視窗（<dialog>.showModal）打開時鎖住背景捲動（IndexChartDialog）。
+   用 CSS 不用 JS 改 body.style：CandleChart 的全螢幕離開時會把 body.style.overflow 清成 ''，JS 鎖會被洗掉。 */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
