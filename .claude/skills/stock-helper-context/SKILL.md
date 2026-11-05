@@ -19,7 +19,7 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 ## 資料流
 1. **Cloud Run Job + Cloud Scheduler**（工作日台灣 17:00／22:00 兩班）→ `daily_collector` 抓 FinMind（股價 / 三大法人 / 外資持股 / 當沖 / 指數）。
    GitHub Actions 的 `daily-collect.yml` **排程已停用**（只留 `workflow_dispatch` 手動備援），避免重複收集。
-2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**自 2026-07-24 起一直累積、2026-09-28 實測 45 天**——程式裡沒有任何 prune 邏輯，先前記載的「31 天」已過時；但也沒有保留保證，不要依賴）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列）、`metadata/{latest_date, available_dates}`。
+2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**自 2026-07-24 起一直累積、2026-09-28 實測 45 天**——程式裡沒有任何 prune 邏輯，先前記載的「31 天」已過時；但也沒有保留保證，不要依賴）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列；2026-11-05 起多 SOX／SPX／DJI 美股三份，共 5 份）、`metadata/{latest_date, available_dates}`。
    **加上 2026-11-05 的 `market_sentiment` 共 5 個 collection**——舊架構 `strong_stock_matrix`／`market_index_daily` 已於 2026-09-05 刪除。
    ⚠️ 數值欄位全在 `daily_data`，所以任何回補（與「強勢月報」的可算月份）上限就是 **2026-07-24**。
    `metadata/available_dates` 與 `daily_data` 的日期集合實測完全一致（差集兩邊皆空）。
@@ -33,7 +33,7 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
   - **外資持股**：`fetchForeignShareholding()`（FinMind `TaiwanStockShareholding.ForeignInvestmentShares÷1000`）畫**外資實際持股張數**（官方申報的絕對持有量，非買賣超累加）。⚠️ **只有外資有逐檔官方持股**，投信/自營無此資料 → 不做「持股」模式，只在買賣超顯示。
 - **技術分析圖 `CandleChart.tsx`（2026-08 大改；`StockChart`個股·張 / `IndexChart`大盤·億/口 共用）**：
   - **架構**：不再是「三張獨立 chart 疊 + 動態同步右軸寬」的舊脆弱做法。改為 **1 張主圖（K線+MA+布林+成交量半透明疊底）＋ 每個指標各一張同步子圖**（指標**單選**，見下方 P0 改版；2026-08-18 前為多選 ≤2）。對齊靠 **固定右軸寬 68px（`AXIS_WIDTH`）+ 邏輯範圍同步（`subscribeVisibleLogicalRangeChange`）+ 十字線同步** → 天生對齊，**已移除 requestAnimationFrame/ResizeObserver 喬寬的舊 hack**。
-  - ⚠️ **各子圖系列必須保留完整時間軸**（暖身期 null 用 whitespace `{time}` 佔位，用 `toLineWS`／histogram 亦然；**勿用會濾 null 的 `toLineData` 或 `.filter`**）。否則 MACD 等指標系列從第 ~33 根才開始 → 子圖時間軸起點與主圖不一致 → 用 logical index 同步時錯位 → **K 棒與 MACD 柱水平對不上**（2026-08-13 踩到並修）。主圖有 K 線錨定完整範圍故 MA/BB 可濾；指標子圖沒錨定，務必用 whitespace。
+  - ⚠️ **各子圖系列必須保留完整時間軸**（暖身期 null 用 whitespace `{time}` 佔位，用 `toLineWS`（2026-11-06 起在 `lib/candles.ts`，名稱與行為不變）／histogram 亦然；**勿用會濾 null 的 `toLineData` 或 `.filter`**）。否則 MACD 等指標系列從第 ~33 根才開始 → 子圖時間軸起點與主圖不一致 → 用 logical index 同步時錯位 → **K 棒與 MACD 柱水平對不上**（2026-08-13 踩到並修）。主圖有 K 線錨定完整範圍故 MA/BB 可濾；指標子圖沒錨定，務必用 whitespace。
   - **互動**：開啟 `handleScroll/handleScale`（滾輪縮放 + 拖曳平移）；`3M/6M/1Y/2Y` 改用 `setVisibleLogicalRange`（bar 索引，避開「非交易日字串讓 `setVisibleRange` 失效 → 退回 fitContent 顯示全 5 年」的坑）。全量資料載入、指標用完整資料算，顯示範圍靠邏輯範圍而非 slice。
   - **視覺**：左上讀值整合一份（日期/收含漲跌%/量 + 有開的 MA/布林/各指標值）；最新價水平線 + 價籤；成交量半透明疊主圖底部（`vol` overlay 價軸）；版面 preset（價格為主/均衡/指標為主）調主圖佔比。
   - ⚠️ **為何不用「單圖多價軸(架構B)」**：一張圖共用一條右軸會把價格外插到指標帶、出現 `-250/-500` 負價標籤 → 才改成「主圖 + 每指標一張同步子圖」（各軸乾淨）。
@@ -46,17 +46,17 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
   - `CandleChart`：版面 preset + 疊加(MA/布林/量) 藏進「**⚙️ 更多**」（現已更名「⚙️ 圖表設定」）（`moreOpen` state；切換鈕 `md:hidden`；該區 `${moreOpen?'flex':'hidden'} md:flex`）；主列只留 週期/區間/指標。legend 的 MA/指標值：~~手機隱藏~~ **2026-10-22 起手機改放圖外讀值區**（桌機仍疊在圖上，見 CLAUDE.md K 線圖段）。觸控目標（**現已全面改 44px**）、checkbox `w-4 h-4 md:w-3.5`。
   - `StockDetailClient`：三大法人明細手機預設收合（`showInst` state +「展開/收合」鈕 `md:hidden`；grid `${showInst?'grid':'hidden'} md:grid`），卡片 `p-4 md:p-6`。
   - ~~`Sidebar` 手機標題 `pl-10`~~：**已失效**——P0 後 ☰ 移到 `TopBar`、抽屜關閉鈕改在抽屜內。
-  - ~~首頁 `IndexCard`~~：**已移除**（重複顯示加權），改為跟著分頁的精簡數據列 `IndexStatStrip`。
-- **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/選股/自選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
+  - ~~首頁 `IndexCard`~~：**已移除**（重複顯示加權），改為跟著分頁的精簡數據列 `IndexStatStrip`（2026-11-06 起在指數走勢彈跳視窗 `components/IndexChartDialog.tsx` 裡）。
+- **個股頁「返回」用 `router.back()`（`next/navigation`）回上一頁**，不要寫死 `href="/"`——否則從強勢股/月報/選股/搜尋點進來按返回都跑去首頁。無瀏覽歷史（`window.history.length<=1`，直接開個股頁）才 fallback `router.push('/')`。
 
 ### P0 UI/UX 改版（2026-08-18，已上線；以下取代上方部分 2026-08-13 慣例）
-- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、**2026-10-26 起 5 格：首頁/強勢/月報/選股/自選**（總表併進強勢股頁），與 Sidebar 共用 `navItems`、safe-area、所在格藍＋粗體＋上方色條、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
+- **導覽**：手機主導覽改 **Bottom Nav**（`components/MobileBottomNav.tsx`，`md:hidden` fixed bottom、**2026-11-06 起 4 格：首頁/強勢/月報/選股**（10-26 總表併進強勢股頁變 5 格，11-06 拿掉自選股變 4 格；`desktopOnly` 的市場溫度不進底部），與 Sidebar 共用 `navItems`、safe-area、所在格藍＋粗體＋上方色條、≥56px），掛在 `layout.tsx`；`MainContent` 補底部留白 `pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0`。`Sidebar` 桌機常駐不變；手機抽屜只留帳號(AuthButton)/資料來源（主導覽已移除：`nav` 加 `hidden md:block`），☰ 從 Sidebar 浮動鈕移進 `TopBar`，靠 window 事件 `toggle-mobile-menu` 開關（同 `sidebar-collapse-change` 模式）。
 - **Header 去雙層**：舊「全域 `TopBar` + 每頁 `<header bg-white shadow-sm>`」= 雙層。各頁改用 `states.tsx` 的 **`PageHeader`**（輕量標題、非白底 shadow bar）；`TopBar` 降高去 shadow、移除浮動漢堡的 `pl-16`。
 - **搜尋**：`StockSearchOptimized` 已是 instant（debounce/dropdown/鍵盤/點外關閉），**移除了「查詢」按鈕**。
-- **個股頁 header**：`← [名稱大] [代碼灰] … [☆加入自選] [🔔到價提醒]`；`WatchlistButton`（**原死碼、現已啟用**）接既有 `user_watchlists` 後端。股價階層：大字價格 `text-4xl md:text-5xl` + `▲▼` 漲跌 + 次要「日期·成交量」；金融數字加 `tabular-nums`。
+- **個股頁 header**：`← [名稱大] [代碼灰] … [🔔到價提醒]`（2026-11-06 起；之前還有 `[☆加入自選]` 的 `WatchlistButton`，隨自選股功能刪除，見下方「自選股功能拿掉」）。股價階層：大字價格 `text-4xl md:text-5xl` + `▲▼` 漲跌 + 次要「日期·成交量」；金融數字加 `tabular-nums`。
 - **CandleChart**：① 區間加 `1M`；②「⚙️ 更多」→「⚙️ 圖表設定」；③ 指標改**單選底線 Tabs**（`indicator` 單值，非陣列；`MAX_INDICATORS`/`toggleIndicator`/多選已移除）；④ **當沖移出技術圖**（`Indicator` 不再有 `daytrade`）。觸控 `min-h-[44px]`。
 - **當沖改屬籌碼**：`InstitutionalChart` 新增 `Mode='daytrade'` +「當沖」tab，資料由 `StockDetailClient` 用 K 線 history 算出 `dayTrade=[{date,ratio}]` 傳入（籌碼圖本身不 fetch 當沖）；`hasDayTrade` 才顯示該 tab。
-- **狀態元件**（`components/states.tsx`）：`PageHeader` / `CardGridSkeleton` / `ChartSkeleton` / `EmptyState` / `ErrorState(onRetry)`。首頁/強勢/選股/自選：載入→骨架、空→EmptyState、錯→ErrorState+重新載入（各頁補了 `error` state；screener 用 `reloadNonce` 重觸發 useEffect）。
+- **狀態元件**（`components/states.tsx`）：`PageHeader` / `CardGridSkeleton` / `TableSkeleton` / `EmptyState` / `ErrorState(onRetry)`（沒人用的 `ChartSkeleton` 2026-11-06 刪除）。首頁/強勢/月報/選股/市場溫度：載入→骨架、空→EmptyState、錯→ErrorState+重新載入（各頁補了 `error` state；screener 用 `reloadNonce` 重觸發 useEffect）。
 ### 無障礙／視力友善（2026-08-19，全站生效）
 - **⚠️ 中文字型**：`globals.css` 的 body 原本是 `font-family: Arial`，**Arial 沒有中文字**，中文全靠系統 fallback（部分裝置變襯線/細體）。已改為 `--font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", ...`（拉丁走 Geist、中文走黑體），body 用 `var(--font-sans)`。**別再把 body font-family 寫死成不含中文的字型。**
 - **字級放大**：用 Tailwind v4 `@theme` 覆寫字級變數（一次影響全站，不必逐檔改）：`--text-xs .85rem / --text-sm .95rem / --text-base 1.1rem / --text-lg 1.25rem / --text-xl 1.4rem / --text-2xl 1.7rem`＋放寬行高。硬寫的 `text-[10px]/[11px]` 已全改 `text-xs`；`CandleChart` 圖表內建 `fontSize` 12→14。
@@ -65,29 +65,43 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - 觸控目標一律 ≥44px；`viewport` 已移除 `maximumScale: 1`（原本禁止手機雙指放大，違反 WCAG 1.4.4）。
 
 ### 首頁 Dashboard 與 P1（2026-08-18/19，已上線）
-- ⚠️ **2026-11-05 晚上改版**（業主要的）：首頁**不再放今日強勢股**、不再抓 `/api/strong-stocks`；四區變成
-  今日市場（加權指數＋美股三大指數）／🌡️ 市場溫度四張大卡（`MoodSection`＋`components/MoodStats.tsx`）／⭐我的自選／指數走勢。
+- ⚠️ **現況（2026-11-06，業主在聊天裡逐項要的）**：首頁只有兩塊——
+  ① `components/home/MarketIndexCard.tsx`：加權指數＋美股三大指數**四格均分**（業主：「四個指數均分寬度」；container query
+  `@min-[40rem]:grid-cols-4`，不夠寬 2×2）。**加權指數那格是按鈕**，點了打開指數走勢彈跳視窗 `components/IndexChartDialog.tsx`
+  （業主：首頁的線圖區塊「改成用點擊台指大盤彈跳視窗顯示」；裡面保留加權／台指期切換＋`IndexStatStrip`＋`IndexChart`）。
+  ② `components/home/HomeMood.tsx`：🌡️ 市場溫度**全部內容**（含融資融券、走勢圖；業主：「市場溫度的融資融卷、走勢圖也放在首頁」），
+  就是 /market-mood 那份 `components/MarketMoodSections.tsx`（`level={3}`，因為首頁多一層「🌡️ 市場溫度」h2）。
+  已拿掉：今日強勢股（11-05，不再抓 `/api/strong-stocks`）、⭐我的自選（11-06，整個功能刪除）、頁面下方的指數走勢線圖（11-06 改成彈跳視窗）。
   `PageHeader` 也**沒有 subtitle 了**（業主：「標題下那行灰字不用顯示」）——頁面要寫日期就放在內容裡，不要加回副標題。
-  下面這條「四區」是 2026-08 的舊版，留著當脈絡。
+- ⚠️ **彈跳視窗的三個地雷**（`IndexChartDialog.tsx`）：
+  - 用原生 `<dialog>.showModal()`（焦點關在視窗裡、Esc 關、背景不能點都由瀏覽器處理），不要自己寫焦點陷阱。
+  - **線圖只在打開時才掛載**：lightweight-charts 依掛載當下的寬度建圖，藏起來的 dialog 寬度是 0，先掛好再打開會畫成 0 寬。
+  - **背景捲動用 `globals.css` 的 `html:has(dialog[open]) { overflow: hidden }` 鎖**，不要用 JS 改 `body.style`：
+    CandleChart 的全螢幕離開時會把 `body.style.overflow` 清成 ''，JS 鎖會被洗掉、背景又能捲。
+- 加權／台指期、美股三格、市場溫度**各自 fetch、各自失敗**：加權抓不到只讓那張卡變 ErrorState，市場溫度照常顯示；美股一檔抓不到只那格「—」。
+- 下面這條「四區」是 2026-08 的舊版，留著當脈絡（裡面的 `/api/quotes`、我的自選已於 2026-11-06 刪除）。
 - **首頁＝市場 Dashboard**（`app/page.tsx`）四區：今日市場（加權指數）／🔥今日強勢股（`/api/strong-stocks` 取 top6、依漲幅排序、重用 `StockCard`）／⭐我的自選（登入才有，讀 `/api/quotes`）／指數走勢（分頁切換 加權/台指期 + `IndexStatStrip` 精簡數據列 + `IndexChart`）。
-- **漲跌家數已移除（2026-08-19，業主表示不需要）**：曾做過 `app/api/market-breadth/route.ts` 抓證交所 `MI_INDEX?type=MS`（FinMind 無此資料）顯示上漲/下跌/漲停/跌停家數，已連同 API route 一併刪除；**若日後要復原，見 git 歷史 commit `ff454c8`（新增）與移除該功能的 commit**。首頁「今日市場」現在只有加權指數收盤與漲跌。
+- **漲跌家數已移除（2026-08-19，業主表示不需要）**：曾做過 `app/api/market-breadth/route.ts` 抓證交所 `MI_INDEX?type=MS`（FinMind 無此資料）顯示上漲/下跌/漲停/跌停家數，已連同 API route 一併刪除；**若日後要復原，見 git 歷史 commit `ff454c8`（新增）與移除該功能的 commit**。首頁「今日市場」當時只剩加權指數收盤與漲跌（2026-11-06 起是加權＋美股三大指數四格，見上）。
 - **`StockCard` 等高**：卡片內容行數不一（有無「當沖額」那列）會讓同排卡片高矮不齊 → `Link` 加 `block h-full`、卡片 `h-full flex flex-col`、底部三大法人區 `mt-auto`。新增卡片內容時保持這個結構。
 - **快速策略/篩選（近似值，非真訊號）**：選股頁 `QUICK_STRATEGIES`（趨勢多頭/法人佈局/爆量/技術+法人雙多，一鍵帶入條件）＋**已套用條件 Chips**（可單獨移除、清除全部）；強勢股頁 `QUICK_FILTERS`（全部/技術多頭/法人買超/爆量/外資連買 3 日以上；「全部」也清產業）。⚠️ **「突破」「爆量」目前是用 MACD/連買/成交量近似**，因真正的突破/爆量需個股 history（見下方 B1 待辦）。
-- **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-stocks-state`（2026-10-26 合併前是 `strong-filters`／`strong-table-view`，掛載時清掉），掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
+- **⚠️ 篩選條件持久化（sessionStorage）**：client 頁的 filter state 在「進個股頁→返回」時會被重置 → 選股頁存 `screener-filters`、強勢股頁存 `strong-stocks-state`，掛載時還原。**務必用 `ready` 閘門**：還原完成前不要發查詢，否則會先用預設條件多抓一次（畫面閃動）。
 - **圖表全螢幕**：`CandleChart` 的 `isFullscreen` → 容器 `fixed inset-0 z-[70]`、高度由 `window.innerHeight-132` 算（監聽 resize 支援旋轉）、鎖 `body.overflow`，控制列保留、✕ 離開。注意圖表高度要用 `effHeight`（全螢幕時覆寫 `height` prop）並列入 chart useEffect 依賴。
-- **訊號**：`lib/signals.ts` 的 `computeSignals()`（今日大漲≥5%／MACD多頭／外資·投信連買）供自選股頁 banner「今日 N 支出現訊號」＋卡片 chips、首頁我的自選 chips。**`/api/quotes` 已多帶 `macd_status`/`foreign_streak`/`trust_streak`/`foreign_buy`**（同一份 daily_data 讀取、零額外查詢）。個股頁另有「籌碼摘要」badge（🟢連買/買超、🔴連賣/賣超；手機明細收合時仍顯示）。
+- **訊號**：~~`lib/signals.ts` 的 `computeSignals()` 供自選股頁 banner＋卡片 chips、`/api/quotes` 多帶 MACD／連買欄位~~ **2026-11-06 隨自選股功能一起刪除**。現在只剩個股頁的「籌碼摘要」badge（🟢連買/買超、🔴連賣/賣超；手機明細收合時仍顯示）與下方的 `StockSignals`。
 - **B2 個股頁 Signal Engine 已完成（2026-08-19）**：`components/StockSignals.tsx` 用個股頁已載入的 `history` 前端即時判讀「今日訊號」（零額外 API）：今日大漲/大跌(對**前一日收盤**)、突破/跌破近20日高低、爆量/量縮(對前5日均量)、均線多/空頭排列、今日站上/跌破 MA20、MACD 金叉死叉、KD 交叉與超買超賣、RSI 超買超賣、當沖比例≥40%。**刻意只列「事件型」訊號**（今天才發生的交叉/突破），避免每天亮同樣的燈；tone: up=紅/down=綠/warn=琥珀。
-- **漲跌幅一律以「前一交易日收盤」為基準（2026-08-19 統一）**：台股慣例如此，原本個股頁/`StockCard`/自選卡都用 `close - open`（那其實是當日開→收），同頁會與 `StockSignals` 的正確值打架（實例 6141：+14.10% vs +7.88%）。作法：`lib/firebase-admin.ts` 新增 **`getPrevCloseMap(date)`**（從 `available_dates` 找前一天、讀該日 `getStocksByDate` 組 map），`/api/strong-stocks`、`/api/screener`、`/api/quotes` 都補回傳 **`prev_close`**；前端一律 `base = prev_close > 0 ? prev_close : open`（**保留 open 當 fallback**，因 daily_data 只留近 ~16 天，最舊那天取不到前一日）。個股頁不靠 API，直接用 `history[n-2].close` 最準。⚠️ **新增任何顯示漲跌幅的地方都要沿用這個 base**。⚠️ 別把「>10%」當成 bug：KY/興櫃等無漲跌幅限制個股確實會出現（已驗證 7871 +20.09% 為真實資料）。
-- **數值說明泡泡 `components/InfoTip.tsx`（2026-08-19）**：`<InfoTip title="...">說明文字</InfoTip>` 放在標籤旁，桌機滑鼠移入顯示、手機點擊切換（用 `matchMedia('(hover: hover)')` 分流，避免觸控裝置 hover 誤觸），可鍵盤 focus、Esc/點外關閉。⚠️ **按鈕與泡泡都 `preventDefault()+stopPropagation()`**：`StockCard` 整張包在 `<Link>` 內，沒隔離的話點說明會直接跳轉個股頁。已套用：個股頁（漲跌/MACD/當沖/近7日強勢/三大法人/外資三比例）、首頁（加權指數、漲跌家數）、`StockCard`（成交額/強勢/當沖額/法人）。說明文字可帶入實際數字（如漲跌泡泡會顯示今日收盤與前一日收盤）。深色底用 `dark` prop。
+- **漲跌幅一律以「前一交易日收盤」為基準（2026-08-19 統一）**：台股慣例如此，原本個股頁/`StockCard`/自選卡（自選股 2026-11-06 已刪）都用 `close - open`（那其實是當日開→收），同頁會與 `StockSignals` 的正確值打架（實例 6141：+14.10% vs +7.88%）。作法：`lib/firebase-admin.ts` 新增 **`getPrevCloseMap(date)`**（從 `available_dates` 找前一天、讀該日 `getStocksByDate` 組 map），`/api/strong-stocks`、`/api/screener` 都補回傳 **`prev_close`**（2026-11-06 起兩支共用 `lib/strong-enrich.ts`：查不到昨收就**省略 key**，不是送 null；`/api/quotes` 已刪）；前端一律 `base = prev_close > 0 ? prev_close : open`（**保留 open 當 fallback**，因 daily_data 只留近 ~16 天，最舊那天取不到前一日）。個股頁不靠 API，直接用 `history[n-2].close` 最準。⚠️ **新增任何顯示漲跌幅的地方都要沿用這個 base**。⚠️ 別把「>10%」當成 bug：KY/興櫃等無漲跌幅限制個股確實會出現（已驗證 7871 +20.09% 為真實資料）。
+- **數值說明泡泡 `components/InfoTip.tsx`（2026-08-19）**：`<InfoTip title="...">說明文字</InfoTip>` 放在標籤旁，桌機滑鼠移入顯示、手機點擊切換（用 `matchMedia('(hover: hover)')` 分流，避免觸控裝置 hover 誤觸），可鍵盤 focus、Esc/點外關閉。⚠️ **按鈕與泡泡都 `preventDefault()+stopPropagation()`**：`StockCard` 整張包在 `<Link>` 內，沒隔離的話點說明會直接跳轉個股頁。已套用：個股頁（漲跌/MACD/當沖/近7日強勢/三大法人/外資三比例）、首頁與 /market-mood 的市場溫度卡（`SentimentStat`）、`StockCard`（成交額/強勢/當沖額/法人）。說明文字可帶入實際數字（如漲跌泡泡會顯示今日收盤與前一日收盤）。（沒人傳過的 `dark` prop 2026-11-06 已刪，只有淺色一種。）
 - **⚠️ 籌碼圖切換模式/區間會「跳轉」→ 已修（2026-08-19）**：`InstitutionalChart` 切 買賣超/外資持股/當沖 或換區間時，**卡片高度會變**（實測手機 530.7→503.1，差 27.6px），下方內容整個上移＝使用者感受到的畫面跳動。兩個成因：① **圖例行數不同**（買賣超 3 個數值在 375px 折成 2 行、當沖只有 1 行）；② **狀態訊息（載入中/無資料/失敗）用 `py-12` 自撐高度，與圖表高度不同**。修法：圖例加 `min-h-[3.2rem] md:min-h-[1.6rem]`（無值時也放同高佔位 div）；圖表區包一層 `relative` 並固定 `style={{height}}`，訊息改成 `absolute inset-0` 置中覆蓋。驗證：切換全模式與區間後高度恆為 530.8、最大差 0。**日後在圖表卡新增會隨模式變動的內容（圖例/訊息）都要保留固定高度。**
 - **仍未做**：手機版週期/區間下拉（§11.2，目前保留兩排分離按鈕）、Design tokens（§33/41）、B1 清單「強勢原因」chips（§18，需收集器算 flag 存 daily_data，見待辦）。
 
 ### UI 結構盤點結論（2026-08-19，勿誤刪）
 - **`Sidebar` 不可刪**：桌機它仍是**唯一主導覽**（`TopBar` 只有搜尋）。P0 後手機版主導覽才改由 `MobileBottomNav` 承擔（Sidebar 的 `nav` 是 `hidden md:block`）。
 - **手機抽屜目前只剩帳號**：`Sidebar` 手機態＝標題＋spacer＋`AuthButton`＋「資料來源 FinMind」。若日後仍無 設定/說明/關於 等次要頁，可考慮「移除手機抽屜＋☰、把登入移進 TopBar」再簡化一層（尚未做，需權衡未來擴充）。
-- **無死碼**：`WatchlistButton` 已啟用（個股頁 ☆）；`Sidebar`/`MainContent`/`MobileBottomNav` 由 `layout.tsx` 以**雙引號** import（用 `grep "from '.*X'"` 單引號搜會誤判成 0 refs）。`states.tsx` 五個元件皆有使用。舊漢堡留下的 `pl-12/pl-16` 位移 class 已清乾淨。
-- **已知小重複**：首頁「今日市場」與「指數走勢」都顯示加權指數收盤/漲跌（前者摘要、後者含 OHLC 明細）——目前**刻意保留**（用途不同），若要精簡可把「指數走勢」的加權卡收掉。
-- **a11y 待辦**：`layout.tsx` 的 `viewport.maximumScale: 1` 會**禁止手機雙指放大**（違反 WCAG 1.4.4），建議移除；`watchlist` 頁尚無 `ErrorState`。
+- **無死碼**：`WatchlistButton` 已隨自選股功能刪除（2026-11-06）；`Sidebar`/`MainContent`/`MobileBottomNav` 由 `layout.tsx` 以**雙引號** import（用 `grep "from '.*X'"` 單引號搜會誤判成 0 refs）。`states.tsx` 現在匯出 `PageHeader`／`CardGridSkeleton`／`TableSkeleton`／`EmptyState`／`ErrorState` 五個，皆有使用（`ChartSkeleton` 2026-11-06 刪除）。舊漢堡留下的 `pl-12/pl-16` 位移 class 已清乾淨。
+- ~~**已知小重複**：首頁「今日市場」與「指數走勢」都顯示加權指數收盤/漲跌~~ **2026-11-06 已不存在**：指數走勢改成點加權指數那格才打開的彈跳視窗。
+- ~~**a11y 待辦**：`viewport.maximumScale: 1`、`watchlist` 頁尚無 `ErrorState`~~：前者早已移除（`layout.tsx` 註明不設 maximumScale／userScalable），後者頁面已刪。
+- ⚠️ **body 底色由 `globals.css` 那條沒分層的 `body { background: var(--background) }` 決定（白色）**：Tailwind v4 的 utility 都在
+  `@layer utilities` 裡，沒分層的規則一定贏，所以 `layout.tsx` 的 `<body>` 上原本那個 `bg-gray-50` 從來沒生效（2026-11-06 拿掉，畫面不變）。
+  **不要刪 `globals.css` 的 body background**——刪了以後 Tailwind 的 `bg-*` 會開始生效，手機頁尾（`MainContent.tsx` 那條）與畫布底色會變色。
 
 ### 手機不再渲染 Sidebar（2026-09-28）
 手機原本左上 ☰ 開側邊抽屜，但主導覽早在 P0 改版就移到 MobileBottomNav，抽屜裡只剩「登入」與
@@ -98,6 +112,15 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 - `AuthButton` 新增 `variant?: 'sidebar' | 'topbar'`；topbar 走淺色主題、`border-gray-500`
   （對比 4.84 過 AA；`border-gray-300` 只有 1.47 不可用）、`min-h-[44px]`。
 ⚠️ 桌機登入仍在 Sidebar 底部，**兩邊不可同時出現**（TopBar 那顆是 `md:hidden`）。
+
+### 自選股功能拿掉（2026-11-06，業主：「首頁、sidebar 的自選股刪除，不用這個功能」；f3b7b78）
+- 刪：`app/watchlist/page.tsx`、`components/WatchlistButton.tsx`、`app/api/quotes/`、`lib/signals.ts`、`lib/firebase.ts` 的自選股函式
+  （`getWatchlist`／`addToWatchlist`／`removeFromWatchlist`／`isInWatchlist`）。首頁的我的自選先在 c2c2d6c 拿掉。
+- 側欄與手機底部導覽拿掉「⭐ 自選股」→ 底部 4 格（市場溫度不補進底部）；個股頁只剩 🔔 到價提醒。
+- 舊網址 `/watchlist` 由 `next.config.ts` **307** 轉首頁（跟 `/strong-table` 同寫法；用 307 不用 308，萬一加回來瀏覽器不會快取住）；sitemap 拿掉。
+- **保留**：Google 登入（到價提醒要用）、到價提醒整段；Firestore `user_watchlists` 資料（業主決定不刪）與 `firestore.rules` 的那段規則。
+  ⚠️ 不要為了刪那段規則單獨部署 rules——`firebase deploy --only firestore:rules` 會整份覆蓋線上版本，要改就跟其他規則變更一起做。
+- 本機 `tsc` 會報 `.next/types/validator.ts` 找不到已刪路由（watchlist、quotes、stock/[id]、stocks）：那是舊的建置產物，下次 build／dev 會重新產生，不是原始碼問題。
 
 ### 強勢股頁：卡片與表格合併成一頁（2026-10-26，業主決定）
 - 業主問「強勢跟總表功能類似能否合併」→ 動工前影響分析（3 分析＋1 挑戰）→ 業主選：一頁切換（兩種都留）、
@@ -110,8 +133,18 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
   App Router 不會派送 restore、不打 API。網址 `?view` > localStorage `strong-stocks-view` > 卡片。
 - 卡片排序＝手機表格的 `mobileSort`（同一份「排序依據」按鈕），手機上兩種檢視順序必相同；
   依卡片上看不到的欄位（`CARD_HIDDEN_KEYS`：成交量、當沖比、外資連續、外資持股）排序時，每張卡片加一行該值。
-- 記住設定：只記「主動選的舊日期」＋當時最新日（以回應重算），`availableDates[0] > newest` 才跳回最新（用 `>`：CDN 舊清單不可誤判）；
-  請求加序號 `reqSeq`，換日期時先作廢進行中的請求。統計列在資料到之前顯示「—」（不可「當日 0 檔」）。
+- 記住設定：只記「主動選的舊日期」＋當時最新日（以回應重算），`availableDates[0] > newest` 才跳回最新（用 `>`：CDN 舊清單不可誤判）。
+  統計列在資料到之前顯示「—」（不可「當日 0 檔」）。
+- ⚠️ **舊回應不可蓋掉新條件**：序號閘門抽成 `lib/use-latest-request.ts` 的 `useLatestRequest()`（原樣抽自強勢股頁的 `reqSeq`），
+  **強勢股頁、強勢月報、選股頁三頁都用**——月報與選股頁原本沒有，2026-11-06 修掉兩個真的競態
+  （月報冷算數十秒，「先選冷的 A 月、再選 B 月」時 A 晚到會把下拉與整張表蓋回 A 月；選股頁連點兩個快速策略時結果是舊條件的）。
+  規則：送出前 `start()` 取號；**每個 setState 之前**先 `isLatest(n)`；`finally` 只在是最新請求時才關「載入中」；
+  換日期／換月份、防抖等待期間先 `cancel()`。新增「換條件就重抓」的頁面一律照這個寫。
+- 欄位定義（型別、儲存格、22 欄 `COLUMNS`、分組、`QUICK_FILTERS`、排序工具）在 `app/strong-stocks/columns.tsx`（2026-11-06 從 page 搬出，沒有 state）；
+  `renderTh`、桌機／手機表格等依賴 state 的 JSX 留在 page。
+- `/api/strong-stocks` 的 `days` 不是數字時退回 7（以前 `parseInt` 得 NaN → 強勢天數全部靜默變 0）。
+  ⚠️ 已知 bug 未修：「強勢天數」不看所選日期（`firebase-admin.ts` 的 `getStrongCountForStocks(stockIds, days)` 一律從最新交易日往回算，
+  頁面以灰字與提示補救）。根治＝讓它的簽名多收 `targetDate`，然後只要改 `lib/strong-enrich.ts` 一處呼叫（強勢股與選股兩支 API 都經過它）。
 - `StockCard`：欄數要依**扣掉側欄的內容寬**算（768 寬扣 256px 側欄只剩 480px，排兩欄每張 232px、法人欄 63px，
   6 位數會溢出）→ `grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4`，7 字元以上的法人數字縮一級。
 - 驗證腳本（當時 session 的 scratchpad `merge-shots/functional*.mjs`）：切換不打 API、記住檢視、篩選排序共用且檔數順序一致、
@@ -164,6 +197,8 @@ overflow 一路傳到 `<html>`** → 靠右格子一點說明就整頁橫捲（3
 - 驗證：10 月 686 列、9 月 759 列的收盤／量／外資／MA5／MA10／20 日投信／漲停／MACD 用年度檔 Python 重算
   **全部吻合**；320～1280 七種寬度 `scrollWidth === clientWidth`；17 項互動測試（排序、篩選、換月、還原）全過。
 - API 回應形狀改了 → 前端網址帶 `v=2`（`API_VERSION`），避開 CDN 上 `s-maxage=1800＋swr=3600` 的舊回應。
+  （2026-11-06 回應拿掉沒人讀的 `coverage`、`generatedAt`、`requestedMonth`、`count` 與每列的 `lastDate`、`foreignHoldPrev`：
+  只刪欄位、沒改形狀，舊快取多帶的欄位不影響畫面，所以 `API_VERSION` 仍是 `'2'`。改形狀時才要升版。）
   sessionStorage key 也換成 `strong-monthly-word`（舊 key 存的是「依日期排序」，會蓋掉新的預設排序）。
 
 **欄位定義**：日期＝當月**第一次**入選日；其餘數字欄＝基準日（見上）；強勢日＝該檔本月所有入選日的「日」。
@@ -293,11 +328,13 @@ MACD 欄填現有 `macd_status`（多/空）但標註「業主的 +↗ 記法未
 
 **導覽**：Sidebar 第 6 項（🗓️ 強勢月報），並加了兩個輕量區段小標（「強勢股」/「工具」）把三個
 同前綴的項目收成一組。路由 **不可以 `/strong-stocks` 開頭**（isActive 是
-`startsWith`，會雙亮）。~~MobileBottomNav 維持 4 格~~ → 2026-10-22 改 6 格 → **2026-10-26 卡片與總表合併成一頁，變 5 格**。
+`startsWith`，會雙亮）。~~MobileBottomNav 維持 4 格~~ → 2026-10-22 改 6 格 → 2026-10-26 卡片與總表合併成一頁，變 5 格 → **2026-11-06 拿掉自選股，變 4 格**（首頁／強勢／月報／選股，每格 320px 寬時 80px）。
 強勢股與月報是**同一層**：強勢股是「某一交易日」（卡片／表格兩種呈現），月報是「某一個月」的彙整。
 
-**共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`）與
+**共用元件**：`lib/table.ts`（`ColDef<T,Ctx>` 泛型 registry、`Align`/`alignClass`/`SELECT`，以及 2026-11-06 起的
+`normalizeQuery`／`matchesStockQuery`／`industriesOf`／`sortRows`——強勢股頁與月報共用的搜尋正規化、比對、產業清單、排序）與
 `components/table.tsx`（`NullCell`/`TbdCell`/`TableScroll`）由強勢股表格（原 `/strong-table`）抽出，與月報共用。
+`ColDef.tbd` 已刪（2026-11-06）：「待定義」欄靠 `sortable: false` 加 `TbdCell` 表達；`nullable` 只有強勢股頁的「隱藏無資料的列」在讀。
 
 ## 強勢股的四條實際條件（2026-10-09 校正文件；程式才是權威）
 
@@ -423,17 +460,23 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 11-04 有成交但沒當沖資料的上市櫃普通股 273 檔：處置股 9、其餘多半沒有融資融券資格（本來就不是當沖標的）。
 - 官方逐檔當沖表連當沖量 0 的標的也列出（10-30 有 107 檔是 0），所以「整列不見」≠「當沖量 0」。
 - 查歷史用櫃買網站 API：標的清單 `/www/zh-tw/intraday/list?date=YYYY/MM/DD&response=json`、逐檔統計 `/www/zh-tw/intraday/stat?type=Daily&date=…&response=json`（OpenAPI 只給最新一天／全市場合計）。
-- **畫面會誤導的三處（業主 2026-11-05 選 B「只改文字＋圖例加日期」，已上線 2f8bc22）**：`strong-stocks/page.tsx` 當沖量欄說明與欄位說明、`components/table.tsx` NullCell 預設提示改寫成「交易所沒公布：興櫃／處置股／無信用交易資格」；
+- **畫面會誤導的三處（業主 2026-11-05 選 B「只改文字＋圖例加日期」，已上線 2f8bc22）**：強勢股表格當沖量欄說明與欄位說明（欄位定義 2026-11-06 起在 `app/strong-stocks/columns.tsx`）、`components/table.tsx` NullCell 預設提示改寫成「交易所沒公布：興櫃／處置股／無信用交易資格」；
   `InstitutionalChart.tsx` 當沖分頁圖例改成一律標日期，且最後一筆早於個股頁最新交易日（`latestDate` prop）時加一行「M/D 無當沖數字（處置股…）」。沒選 A（標「處置中」要收集器多抓處置資料），日後要做可用 FinMind `TaiwanStockDispositionSecuritiesPeriod`，注意公告期間遇休市要自己順延。
-- 順帶發現：`CandleChart.tsx:492` 週／月 K 合併用 `(day_trading_volume || 0)`（目前技術圖沒畫當沖，未影響）；`strong-stocks/page.tsx:81` 註解說 StockCard 用 `|| 0` 已過時。
+- ~~順帶發現：`CandleChart.tsx:492` 週／月 K 合併用 `(day_trading_volume || 0)`；`strong-stocks/page.tsx:81` 註解說 StockCard 用 `|| 0` 已過時~~
+  **✅ 2026-11-06 已處理（b1b3837、7af5f3c）**：`convertToTimeFrame` 搬到 `frontend/lib/candles.ts`，當沖量不再加總
+  （週K／月K 的 `day_trading_volume` 現在是期間最後一根的值，不是加總；技術圖不讀這欄），**成交量改成 null-aware**：
+  有值就加、null／undefined 跳過、整段都缺才回 null（0 照算）。**不可改回 `|| 0` 或 `sum + v`**。過時的那行註解也已刪。
 
 ## 市場溫度 `/market-mood`：大盤當沖比、融資融券、恐慌指數（2026-11-05 已上線）
 
 業主決定（記憶 `stock-helper-sentiment-page`）：新頁＋首頁兩行、底部維持 5 格、金額口徑、上市上櫃各一、台股＋美股 VIX、
 融資＋融券餘額、2023 起、**不貼標籤**。程式：`stock_collector/sentiment_collector.py`、`firebase_writer.write_market_sentiment`、
 `scripts/backfill_market_sentiment.py`、`frontend/lib/sentiment.ts`、`components/SentimentStat.tsx`／`SentimentChart.tsx`、
-`app/market-mood/`、`app/api/market-sentiment/`、首頁 `MoodSection`、`components/MoodStats.tsx`（兩邊共用的四張卡）。
-⚠️ 2026-11-05 晚上業主改成「首頁不放今日強勢股，當沖比、恐慌指數展開放上，補上美國恐慌指數」：首頁那兩行已換成四張大卡。
+`app/market-mood/`、`app/api/market-sentiment/`、`components/MarketMoodSections.tsx`（三組卡＋走勢圖＋說明，首頁與 /market-mood 共用）、
+`components/MoodStats.tsx`（卡組）、首頁 `components/home/HomeMood.tsx`。
+⚠️ 2026-11-05 晚上業主改成「首頁不放今日強勢股，當沖比、恐慌指數展開放上，補上美國恐慌指數」：首頁那兩行換成四張大卡。
+⚠️ 2026-11-06 再改「市場溫度的融資融卷、走勢圖也放在首頁」：首頁放**完整的** `MarketMoodSections`（跟 /market-mood 同一份，改一處兩頁同步）；
+手機底部導覽變 4 格、仍不放市場溫度（首頁已有完整內容；/market-mood 只在桌機側欄）。
 
 **鐵則（收集器檔頭也有）**
 - 休市／停市／當天未公布，官方回應**一模一樣**（stat OK＋空表）→ `_find_table` 用表名找、再比對 `fields` 關鍵字；空就回 None、不寫。
@@ -442,7 +485,9 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 融資：D 日的值＝D+1 回應的「前日餘額」（官方：今日餘額只是輔助參考）；視窗最後一天永遠是初值、下一班修正。
 - 每班重抓近 3 個交易日（`recent_trading_days` 帶 `with_actual=True`）；批次模式（--days／--backfill-gaps）迴圈內跳過、結束後 `_run_sentiment_once` 一次。
 - 17:00 那班當沖／融資 0 天正常；`_check_staleness` 在最新日期落後視窗起點（≈ 兩個交易日沒抓到）或 VIX 一週沒更新時寄非關鍵告警。
-- 前端：首頁用 `?days=400`（四張卡要算近一年最高最低；400 個日曆天不會被春節切空。舊的兩行摘要用 `?last=3`）；「本站自 X 起統計」用回應的 `first`（trim 前）；
+- 前端：首頁與 /market-mood 都送 `?days=400`（同一個網址、CDN 共用快取；卡片要算近一年最高最低、走勢圖要 1 年；400 個日曆天不會被春節切空）。
+  API **只剩 `?days`**：`?last`、`latest`、`generatedAt` 沒人用，2026-11-06 刪除（f192b8a）。「本站自 X 起統計」用回應的 `first.taivix`（trim 前的第一筆；
+  只有臺指VIX 不到一年需要，其他三組不送）；
   「比 M/D 高…」一定寫出比較的日期（prev 是前一筆有值的日子）；圖 resize 後要 `fitContent()`；手機看某一天要**長按再滑**（畫面有寫）。
 - **Cloud Run 連不連得到櫃買／期交所（Cloudflare）還沒測**：重建 image 後要用 `--date` 實跑一次看 log。
 
@@ -471,8 +516,9 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - CNN 恐懼貪婪：官方無 API（對程式回 418），FinMind `CnnFearGreedIndex` 可抓（2011 起）但 emotion 字串三種寫法、2020 缺 39 天、**日期是抓取日不是美股交易日**。建議不放。
 - 期交所 OpenAPI 另有臺指選擇權 Put/Call 比（只留 20 天）。
 - 存放：**不要**沿用 `write_market_index`（`firebase_writer.py:513-520` 用 `row.get(...,0)` 會把缺的開高低量寫成 0）；另開 collection（例如 `market_sentiment`），`api/market-index/[id]/route.ts:30` 的 `indexNameMap` 也只有 TAIEX/TX。改收集器要重建 Cloud Run image；期交所／櫃買前面有 Cloudflare，**Cloud Run 連不連得到沒測過**。
-- 撞名：站上個股「當沖比」是股數口徑（`strong-stocks/page.tsx:322`、`StockSignals.tsx:105` ≥40% 偏高），大盤用金額口徑要另取名（例如「大盤當沖占成交金額」）。🌡️ 已被 RSI 訊號用掉（`StockSignals.tsx:98`）。
-- 首頁 `page.tsx:84-102` 的 `load()` 用 Promise.all，任一 fetch 失敗整頁變錯誤畫面 → 新資料要獨立抓。
+- 撞名：站上個股「當沖比」是股數口徑（公式在 `lib/format.ts` 的 `dayTradingRatioOf`，強勢股表格、`StockCard`、個股頁共用；
+  `StockSignals.tsx` 的 ≥40% 偏高判斷還自己算一份、公式相同），大盤用金額口徑要另取名（例如「大盤當沖占成交金額」）。🌡️ 已被 RSI 訊號用掉（`StockSignals.tsx`）。
+- 首頁 `page.tsx` 的 `load()` 只抓加權與台指期（Promise.all）；市場溫度（`HomeMood`）與美股三格（`MarketIndexCard`）各自 fetch → 新資料一律獨立抓，不可併進 `load()`。
 - 高 VIX 不代表會繼續跌（高檔三分位之後 20 日加權平均 +4.0%），畫面附「不是投資建議」。
 
 ## 美股三大指數（費半、S&P 500、道瓊；2026-11-05 晚上）
@@ -480,14 +526,42 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 來源 FinMind `USStockPrice`，data_id `^SOX`／`^GSPC`／`^DJI`（2000 年起都有；美國假日沒有列）。存 `market_index/{SOX|SPX|DJI}`，
   跟 TAIEX 同一支 `/api/market-index/[id]`（首頁帶 `?last=2`）。
 - **日期是美東交易日**：台灣 11/5 晚上最新是 11/4（美股 11/5 收盤＝台灣 11/6 清晨），畫面一律標「美股 M/D 收盤」。
-  所以 `collect_and_save` 每班往回抓 7 個日曆天，不是只抓今天。
+  所以每班往回抓 `US_LOOKBACK_DAYS`＝**21 個日曆天**（2026-11-05 深夜 2608e66 由 7 天改 21 天，蓋過春節連休＋美國連假），不是只抓今天。
+- **台股休市日美股照常抓**（春節可連休 11 天，否則首頁停在封關前一晚、那幾天美股也補不回來）；`--us-only` 只抓美股後結束（不看休市、不碰年度檔）。
 - **SOX 的 Volume 永遠是 0** → 收集器把 ≤0 的量改成 NA、writer 寫 null；美股沒有未平倉／結算價也是 null。
-- 🔴 **`collect_and_save` 的回傳值只算台股**：`daily_collector.collect_index` 用「回傳非空＝成功」。美股往回抓 7 天幾乎永遠有列，
+- 🔴 **`collect_and_save` 的回傳值只算台股**：`daily_collector.collect_index` 用「回傳非空＝成功」。美股往回抓 21 天幾乎永遠有列，
   若算進去，加權指數抓不到的日子就**不會重試、不會寄告警**（審查前自己抓到的）。新增任何「附帶」資料源都要守這條。
+- **美股斷料檢查（`check_us_staleness`）不可放進 tenacity 重試範圍**（2026-11-06 修，1237f5e）：以前在 `collect_and_save` 裡，
+  加權指數重試 3 次就可能寄 3 封。現在 `run_daily` 在 `collect_index` 之後、不論成敗呼叫一次 `_check_us_stale`（台股指數和美股都抓不到時也會檢查）；
+  休市分支、`--us-only`、批次結束那次都經 `_collect_us_only` → `collect_us_and_save` 各檢查一次；批次迴圈內不檢查。→ 一個執行最多 1 封
+  （一天仍可能多封，見待辦）。
 - `write_market_index` 從這次起缺值寫 null（以前 `row.get(...,0)`；NaN 反而會讓 `int()` 丟例外）。前端 `IndexStatStrip`、
   `CandleChart` 的量已改成缺值顯示「—」／畫空白。
-- 版面：美股那塊用 container query（`@container` ＋ `@min-[26rem]:grid-cols-3`）依**自己的寬度**排；不夠寬就三列（名稱左、數字右）。
-  量過 390px 三格並排會讓道瓊數字頂到框邊、▲ 自己掉一行；768px 有側欄時內容只剩約 430px。
+- 版面（2026-11-06 起，業主：「四個指數均分寬度」）：`components/home/MarketIndexCard.tsx` 把加權＋美股三大指數排成**四格均分**，
+  用 container query（`@container` ＋ `@min-[40rem]:grid-cols-4`）依**這張卡自己的寬度**排，不夠寬就 2×2；320～1280 七種寬度四格等寬、數字不出框。
+  （11-05 版是美股自己一塊 `@min-[26rem]:grid-cols-3`、不夠寬三列；量過 390px 三格並排會讓道瓊數字頂到框邊。768px 有側欄時內容只剩約 430px，所以一定要用 container query 不用視窗斷點。）
+  美股三格各自 `?last=2`，一檔抓不到只那格「—」。
+
+## 到價提醒 `alert_checker`：信任邊界與寄送規則（2026-11-06 修，1237f5e；image 已重建）
+
+資料流：前端（`components/AlertButton.tsx` → `lib/firebase.ts` 的 `addAlert`）寫 `user_alerts/{uid}/alerts/{id}`；收集器在
+`daily_collector.run_daily()` 尾端（收集＋self-check 通過後）用 Admin SDK `collection_group('alerts')` 掃全部，對照當日 `daily_data` 判斷。
+- 🔴 **提醒文件是使用者自己寫的，不可信任**（`firestore.rules` 只驗 uid、不驗欄位）：
+  - 收件人一律用 **Firebase Auth 查 uid 的 email**（`firebase_admin.auth.get_user(uid).email`；uid 取自文件路徑，
+    路徑不是 `user_alerts/{uid}/alerts/{id}` 就不寄；同一班每個 uid 只查一次）。**不用**文件的 `email` 欄位——
+    以前任何登入的人都能讓收集器用業主的 Gmail 寄信給任意地址；文件 email 是空字串時還會落到業主自己的信箱。
+  - 股名、代號用當日 `daily_data` 的值，條件數值用解析後的數字，不把使用者原字串放進信裡。
+- **信確實寄出才停用**（`enabled=False`＋`triggered_at`）：沒設 SMTP、Gmail 拒收、查不到收件人都**維持啟用、下一班再試**，
+  log 結尾有「未寄出 N 筆」。所以 SMTP 恢復後可能晚一班才收到。
+- **只檢查「今天」**（本機時鐘或台灣時間的今天）：補舊日期（`--date` 舊日、`--days`、`--backfill-gaps`）整個不檢查、不讀 Firestore，
+  否則會拿舊收盤價寄出「警示達成」並停用提醒。
+- 權限：查 Auth 需要 `firebaseauth.users.get`。Cloud Run 預設服務帳號有 `roles/editor`（已含），**不需另外改 IAM**；
+  `deploy-cloudrun.sh` 步驟 3 多加的 `roles/firebaseauth.viewer` 是給換成專用服務帳號時用的。
+  少了權限的症狀：一律不寄也不停用，log 出現「警示收件人查詢失敗」。
+- 已知限制：被 SMTP 拒收的地址每班都會重試（收件人改成 Auth 登記的 email 後機會已低）；日後可考慮記失敗次數。
+- `notify.py`：`send_alert` 回傳有沒有寄出（到價提醒、`--test-alert` 靠它判斷）；收集器所有**非關鍵告警**（收集失敗、美股斷料、
+  市場溫度斷料、交易日曆不一致、強勢股異常）一律走 `send_nonfatal`：永不 raise、沒設 SMTP 只記 warning。
+  信件時間用 `tw_now()`（固定 +8、不依賴 tzdata），收集失敗告警的時間加註「（台灣時間）」。`alert_enabled` 已刪。
 
 ## 投信累積持股：確認無可靠來源（2026-10-09 完整調查，不要再重查）
 
@@ -518,7 +592,7 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 10. **~~firestore.indexes.json 與實際部署有落差~~（2026-09-05 已清理）**：原本檔案列 4 個索引（`daily_stocks`×2／`market_index_daily`／`strong_stock_matrix`）、線上另有孤兒索引 `stock_analysis_reports`——**對應的 collection 全部不存在**。5 個索引已全刪、`firestore.indexes.json` 的 `indexes` 已清空，兩邊一致。
     **現行查詢不需要任何複合索引**（前端唯一的 `orderBy('date')` 無 `where`，走自動單欄位索引；`alert_checker` 的 `collection_group('alerts').stream()` 也無條件）。新增 `where`+`orderBy` 組合時才需要補。
     ⚠️ 先前「勿用 `--force`」的警告**已失效**（那個要保護的孤兒索引本來就該刪）。
-11. **`market_index/{id}` 的 history 項目不帶 `index_id`／`index_name`**：(a) `IndexChart` 原本用 `data[0].index_id` 判斷 TAIEX/TX 決定成交量單位（億/口）→ 恆 undefined → `isTaiex` 恆 false → **加權成交量誤標「口」**（應「億」）。已修：**父層 `page.tsx` 明確傳 `indexId` prop**、`data[0]` 只當 fallback。(b) 同理 history 也沒 `index_name` → 首頁卡片 `index_name` 空白。已修：**market-index API route 用代號補中文名**（TAIEX→加權指數、TX→台指期）。**注意 API 有 `s-maxage=300` 快取**，改後舊回應可能還在（dev 亦然），驗證要 `fetch(..., {cache:'no-store'})` 或等 5 分鐘。
+11. **`market_index/{id}` 的 history 項目不帶 `index_id`／`index_name`**：(a) `IndexChart` 原本用 `data[0].index_id` 判斷 TAIEX/TX 決定成交量單位（億/口）→ 恆 undefined → `isTaiex` 恆 false → **加權成交量誤標「口」**（應「億」）。已修：父層明確傳 `indexId` prop；**2026-11-06 起 `indexId` 必填、`data[0]` 的後備已刪**，父層是 `components/IndexChartDialog.tsx`（傳 API 回應的 `index_id`）。**不可改回從 `data[0]` 推**。(b) 同理 history 也沒 `index_name` → 首頁卡片 `index_name` 空白。已修：**market-index API route 用代號補中文名**（TAIEX→加權指數、TX→台指期）。**注意 API 有 `s-maxage=300` 快取**，改後舊回應可能還在（dev 亦然），驗證要 `fetch(..., {cache:'no-store'})` 或等 5 分鐘。
 12. **⚠️ FinMind 的 TAIEX 成交量有「整段源頭缺漏」**（2026-08-15 用 TWSE 補過 2026-02 全月 12 天）：`taiwan_stock_daily(stock_id='TAIEX')`（=`TaiwanStockPrice`）某些歷史區間只回指數點位、`Trading_Volume`＝`Trading_money`＝0；collector 忠實照抄 → `market_index/TAIEX` 該段 `volume=0` → **大盤技術圖成交量直方圖空一段**（K棒/均線/MACD 正常，靠 close 算；**個股不受影響**，前端直打 FinMind live）。**重跑 `index_collector` 無效**（FinMind 就是回 0）。**決定不改 collector**（罕見事件、低維運）：需要時跑一次性工具 **`scripts/backfill_index_volume_from_twse.py`**——用證交所 **TWSE FMTQIK**（`exchangeReport/FMTQIK?response=json&date=YYYYMM01`，回整月；欄位『成交股數』＝我方 `volume`、與 FinMind `Trading_Volume` 同單位、量級 ~1e10 股；ROC 日期 +1911；用 TWSE 加權指數收盤與現有 `close` 對帳確認日期無誤）只補 `volume==0` 且 close 對得上的日期。`write_market_index` 是**單 doc + history 陣列、upsert-by-date** → 安全、總筆數/`latest_date` 不變。稽核法：讀 `market_index/{TAIEX,TX}` history 找 `volume==0`（TX 用 FinMind 期貨、通常無此問題）；日期缺口用 **TAIEX vs TX 是否一致**判斷「休市(真)vs 缺資料(假)」。補完前端 API 有 ~5 分鐘快取才反映，**資料層即時、無需重新部署**。
 
 ## 已修 bug 清單（2026-08 本次 session，均已部署）
@@ -526,9 +600,9 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 **後端**：C1 輔助資料整批 0 警示、C2 驗證改當日切片、C3 latest_date 不倒退、C4 Firestore 寫入失敗醒目、C6 指數 upsert、C7 MACD 改本地年度檔計算（`add_macd_from_archive`，零 API）。
 
 ## 已修 bug 清單（2026-09-04/05 session，均已部署驗證）
-1. **「無資料」被寫成 0**（外資持股三欄＋當沖量）→ 收集器改留 NaN、`firebase_writer._opt_num()` 寫 None、前端 `num()` 保留 null。歷史用 `scripts/backfill_null_vs_zero.py` 回補 30 天（0→null 共 52,917 格）。詳見下方專章。
+1. **「無資料」被寫成 0**（外資持股三欄＋當沖量）→ 收集器改留 NaN、`firebase_writer._opt_num()` 寫 None、前端 `num()` 保留 null。歷史用 `scripts/backfill_null_vs_zero.py` 回補 30 天（0→null 共 52,917 格；腳本 2026-11-06 已刪，要看從 git 歷史撈）。詳見下方專章。
 2. **股→張換算前後端不一致**（`Math.round` vs `astype(int)`，實測 8 檔中 3 檔差 1 張）→ `finmind.ts` 全檔統一 `Math.trunc`。
-3. **ETF 代碼掉前導零**（`0050`→`50`，中的是最熱門 ETF）→ 8 處 `read_csv` 補 `dtype`、`_norm_stock_id()` 第二道防線、`scripts/fix_stock_id_leading_zero.py` 修 7,098 列 CSV + 252 筆 Firestore。詳見下方專章。
+3. **ETF 代碼掉前導零**（`0050`→`50`，中的是最熱門 ETF）→ 8 處 `read_csv` 補 `dtype`、`_norm_stock_id()` 第二道防線、`scripts/fix_stock_id_leading_zero.py` 修 7,098 列 CSV + 252 筆 Firestore（腳本 2026-11-06 已刪，要看從 git 歷史撈）。詳見下方專章。
 4. **5 段永遠不會執行的舊架構備援**（其中 3 個 collection 根本不存在）→ 全部移除；`strong_stock_matrix` 那段是潛在 bug（會回傳 14 個月前舊資料）。
 5. **個股頁跨請求重讀 0.9 MB** → 加 `dayCache`（TTL 5 分鐘），中位數 0.72→0.54 秒。
 
@@ -590,11 +664,13 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 可信度：2023-01-03～2026-10-22 日曆算出的交易日 **918 天＝加權指數實際 K 棒 918 天**；
   颱風停市也在日曆上（2023-08-03 卡努、2024-07-24／25 凱米、2024-10-02／03 山陀兒、2024-10-31 康芮）。
   07-24～10-22 交易日 62 天＝`daily_data` 62 天；平日休市 3 天：09-25 中秋、09-28 教師節、10-09 國慶補假。
-- `daily_collector.run_daily()` 開頭判斷（`daily_collector.py:236`）：休市 → 不下載年度檔、不收集、不重算、
-  不檢查提醒、**exit 0 不告警**。例外：手動「只重算強勢股」（`--skip-stock --skip-index`）休市日照跑。
+- `daily_collector.run_daily()` 開頭判斷：台股休市 → 不下載年度檔、不收集股票與台股指數、不重算、
+  不檢查提醒、**不寄「收集失敗」告警、exit 0**；**美股三大指數照常更新**（2026-11-05 深夜 2608e66 起；斷料仍會寄非關鍵告警）。
+  例外：手動「只重算強勢股」（`--skip-stock --skip-index`）休市日照跑。
   判斷本身拋例外 → 照常收集。`get_trading_days()` 改用日曆並**聯集實際有 K 棒的日子**（一次 API）。
-- 雲端實測（image `sha256:a68619…`）：`--date 2026-10-09` 4 秒結束、日誌是「三個來源都確認」（＝Cloud Run 連得到證交所）、
-  沒寄信；不帶參數跑交易日照常收集 2,353 檔、45 秒。
+- 雲端實測（2026-10-22，image `sha256:a68619…`）：`--date 2026-10-09` 4 秒結束、日誌是「三個來源都確認」（＝Cloud Run 連得到證交所）、
+  沒寄信；不帶參數跑交易日照常收集 2,353 檔、45 秒。⚠️ 這是當時的結果：現在休市日會抓美股並寫 Firestore，
+  不再保證幾秒結束、也可能寄美股斷料告警。
 - **臨時停市也在 FinMind 日曆上**：2026-10-23（週五）日曆、加權指數、證交所月表都沒有這天，排程正確跳過。
   證交所 `holidaySchedule` 只列國定假日與補假，**不含臨時停市**（10-23 不在裡面），不能拿它當休市判斷來源；
   要確認某天有沒有開盤，看 `MI_INDEX?date=YYYYMMDD&type=IND` 的表格有沒有資料列（休市日有標題、沒有列）。
@@ -614,8 +690,24 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 
 ## 待辦（尚未修，附具體修法）
 - ~~**🔴 強勢股歷史重算 / 放空斷料**~~ **✅ 2026-10-18 已完成**（見下方「image 重建實錄」）。
+- **🔴 2027-01-04 跨年：要在 2026-12 底前做**（2026-11-06 驗證者抓到，`py-archive-history` 範圍、這次刻意沒做）：
+  2027 年第一個交易日那晚 `stocks_2027.csv` 只有一個日期 → `_assert_prev_close_sane` raise、被 `update_matrix()` 的迴圈吞掉 →
+  **那天整天沒有強勢名單，也不告警**；MACD 用年度檔的收盤序列算，新年度前約 25 個交易日全是「—」。
+  修法：年度檔讀前一年最後一段當種子（`calculate_strong` 的前一日收盤、`add_macd_from_archive` 的暖身序列），就是下一條的根治。
+  ⚠️ 會一併改到 **2024～2026 每年第一個交易日**的強勢名單（下一條的 64 檔），**動工前先給業主數字**（各天改前改後檔數、哪些股票進出）。
 - **跨年第一個交易日的 fallback 可根治**：讓 `calculate_strong` 多吃「前一個年度檔最後一個
   交易日的 (stock_id, close)」當 seed（約 2,300 列）。目前殘留 64 檔判定不同（見上方專章）。
+- **FinMind `DataLoader()` 建構子連網、沒有 timeout**（2026-11-06 驗證者抓到，這次沒改）：`DataLoader()` 建構時就會連網登入
+  （打 `user_info`），`StockCollector`／`IndexCollector` 的 `__init__` 在 `_login_finmind()` 那個 try 之前就呼叫它，
+  `trading_calendar._get_api()` 也一樣，而且都沒有 timeout（外層的 try／tenacity 只接得住例外、接不住卡住）。FinMind 卡住時會一直等到 Cloud Run
+  `task-timeout`（10 分鐘）被砍掉，**不會寄告警**，只會在排程歷史看到失敗。修的方向：建構前設 socket timeout 或包一層有時限的呼叫，
+  逾時走既有的收集失敗告警。
+- **❓ 美股斷料告警一天可能寄多封（要不要做「一天一封」待業主決定）**：2026-11-06 起同一個執行最多 1 封（見「美股三大指數」），
+  但 Cloud Run 的 `--max-retries=1` 重跑整個 task 時可能寄第 2 封；休市日也是每班一封、一天兩班。
+  要一天一封就得在 `market_index` 記 `last_alerted_date` 之類的去重欄位。
+- **❓ 美股每天 17:00 才更新（要不要加台灣早上的排程待業主決定）**：美股收盤＝台灣清晨，但排程只有 17:00／22:00 兩班 →
+  **台股盤中首頁看到的是前天的美股**（例：週三早上看到週一美股收盤）。`daily_collector --us-only` 已備好（不看休市、不碰年度檔；
+  雲端 2026-11-06 03:21 實跑成功）；要做就是多一個 Cloud Scheduler（例如台灣早上 8 點）以 args 覆寫 `--us-only` 觸發同一個 Job。
 - **`shareholding` / `day_trading` 仍在「包住整日」的 try 裡**：任一支拋例外會丟掉整天資料。
   改法同放空——用 `_fetch_optional()` 包起來（已寫好、可直接複用）。
 - ~~**月報的基準日還沒有單一規則**~~ **✅ 2026-10-26 業主定了：最新一個交易日（過完的月份＝月底），全表同一天**。
@@ -663,26 +755,32 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
     但年度檔沒存回，請補跑 --date」。
   - `require_authoritative_archive()`：會寫 Firestore 卻沒設 `USE_GCS_ARCHIVE=1` 就中止（本機年度檔停在 09-04，
     審查模擬：拿它重算 09-04 會多 44 檔、漏 64 檔）；`ALLOW_LOCAL_ARCHIVE=1` 才放行。`update_strong_matrix.py` 單獨跑也檢查。
-  - `--incremental` 停用（return 2）：它不經過年度檔同步，Cloud Run 上用空目錄收集。
+  - `--incremental` 停用（return 2）：它不經過年度檔同步，Cloud Run 上用空目錄收集。**2026-11-06 連旗標與 `run_incremental` 整個刪除**（1237f5e），
+    現在帶它會被 argparse 擋下、exit 2。補缺口用 `--backfill-gaps`。
   - 只同步 `stocks_YYYY.csv`：**備份請放在 archive/ 前綴以外**，否則下載失敗或被 glob 當成另一份年度檔。
   - 順手修：`add_macd_from_archive`／`add_streak_from_archive` 直接取年度檔 `tail()`，補舊日期時拿到的是最新一天的序列
     → 改成只取目標日（含）以前。影響 `--date` 補舊日期與 `--backfill-gaps`，每天排程不受影響。
   - 複查（d9f234f）再修：某天檔數**比下載時少就不上傳**（原本容忍 5%，同一天重收是整天替換，不會合法變少）；
-    `require_authoritative_archive(writes_firestore)` 由呼叫端傳旗標——⚠️ gcs_archive 裡不可 `from stock_collector import config`，
-    `python stock_collector/update_strong_matrix.py` 腳本模式下 stock_collector/ 在 sys.path 上，會把 stock_collector.py 當頂層套件載入而崩潰；
+    `require_authoritative_archive(writes_firestore)` 由呼叫端傳旗標（呼叫端各自決定會不會寫 Firestore）。
+    ~~gcs_archive 裡不可 `from stock_collector import config`（腳本模式下 stock_collector.py 會被當頂層套件載入而崩潰）~~
+    **2026-11-06 起不再有這個限制**：`stock_collector/` 有 `__init__.py`、只支援 `python -m stock_collector.<模組>`；
+    `python stock_collector/update_strong_matrix.py`、`…/sentiment_collector.py` 這種腳本模式現在一啟動就 ImportError，不要用。
     檢查與 `ensure_downloaded()` 放在 `update_matrix()` 開頭（`--days` 全是休市日時最後的重算也經過）；
     舊入口 `python -m stock_collector.stock_collector` 會寫正式資料時拒絕；批次模式某天上傳失敗會繼續、最後一起報。
-  - ⚠️ **`update_matrix()` 後段有區域 `import sys`**：在函式前段直接用 `sys` 會 UnboundLocalError（雲端每輪都會走到），
-    新程式要用 `import sys as _sys`。這次是在本機跑腳本模式才抓到。
+  - ~~⚠️ **`update_matrix()` 後段有區域 `import sys`**：在函式前段直接用 `sys` 會 UnboundLocalError，新程式要用 `import sys as _sys`~~
+    **✅ 2026-11-06 拆掉（1237f5e）**：函式內的 `sys.path.insert` 與區域 `import sys` 全刪（套件化後不需要），
+    `stock_collector/` 底下只剩 `daily_collector.py` 入口那一行 `sys.path.insert`；`except ImportError` 退路也全刪。
   - 雲端實測（2026-10-24，新 image）：只重算強勢股 → 下載 4 檔、寫 916 天、「上傳 0 個（4 個沒改過、略過）」、
     GCS generation 不變（1792739517133527）、exit 0。
   - 測試：假 bucket 18 種情境（scratchpad `test_gcs_archive2.py`）。
   - 還沒修（相鄰問題）：新年度第一個交易日 `_assert_prev_close_sane` 會 raise、那天沒有強勢名單也不告警；
-    1 月前約 25 個交易日 MACD 全是「-」。兩者都要讓年度檔讀前一年最後一段當種子（見「跨年第一個交易日」待辦）。
+    1 月前約 25 個交易日 MACD 全是「-」。兩者都要讓年度檔讀前一年最後一段當種子（見待辦「🔴 2027-01-04 跨年」，期限 2026-12 底）。
 - **GCS 年度檔缺外資持股張數**（2026-01-02～09-29 與 10-21）：回補腳本只寫 Firestore，沒寫年度檔。
   網站月報讀 daily_data，**不受影響**（9 月每天約 1,980 檔有值）；但「年度檔是唯一完整歷史」這句對這兩欄不成立。
-- **自選股「今日訊號」分不出「連買 0 天」與「沒有法人資料」**（2026-10-22 說明書審查時兩位審查者各自抓到）：
-  `firebase_writer.py:139-140` 把 `foreign_streak`／`trust_streak` 寫成 `int(... or 0)`，缺資料也是 0。
+- **連買天數分不出「0 天」與「沒有法人資料」**（2026-10-22 說明書審查時兩位審查者各自抓到；當時是在自選股「今日訊號」看到的，
+  自選股 2026-11-06 已刪，但**根本原因還在**）：`firebase_writer.py:140-141` 把 `foreign_streak`／`trust_streak` 寫成 `int(... or 0)`，缺資料也是 0。
+  現在受影響的是個股頁「籌碼摘要」badge、強勢股表格與選股頁的連買欄；`alert_checker` 本來就把 null 當 0，
+  到價提醒受影響的只有通知信會把「沒資料」寫成「無」。
   前端已把 MACD 的「-」（天數不夠）當成算不出來顯示「—」，但連買這半要改收集器（寫 null）＋重建 image。
   同源問題：三大法人缺漏補 0 造成卡片紅色「+0」（見說明書已知問題）。
 - **業主說明書**（claude.ai artifact，網址在 memory `stock-helper-owner-guide`）：改網站功能後要同步更新，
@@ -693,7 +791,9 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
   ③ 版面不變量 spec ④ 排程健康度（缺日偵測、隔天回頭查欄位；休市判定已有）
   前置：專案現在連 pytest 都沒有，第 0 步是選測試執行器。
   **上面「放空自 10-12 全斷七天無人知」就是沒有 ④ 的直接後果。**
-- **C3 `run_incremental` 已失效（但不影響排程）**：`get_missing_dates` → `get_latest_date_from_db` 查的是 `daily_stocks` / `market_index_daily`，**這兩個 collection 現已不存在** → 一律回 None。所幸**排程走的是 `run_daily`**（Cloud Run Job 無傳參數，Dockerfile ENTRYPOINT `python -m stock_collector.daily_collector` → argparse 落到 else 分支），`run_incremental` 只在手動加 `--incremental` 時才跑。**要補缺口請改用 `--backfill-gaps`**（`get_gap_dates()`，用「交易日全集 − 已存在日期集合」，是正確做法）。若要修 `run_incremental`，就是把它改成呼叫 `get_gap_dates()`。
+- ~~**C3 `run_incremental` 已失效（但不影響排程）**：`get_missing_dates` → `get_latest_date_from_db` 查的是已不存在的 `daily_stocks` / `market_index_daily`~~
+  **✅ 2026-11-06 已刪除（1237f5e）**：`run_incremental`、`get_missing_dates`、`get_latest_date_from_db` 與 `--incremental` 旗標整個拿掉。
+  **補缺口用 `--backfill-gaps`**（`get_gap_dates()`，用「交易日全集 − 已存在日期集合」）。
 - **A1 列表 vs 個股 MACD 完全統一**：C7 後 Firestore `macd_status` 已有值（列表可用），但個股頁仍前端算，資料源不同、極臨界日可能小差異。要完全一致需二選一單一來源。
 - **安全：本機的 `service-account.json` 可以整個拿掉**（2026-09-05 查證更正）。
   ~~私鑰會被 bundle 進 `.next`~~ —— **實測不成立**：拿金鑰內容去比對 `.next` 全部檔案，命中 0；先前看到的 `private_key` 字樣是 firebase-admin 函式庫自己的程式碼。
@@ -797,10 +897,10 @@ FinMind 有涵蓋的股票寫 key；收集器則對未涵蓋的寫 key + null，
 ## 清理與模組化狀態（2026-08）
 **已清理死碼**：`utils.py`（844 行舊 Streamlit 死碼）→ 精簡成 `stock_collector/indicators.py`（只 get_macd_status）；`update_macd.py` 逐檔打 API 舊版；`firebase_writer.py` 3 個死讀取器；前端 `getStockHistory`/`verifyIdToken`/`getPopularStocks`/`getAllStocks`/`getUser`；requirements 的 `ta`/`tqdm`/`loguru`。
 **待模組化（大重構，建議在乾淨 session 做 + 充分測試）**：
-- `stock_collector/stock_collector.py`（618 行）→ 拆 `transforms.py`（純 DataFrame 轉換，可單元測試）、`fetchers.py`（4 支批次 API）、`archive.py`（年度歸檔，與 merge_daily_files 重疊可整併）
+- `stock_collector/stock_collector.py`（618 行）→ 拆 `transforms.py`（純 DataFrame 轉換，可單元測試）、`fetchers.py`（4 支批次 API）、`archive.py`（年度歸檔；`merge_daily_files.py` 2026-11-06 已刪，不用再整併）
 - `firebase-admin.ts`（清理死碼後 **299 行**）→ 可拆 init 與 queries/（stocks/strong/index 分組）
 - `firebase_writer.py` → 拆 `firestore_client.py` 與 `writers.py`
-**待清理（中信心，需先確認）**：`merge_daily_files.py`（已被 _append_to_yearly_archive 取代，若不再手動回補可刪）；`WatchlistButton.tsx`（孤兒元件，但可能是「加入自選」待辦）；~~`firebase-admin.ts` 舊架構 fallback~~ **✅ 2026-09-05 已完成**（移除 5 段，其中 3 個 collection 根本不存在）。DailyStock interface **不可刪**（StrongStock 繼承它）。
+**待清理（中信心，需先確認）**：~~`merge_daily_files.py`、`WatchlistButton.tsx`~~ **✅ 2026-11-06 都已刪除**（1237f5e、f3b7b78；前者被 `_append_to_yearly_archive` 取代，後者隨自選股功能拿掉）；~~`firebase-admin.ts` 舊架構 fallback~~ **✅ 2026-09-05 已完成**（移除 5 段，其中 3 個 collection 根本不存在）。DailyStock interface **不可刪**（StrongStock 繼承它）。
 
 ## ⚠️ 驗證工具本身的坑（量測前先讀，不然會得到假結論）
 
@@ -912,10 +1012,13 @@ hook 不會。
 
 ## 常用指令
 ```bash
-# 補某交易日（含法人/外資持股/當沖/指數/強勢股/MACD）
-python3 -m stock_collector.daily_collector --date 2026-07-31
+# 補某交易日（含法人/外資持股/當沖/指數/強勢股/MACD）；本機寫正式資料一定要 USE_GCS_ARCHIVE=1（見 GCS 年度檔專章）
+USE_GCS_ARCHIVE=1 python3 -m stock_collector.daily_collector --date 2026-07-31
+# 只更新美股三大指數（不看休市、不碰年度檔）
+python3 -m stock_collector.daily_collector --us-only
 # 補歷史指數
 python3 -m stock_collector.index_collector --days 730
+# ⚠️ 收集器只支援 python -m；python stock_collector/xxx.py 腳本模式會 ImportError（2026-11-06 起是套件）
 # 放空資料回補（預設 dry-run，--write 才寫入；只補缺的、冪等可重跑）
 python3 scripts/backfill_short_sale.py                        # 稽核 + 預覽
 python3 scripts/backfill_short_sale.py --month 2026-10 --write
@@ -967,6 +1070,8 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sto
 **回補工具**：`scripts/backfill_null_vs_zero.py`（預設 dry-run，`--write` 才寫；
 只改目前值為 0 者；FinMind 該日抓不到就整日跳過，避免誤清全市場；自動備份到
 `logs/backfill_backup/`）。2026-09-04 已對 daily_data 全 30 天執行完畢。
+**腳本 2026-11-06 已刪**（一次性、已跑完）；要再用就從 git 歷史撈（`git show 1237f5e^:scripts/backfill_null_vs_zero.py`）。
+現行的 null-aware 回補範本是 `backfill_short_sale.py`／`backfill_foreign_hold_shares.py`。
 **注意 `strong_stocks` 只存 stock_id/stock_name，所有數值都在 `daily_data`（保留約 30 天），
 所以回補範圍就只有這些。**
 
@@ -980,9 +1085,12 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sto
 - **所有 `read_csv` 都要帶 `dtype={'stock_id': str}`**（專案內共 8 處，已全補）。
 - `firebase_writer._norm_stock_id()` 是第二道防線：台股代碼最短 4 碼，`len<4` 一律 `zfill(4)`
   （ETF 的 5-6 碼不受影響）。套用於 daily_data／strong_stocks／strong matrix 三個寫入點。
-- 修既有資料用 `scripts/fix_stock_id_leading_zero.py`。CSV 採**逐位元組處理**
+- 當時修既有資料用 `scripts/fix_stock_id_leading_zero.py`。CSV 採**逐位元組處理**
   （`split(b',', 2)` 只改第 2 欄，date 欄無逗號故位置可靠），驗證方式是
   「位元組增量 == 受影響列數 × 2」＋逐行比對確認 stock_id 以外 0 差異。
+  **腳本 2026-11-06 已刪**（要看從 git 歷史撈：`git show 1237f5e^:scripts/fix_stock_id_leading_zero.py`）。
+  ⚠️ 它寫於 GCS 防線之前：若掉前導零再發生，改年度檔要走 `gcs_archive` 的下載／上傳防線（`USE_GCS_ARCHIVE=1`，上傳前逐日比對），
+  **不可直接 `gcloud storage cp` 覆蓋**。
 - 這類問題**用「值對不對」是看不出來的**，要比對「兩邊的 stock_id 集合差異」才會現形。
 
 ## Firestore 只有 5 個 collection（2026-09-05 清理後 4 個；2026-11-05 加 `market_sentiment`）

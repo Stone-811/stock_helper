@@ -18,44 +18,49 @@
 │                                                                  │
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
-│  │          │                                              │    │
-│  │ 📊 首頁  │  首頁：加權指數 / 台指期 技術分析圖           │    │
-│  │ 🔥 強勢股│  強勢股：今日強勢股列表 + 篩選功能            │    │
-│  │ ⭐ 自選股│  自選股：用戶自訂觀察清單（需登入）           │    │
-│  │ 📈 分析  │  基本面分析：AI 生成投資研究報告              │    │
+│  │ (md 以上)│  首頁：四個指數＋市場溫度（點加權看走勢）     │    │
+│  │ 📊 首頁  │  溫度　：/market-mood（只在桌機側欄）         │    │
+│  │ 🌤️ 溫度  │  強勢股：卡片／表格切換 /strong-stocks        │    │
+│  │ 🔥 強勢股│  月報　：當月彙整 /strong-monthly             │    │
+│  │ 🗓️ 月報  │  選股　：自訂條件 /screener                   │    │
+│  │ 🔍 選股  │  個股　：K 線／籌碼／到價提醒 /stock/[id]     │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
+│  手機：不渲染 Sidebar，底部導覽 4 格、登入在 TopBar              │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
-│   /api/market-index/[id]  │  /api/strong-stocks  │  /api/stock  │
+│  /api/market-index/[id] │ /api/market-sentiment │ /api/screener  │
+│  /api/strong-stocks │ /api/strong-monthly                        │
+│  /api/stock/[id]/institutional                                   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
-│                   Firebase Firestore                             │
-│    market_index_daily  │  daily_stocks  │  strong_stock_matrix  │
+│                   Firebase Firestore + Auth                      │
+│  daily_data │ strong_stocks │ market_index │ market_sentiment    │
+│  metadata │ user_alerts                                          │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                       資料收集層                                 │
-│                    Python + FinMind API                          │
-│   index_collector.py  │  stock_collector.py  │  update_matrix   │
+│      Python + FinMind API ＋ 證交所／櫃買／期交所／CBOE 官方     │
+│  daily_collector │ stock_collector │ index_collector             │
+│  sentiment_collector │ update_strong_matrix                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 功能特色
 
-### 1. 大盤指數技術分析（首頁）
-- **加權指數（TAIEX）**：台灣股市大盤走勢
-- **台指期（TX）**：近月期貨，含未平倉量
-- **指數卡片**：即時顯示開高低收、漲跌幅
-- **可切換圖表**：點擊標籤切換加權指數/台指期
-- **完整技術分析**：K 線圖 + 成交量 + MACD/KD/RSI
+### 1. 首頁：大盤指數與市場溫度
+- **四個指數均分**：加權指數（TAIEX）＋美股三大指數（費半、S&P 500、道瓊；標「美股 M/D 收盤」）
+- **指數走勢彈跳視窗**：點「加權指數」那格打開，可切換加權指數／台指期（TX，近月期貨，含未平倉量）；
+  K 線圖 + 成交量 + MACD/KD/RSI
+- **市場溫度**：大盤當沖比（上市、上櫃）、融資融券餘額、台股／美股恐慌指數，各有走勢圖（與 `/market-mood` 同一份內容；資料來自證交所／櫃買／期交所／CBOE 官方）
 
 ### 2. 批次資料收集（高效能）
 - **全市場股價資料**：一次 API 取得所有股票（開高低收、成交量、當沖量）
@@ -71,24 +76,17 @@
 - 三大法人合計買超 > 0 張（外資＋投信＋自營）
 
 ### 4. Next.js 互動式分析網站
-- **Sidebar 導航**：首頁（大盤指數）、強勢股、自選股、基本面分析
-- **今日強勢股列表**：卡片式排列，顯示強勢次數
+- **導覽**：桌機 Sidebar（首頁、市場溫度、強勢股、強勢月報、選股）；手機底部導覽 4 格（首頁／強勢／月報／選股）
+- **強勢股**：同一頁上方切換卡片／表格，顯示強勢天數；強勢月報彙整當月曾入選的個股
 - **股票搜尋**：自動完成、支援代碼與名稱搜尋、鍵盤導航
-- **篩選功能**：MACD 多空、成交量門檻
-- **專業技術分析圖表**（使用 TradingView lightweight-charts）：
-  - K 線圖 + MA5/MA10/MA20/MA60（深色主題）
-  - 時間週期切換：日K / 週K / 月K
-  - 技術指標選擇：MACD / KD / RSI
-  - 成交量柱狀圖（紅漲綠跌）+ 當沖比例顯示
-  - 預設顯示近三個月資料（可向左拖曳查看更早資料）
-  - 三圖同步滾動（K 線、成交量、指標圖時間軸對齊）
-  - 十字游標即時顯示：
-    - OHLCV 數據（開高低收、成交額、當沖額、當沖比）
-    - MA 均線數值（MA5/MA10/MA20/MA60）
-    - 技術指標數值（MACD: DIF/MACD/柱狀、KD: K/D、RSI）
-  - 全幅寬度、600px 高度、16px 字體
-- **三大法人買超**：即時顯示法人買賣張數
-- **完整歷史資料**：從 2024-01-02 至今（約 125 萬筆、2,316 檔股票）
+- **篩選功能**：MACD 多空、成交量門檻、法人連買、產業
+- **專業技術分析圖表**（使用 TradingView lightweight-charts；細節見 `CLAUDE.md`「K 線圖」）：
+  - K 線圖 + MA5/MA10/MA20/MA60 + 布林 + 成交量疊底（深色主題）
+  - 時間週期切換：日K / 週K / 月K；區間 1M / 3M / 6M / 1Y / 2Y（預設 3M，可拖曳平移、滾輪縮放）
+  - 技術指標單選：MACD / KD / RSI（主圖與指標圖用 LogicalRange 同步）
+  - 讀值：日期、收、漲跌、量＋已勾選的均線與指標數值（桌機疊在圖左上、手機在圖外）
+- **個股頁**：三大法人籌碼圖（買賣超／外資持股／當沖）、放空籌碼、今日訊號、🔔 到價提醒（Google 登入；信寄到登入帳號的 email）
+- **完整歷史資料**：從 2023-01-03 至今（年度檔存在 GCS，約 2,300 檔股票）
 
 ---
 
@@ -145,14 +143,16 @@ npm run dev
 
 ### 統一排程器（推薦）
 
-整合所有收集流程，含自動重試、增量更新、資料驗證：
+整合所有收集流程，含休市判斷、自動重試、缺口回補、資料驗證。
+⚠️ 本機跑會寫正式 Firestore，一定要 `export USE_GCS_ARCHIVE=1`（沒設會被擋下，原因見 `CLAUDE.md`「執行指令」）。
+收集器只支援 `python -m stock_collector.<模組>`（`python stock_collector/xxx.py` 腳本模式不支援）。
 
 ```bash
-# 今日全部資料（股票 + 指數 + 強勢股矩陣）
+# 今日全部資料（股票 + 指數 + 市場溫度 + 強勢股矩陣）
 python -m stock_collector.daily_collector
 
-# 增量更新（只補缺少的日期）
-python -m stock_collector.daily_collector --incremental
+# 回補歷史區間內缺漏的交易日（舊的 --incremental 已刪除）
+python -m stock_collector.daily_collector --backfill-gaps
 
 # 指定日期
 python -m stock_collector.daily_collector --date 2026-06-19
@@ -160,22 +160,25 @@ python -m stock_collector.daily_collector --date 2026-06-19
 # 批次收集過去 7 天
 python -m stock_collector.daily_collector --days 7
 
-# 可選參數：--skip-stock, --skip-index, --skip-matrix
+# 只更新美股三大指數
+python -m stock_collector.daily_collector --us-only
+
+# 可選參數：--skip-stock, --skip-index, --skip-matrix, --skip-sentiment
 ```
 
 ### 個別收集（舊方式）
 
 ```bash
-# 指數資料（加權指數 + 台指期）
+# 指數資料（加權指數 + 台指期 + 美股三大指數）
 python -m stock_collector.index_collector
 python -m stock_collector.index_collector --days 30
 
-# 每日股票資料（批次 API，僅需 2 次請求）
-python stock_collector/stock_collector.py
-python stock_collector/stock_collector.py --days 7
+# 每日股票資料（批次 API；會寫正式資料時拒絕執行，正式資料一律用 daily_collector）
+python -m stock_collector.stock_collector
+python -m stock_collector.stock_collector --days 7
 
-# 更新強勢股矩陣
-python stock_collector/update_strong_matrix.py
+# 更新強勢股矩陣（會先從 Storage 下載年度檔）
+USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix
 ```
 
 ---
@@ -189,17 +192,22 @@ python stock_collector/update_strong_matrix.py
 ├── .env                                # 環境變數
 ├── requirements.txt                    # Python 依賴
 │
-├── stock_collector/                    # 資料收集模組
+├── stock_collector/                    # 資料收集模組（套件，用 python -m 執行）
 │   ├── daily_collector.py              # 統一排程器（推薦）
 │   ├── stock_collector.py              # 每日股票資料收集器
-│   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
-│   ├── update_strong_matrix.py         # 強勢股矩陣更新
-│   ├── merge_daily_files.py            # 檔案合併工具
+│   ├── index_collector.py              # 指數資料收集器（TAIEX + TX + 美股三大指數）
+│   ├── sentiment_collector.py          # 市場溫度（官方來源）
+│   ├── update_strong_matrix.py         # 強勢股判定與矩陣更新
+│   ├── trading_calendar.py             # 休市判斷
+│   ├── alert_checker.py                # 到價提醒
+│   ├── update_macd.py / indicators.py  # MACD 狀態（用年度檔算）
+│   ├── streak.py                       # 法人連買／連賣天數
 │   └── config.py                       # API 配置
 │
 ├── firebase_writer.py                  # Firestore 寫入（分片，每日僅約 9 次寫入）
 ├── gcs_archive.py                      # 年度檔與 GCS 同步（收集器為 stateless）
-├── utils.py                            # 技術指標計算
+├── notify.py                           # Email 告警
+├── scripts/                            # 一次性稽核／回補工具（預設 dry-run）
 │
 ├── data/                               # 本地資料存放
 │   ├── daily_reports/                  # 每日報表 CSV
@@ -208,31 +216,38 @@ python stock_collector/update_strong_matrix.py
 │
 └── frontend/                           # Next.js 前端
     ├── app/                            # App Router 頁面
-    │   ├── layout.tsx                  # 根 Layout（含 Sidebar）
-    │   ├── page.tsx                    # 首頁（大盤指數圖表）
-    │   ├── strong-stocks/page.tsx      # 強勢股列表
-    │   ├── watchlist/page.tsx          # 自選股（需登入）
-    │   ├── analysis/page.tsx           # 基本面分析
+    │   ├── layout.tsx                  # 根 Layout（Sidebar + TopBar + 手機底部導覽）
+    │   ├── page.tsx                    # 首頁（四個指數＋市場溫度）
+    │   ├── strong-stocks/page.tsx      # 強勢股（卡片／表格切換）
+    │   ├── strong-stocks/columns.tsx   # 強勢股表格的欄位定義
+    │   ├── strong-monthly/page.tsx     # 強勢月報
+    │   ├── market-mood/page.tsx        # 市場溫度
+    │   ├── screener/page.tsx           # 自訂條件選股
     │   ├── stock/[id]/page.tsx         # 個股詳情
     │   ├── actions/stocks.ts           # Server Action（股票搜尋）
     │   └── api/                        # API Routes（含快取）
-    │       ├── analysis/               # AI 分析報告 API
     │       ├── market-index/[id]/      # 指數資料 API
+    │       ├── market-sentiment/       # 市場溫度 API
     │       ├── strong-stocks/          # 強勢股 API
-    │       ├── stock/[id]/             # 個股資料 API
-    │       └── stocks/                 # 股票清單 API
+    │       ├── strong-monthly/         # 強勢月報 API
+    │       ├── screener/               # 選股 API
+    │       └── stock/[id]/institutional/  # 個股法人籌碼 API
     ├── components/                     # React 元件
-    │   ├── Sidebar.tsx                 # 側邊導航欄
+    │   ├── Sidebar.tsx                 # 側邊導航欄（桌機）
+    │   ├── MobileBottomNav.tsx         # 手機底部導覽（4 格）
     │   ├── AuthButton.tsx              # Google OAuth 登入
-    │   ├── WatchlistButton.tsx         # 加入自選股按鈕
+    │   ├── AlertButton.tsx             # 到價提醒按鈕
+    │   ├── home/                       # 首頁的指數卡與市場溫度
+    │   ├── IndexChartDialog.tsx        # 指數走勢彈跳視窗
+    │   ├── MarketMoodSections.tsx      # 市場溫度內容（首頁與 /market-mood 共用）
     │   ├── MainContent.tsx             # 主內容區（響應式）
-    │   ├── IndexChart.tsx              # 指數技術分析圖
-    │   ├── StockCard.tsx               # 股票卡片
-    │   ├── StockChart.tsx              # 專業技術分析圖
+    │   ├── CandleChart.tsx             # K 線主圖（IndexChart／StockChart 共用）
+    │   ├── StockCard.tsx               # 股票卡片（強勢股、選股頁）
     │   └── StockSearchOptimized.tsx    # 股票搜尋（Server Action）
     └── lib/
-        ├── firebase.ts                 # Firebase Client SDK + Auth + 型別
-        └── firebase-admin.ts           # Firebase Admin SDK（伺服器端查詢）
+        ├── firebase.ts                 # Firebase Client SDK + Auth + 到價提醒 + 型別
+        ├── firebase-admin.ts           # Firebase Admin SDK（伺服器端查詢）
+        └── format.ts / table.ts / candles.ts …  # 共用純函式（完整清單見 CLAUDE.md）
 ```
 
 ---
@@ -277,6 +292,8 @@ gcloud run jobs deploy stock-collector --source=. --region=asia-east1
 ---
 
 ## 最近更新
+
+> 2026-07 之後的更新紀錄寫在 `CLAUDE.md` 的「最近更新」（最新一則：2026-11-06 首頁改版、拿掉自選股、到價提醒安全修正）。
 
 ### 2026-06-20
 

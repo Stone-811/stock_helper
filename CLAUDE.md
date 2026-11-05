@@ -12,16 +12,18 @@ Claude Code 處理本專案時的指引說明。
 台灣股票資料收集與篩選工具，使用 FinMind API 抓取全市場上市上櫃股票。
 
 功能：
-1. 大盤指數分析（加權指數 TAIEX + 台指期 TX）
+1. 大盤指數分析（加權指數 TAIEX + 台指期 TX）：首頁點「加權指數」那格打開指數走勢彈跳視窗（加權／台指期切換）
 2. 每日資料收集（批次 API，6 次請求抓完全市場）
 3. 批次歷史資料收集與一次性回補工具（`scripts/`）
 4. 多條件選股篩選（`/screener`）
 5. 強勢股分析網站：強勢股 `/strong-stocks`（上方切換卡片／表格）、月報 `/strong-monthly`
 6. 個股詳情：K 線／技術指標／三大法人／放空籌碼／今日訊號
-7. 自選股與到價提醒（Firebase Auth + Google OAuth）
-8. 市場溫度 `/market-mood`（2026-11-05）：大盤當沖比、融資融券餘額、台股／美股恐慌指數；首頁放當沖比與恐慌指數四張大卡。
-9. 美股三大指數（費半 SOX、S&P 500、道瓊，2026-11-05）：首頁加權指數卡旁邊；FinMind `USStockPrice`，存 `market_index/{SOX|SPX|DJI}`。
+7. 到價提醒（Firebase Auth + Google OAuth；信寄到登入帳號的 email）。
+   自選股 2026-11-06 拿掉（業主：「首頁、sidebar 的自選股刪除，不用這個功能」），`/watchlist` 307 轉首頁。
+8. 市場溫度 `/market-mood`（2026-11-05）：大盤當沖比、融資融券餘額、台股／美股恐慌指數；
+   2026-11-06 起首頁放完整的同一份內容（卡片＋走勢圖，`components/MarketMoodSections.tsx` 共用）。
    資料來自證交所／櫃買／期交所／CBOE **官方**（不經 FinMind），存 `market_sentiment/`。
+9. 美股三大指數（費半 SOX、S&P 500、道瓊，2026-11-05）：首頁跟加權指數四格均分；FinMind `USStockPrice`，存 `market_index/{SOX|SPX|DJI}`。
 
 ⚠️ **已移除、文件若再提到就是過時**：基本面分析（OpenAI/Claude 生成報告，
 連同 `app/analysis`、`api/analysis`、`stock_analysis_reports` collection）、
@@ -38,14 +40,14 @@ Claude Code 處理本專案時的指引說明。
 │                                                                  │
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
-│  │ (md 以上)│  首頁：Dashboard（指數＋市場溫度＋自選）      │    │
-│  │ 📊 首頁  │  強勢股：卡片／表格切換 /strong-stocks        │    │
+│  │ (md 以上)│  首頁：四個指數＋市場溫度（點加權看走勢）     │    │
+│  │ 📊 首頁  │  溫度　：/market-mood（只在桌機側欄）         │    │
+│  │ 🌤️ 溫度  │  強勢股：卡片／表格切換 /strong-stocks        │    │
 │  │ 🔥 強勢股│  （舊 /strong-table 轉到 ?view=table）        │    │
 │  │ 🗓️ 月報  │  月報　：當月彙整 /strong-monthly             │    │
 │  │ 🔍 選股  │  選股　：自訂條件 /screener                   │    │
-│  │ ⭐ 自選股│  自選股：需 Google 登入                       │    │
 │  └──────────┴──────────────────────────────────────────────┘    │
-│  手機：不渲染 Sidebar，導覽用 MobileBottomNav、登入在 TopBar    │
+│  手機：不渲染 Sidebar，底部導覽 4 格、登入在 TopBar              │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -53,7 +55,7 @@ Claude Code 處理本專案時的指引說明。
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
 │  market-index/[id] │ market-sentiment │ strong-stocks │ strong-monthly │ screener │
-│  stock/[id] │ stock/[id]/institutional │ stocks │ quotes         │
+│  stock/[id]/institutional                                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -61,7 +63,7 @@ Claude Code 處理本專案時的指引說明。
 │                        資料庫層                                  │
 │                  Firebase Firestore + Auth                       │
 │  daily_data/{date}/chunks │ strong_stocks │ market_index │ market_sentiment │ metadata │
-│  （使用者資料：user_watchlists／alerts）                         │
+│  （使用者資料：user_alerts；user_watchlists 已停用、資料保留）   │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
@@ -80,27 +82,26 @@ Claude Code 處理本專案時的指引說明。
 ├── .env                                # 環境變數（API keys）
 ├── requirements.txt                    # Python 依賴
 │
-├── stock_collector/                    # 資料收集模組
-│   ├── config.py                       # FinMind API 配置
-│   ├── daily_collector.py              # 統一排程器（重試、增量更新、驗證）
+├── stock_collector/                    # 資料收集模組（套件：只支援 `python -m stock_collector.<模組>`）
+│   ├── __init__.py                     # 2026-11-06 起是套件；腳本模式 python stock_collector/xxx.py 不支援
+│   ├── config.py                       # FinMind API token（只剩 FINMIND_API_TOKEN、firebase_enabled）
+│   ├── daily_collector.py              # 統一排程器（休市判斷、重試、缺口回補、驗證；--us-only 只抓美股）
 │   ├── stock_collector.py              # 每日股票資料收集器（6 支批次 API）
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX + 美股 SOX／SPX／DJI）
 │   ├── sentiment_collector.py          # 市場溫度：大盤當沖比／融資融券／臺指VIX／美股 VIX（官方來源，null-aware）
 │   ├── update_strong_matrix.py         # 強勢股判定與矩陣更新（條件的唯一權威）
 │   ├── trading_calendar.py             # 休市判斷（交易日曆＋加權指數＋證交所三方確認）
-│   ├── indicators.py                   # MACD 狀態（由已刪除的 utils.py 精簡而來）
+│   ├── indicators.py                   # get_macd_status：MACD 多空判斷（由已刪除的 utils.py 精簡而來）
+│   ├── update_macd.py                  # add_macd_from_archive：用年度檔算每檔 MACD 狀態（現役，stock_collector.py 收集時呼叫）
 │   ├── streak.py                       # 法人連買／連賣天數
-│   ├── alert_checker.py                # 到價提醒檢查
-│   ├── update_macd.py                  # 舊版逐檔 MACD（已被 indicators 取代）
-│   └── merge_daily_files.py            # 舊版檔案合併工具（已被年度歸檔取代）
+│   └── alert_checker.py                # 到價提醒檢查（收件人用 Firebase Auth 查 uid 的 email）
 │
 ├── firebase_writer.py                  # Firestore 寫入（分片優化 + null 語意）
 ├── gcs_archive.py                      # 年度檔上下載 GCS（collector 是 stateless；下載不完整就整輪中止、上傳前逐日比對）
-├── notify.py                           # 通知
+├── notify.py                           # Email 告警：send_alert；非關鍵告警走 send_nonfatal（永不 raise）；時間一律台灣時間
+├── .gcloudignore                       # --source=. 打包排除清單（含 service-account*.json 等憑證）
 │
 ├── scripts/                            # 一次性稽核／回補工具（一律預設 dry-run，--write 才寫）
-│   ├── backfill_null_vs_zero.py        # 把「缺資料被寫成 0」改回 null
-│   ├── fix_stock_id_leading_zero.py    # 修 ETF 代碼掉前導零（0050→50）
 │   ├── backfill_foreign_hold_shares.py # 回補外資持股五欄（null-aware、只寫交易日、可 --date）
 │   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
 │   ├── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
@@ -122,22 +123,25 @@ Claude Code 處理本專案時的指引說明。
 │   ├── apphosting.yaml                 # App Hosting 設定（minInstances: 0 是刻意的）
 │   ├── app/                            # App Router 頁面
 │   │   ├── layout.tsx                  # 根 Layout（Sidebar + TopBar + BottomNav）
-│   │   ├── page.tsx                    # 首頁 Dashboard
-│   │   ├── strong-stocks/page.tsx      # 強勢股（卡片）
+│   │   ├── page.tsx                    # 首頁：四個指數（點加權開走勢圖）＋市場溫度
+│   │   ├── strong-stocks/page.tsx      # 強勢股（上方切換卡片／表格）
+│   │   ├── strong-stocks/columns.tsx   # 強勢股表格的欄位定義（22 欄 registry、分組、排序工具；沒有 state）
 │   │   ├── strong-monthly/page.tsx     # 強勢月報（當月彙整）
-│   │   ├── market-mood/page.tsx        # 市場溫度（當沖比／融資融券／恐慌指數；只在桌機側欄，手機從首頁「市場溫度」標題旁的連結進）
+│   │   ├── market-mood/page.tsx        # 市場溫度（當沖比／融資融券／恐慌指數；只在桌機側欄，首頁已放同一份完整內容）
 │   │   ├── screener/page.tsx           # 自訂條件選股
-│   │   ├── watchlist/page.tsx          # 自選股
 │   │   ├── stock/[id]/                 # 個股詳情（page + StockDetailClient）
 │   │   ├── actions/stocks.ts           # Server Action：股票搜尋
-│   │   └── api/                        # market-index/[id]、strong-stocks、
-│   │                                   # market-sentiment、strong-monthly、screener、stocks、quotes、
-│   │                                   # stock/[id]、stock/[id]/institutional
+│   │   └── api/                        # market-index/[id]、market-sentiment、strong-stocks、
+│   │                                   # strong-monthly、screener、stock/[id]/institutional
 │   │
 │   ├── components/                     # React 元件
 │   │   ├── Sidebar.tsx                 # 側邊導航（hidden md:flex，手機不渲染）
 │   │   ├── TopBar.tsx                  # 置頂搜尋列（手機版右側放登入）
-│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（5 格，與 Sidebar 共用 navItems）
+│   │   ├── MobileBottomNav.tsx         # 手機底部導覽（4 格：首頁／強勢／月報／選股，與 Sidebar 共用 navItems）
+│   │   ├── home/MarketIndexCard.tsx    # 首頁：加權＋美股三大指數四格均分；加權那格是開彈跳視窗的按鈕
+│   │   ├── home/HomeMood.tsx           # 首頁：市場溫度（自己 fetch、自己失敗）
+│   │   ├── IndexChartDialog.tsx        # 指數走勢彈跳視窗（原生 <dialog>，加權／台指期切換＋IndexChart）
+│   │   ├── MarketMoodSections.tsx      # 市場溫度三組（卡＋走勢圖）＋說明；首頁與 /market-mood 共用
 │   │   ├── AuthButton.tsx              # Google 登入（variant: sidebar | topbar）
 │   │   ├── InfoTip.tsx                 # 說明泡泡（⚠️ 一律 position: fixed）
 │   │   ├── CandleChart.tsx             # K 線主圖
@@ -146,23 +150,27 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── InstitutionalChart.tsx      # 三大法人籌碼圖
 │   │   ├── StockSignals.tsx            # 今日訊號（純前端判定）
 │   │   ├── SentimentStat.tsx / SentimentChart.tsx  # 市場溫度的指標卡與走勢圖（淺色、大字、不吃觸控捲動）
-│   │   ├── MoodStats.tsx               # 當沖比兩張＋恐慌指數兩張卡（首頁與 /market-mood 共用，說明文字只有一份）
+│   │   ├── MoodStats.tsx               # 當沖比、融資融券、恐慌指數的指標卡組（由 MarketMoodSections 組合，說明文字只有一份）
 │   │   ├── StockCard.tsx / states.tsx / table.tsx / MainContent.tsx
-│   │   ├── WatchlistButton.tsx / AlertButton.tsx
+│   │   ├── AlertButton.tsx             # 個股頁 🔔 到價提醒（需登入）
 │   │   └── StockSearchOptimized.tsx    # 搜尋（Server Action + debounce）
 │   │
 │   ├── lib/                            # 共用函式庫
-│   │   ├── firebase.ts                 # Client SDK + Auth + 型別定義
+│   │   ├── firebase.ts                 # Client SDK + Auth（Google 登入）＋到價提醒＋型別定義
 │   │   ├── firebase-admin.ts           # Admin SDK（含 dayCache）
 │   │   ├── finmind.ts                  # 個股 K 線直打 FinMind REST
 │   │   ├── stock-data.ts               # 個股頁資料彙整
 │   │   ├── monthly-report.ts           # 月報彙整層
+│   │   ├── strong-enrich.ts            # /api/strong-stocks 與 /api/screener 共用：日期規則、昨收、強勢天數（只給伺服器端）
 │   │   ├── sentiment.ts                # 市場溫度型別＋Stat（最新值、前一筆、近一年最高最低）
-│   │   ├── indicators.ts / signals.ts / format.ts / table.ts
+│   │   ├── market-index.ts             # /api/market-index/[id] 的回應型別、指數點數格式
+│   │   ├── candles.ts                  # K 線純函式：週／月聚合 convertToTimeFrame、子圖折線 toLineWS
+│   │   ├── use-latest-request.ts       # 只採用最後一次請求的序號閘門（強勢股、月報、選股三頁共用）
+│   │   ├── indicators.ts / format.ts / table.ts
 │   │
-│   ├── next.config.ts                  # Next.js 配置
+│   ├── next.config.ts                  # Next.js 配置（兩條 307 轉址：/strong-table→/strong-stocks?view=table、/watchlist→/）
 │   ├── postcss.config.mjs              # Tailwind v4 走 PostCSS（沒有 tailwind.config.ts）
-│   ├── firestore.rules                 # Firestore 安全規則（需另外部署）
+│   ├── firestore.rules                 # Firestore 安全規則（需另外部署；user_watchlists 規則刻意保留）
 │   └── package.json                    # NPM 依賴
 │
 └── .claude/skills/stock-helper-context/SKILL.md   # ⭐ 改動前必讀：踩過的地雷與資料語意
@@ -170,6 +178,9 @@ Claude Code 處理本專案時的指引說明。
 
 ⚠️ **已刪除、文件別再提**：`utils.py`、`streamlit_app/`、`frontend/Dockerfile`、
 `docker-compose.yml`、`tailwind.config.ts`、`app/analysis/`、`api/analysis/`。
+2026-11-06 再刪：`app/watchlist/`、`components/WatchlistButton.tsx`、`lib/signals.ts`、`api/quotes/`、
+`api/stocks/`、`api/stock/[id]/route.ts`（子路由 `institutional` 保留）、`stock_collector/merge_daily_files.py`、
+`scripts/backfill_null_vs_zero.py`、`scripts/fix_stock_id_leading_zero.py`（要看從 git 歷史撈）、`daily_collector --incremental`。
 
 ## 核心模組說明
 
@@ -179,58 +190,68 @@ Claude Code 處理本專案時的指引說明。
 |------|------|
 | firebase_writer.py | DataFrame 寫入 Firestore（分片優化）；`_opt_num` 缺漏寫 null、`_norm_stock_id` 補前導零；寫入前依代號去重、刪掉用不到的舊分片 |
 | gcs_archive.py | 年度檔上下載 GCS（collector 是 stateless，年度檔是唯一完整歷史） |
-| stock_collector/daily_collector.py | 統一排程器：重試機制、缺口回補、資料驗證 |
+| notify.py | Email 告警：`send_alert`（回傳有沒有寄出）；收集器的非關鍵告警一律走 `send_nonfatal`（永不 raise）；信件時間用 `tw_now()`（固定 +8） |
+| stock_collector/daily_collector.py | 統一排程器：休市判斷、重試機制、缺口回補（`--backfill-gaps`）、資料驗證；台股休市日只抓美股；`--us-only` 只抓美股後結束 |
 | stock_collector/stock_collector.py | 6 支批次 API 收集、CSV 存檔、Firestore 同步 |
-| stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX + 美股三大指數）；⚠️ 回傳值只算台股（`collect_index` 用「回傳非空」判成功，美股往回抓 7 天幾乎永遠有列） |
+| stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX + 美股三大指數）；⚠️ 回傳值只算台股（`collect_index` 用「回傳非空」判成功，美股往回抓 `US_LOOKBACK_DAYS`＝21 個日曆天幾乎永遠有列）；美股斷料檢查由 `daily_collector` 在重試範圍外呼叫，一個執行最多 1 封 |
 | stock_collector/sentiment_collector.py | 市場溫度：官方當沖統計（TWTB4U／intraday/stat）、信用交易（MI_MARGN／margin/balance）、期交所 VIX 月檔、CBOE CSV；每班重抓近 3 個交易日（T+2 定案）；休市／未公布／soft-404 一律 None 不寫 0；斷料會寄非關鍵告警 |
 | stock_collector/update_strong_matrix.py | **強勢股判定的唯一權威**；每次執行重算全部歷史 |
 | stock_collector/trading_calendar.py | 休市判斷：三個來源都說沒交易才跳過；任一抓不到或互相矛盾就照常收集（矛盾會寄信） |
-| stock_collector/indicators.py | MACD 狀態（用本地年度檔算，零 API） |
+| stock_collector/indicators.py | `get_macd_status`：MACD 多空判斷（純函式） |
+| stock_collector/update_macd.py | `add_macd_from_archive`：用年度檔算每檔 MACD 狀態（零 API），`stock_collector.py` 收集時呼叫——**現役，不是舊版**，刪掉會讓全站 `macd_status` 變空 |
 | stock_collector/streak.py | 法人連買／連賣天數 |
-| stock_collector/alert_checker.py | 到價提醒 |
-| stock_collector/config.py | FinMind API token 配置 |
+| stock_collector/alert_checker.py | 到價提醒：只檢查「今天」（補舊日期不檢查）；收件人用 Firebase Auth 查 uid（取自文件路徑 `user_alerts/{uid}/alerts/{id}`）的 email，**不用**文件的 email 欄位；股名用當日 daily_data；信確實寄出才停用提醒 |
+| stock_collector/config.py | FinMind API token 配置（`FINMIND_API_TOKEN`、`firebase_enabled()`） |
 
 ### Next.js 前端
 
 | 檔案 | 職責 |
 |------|------|
 | app/layout.tsx | 根 Layout：Sidebar（md 以上）+ TopBar + MobileBottomNav |
-| app/page.tsx | 首頁 Dashboard：加權指數＋美股三大指數、市場溫度四張卡、我的自選、指數走勢（2026-11-05 起不放今日強勢股） |
+| app/page.tsx | 首頁：加權指數＋美股三大指數四格均分（點加權那格開指數走勢彈跳視窗）、市場溫度全部內容（含融資融券、走勢圖）。2026-11-05 起不放今日強勢股、2026-11-06 起不放我的自選與頁面下方的指數走勢線圖 |
+| components/home/MarketIndexCard.tsx | 首頁四格：container query `@min-[40rem]` 四格一排、不夠寬 2×2；美股三格各自 `?last=2`、一檔抓不到只那格「—」 |
+| components/home/HomeMood.tsx | 首頁的市場溫度：自己 fetch `?days=400`、自己失敗（不可併進首頁 `load()`） |
+| components/IndexChartDialog.tsx | 指數走勢彈跳視窗：原生 `<dialog>.showModal()`（焦點、Esc、背景不可點都由瀏覽器處理）；保留加權／台指期切換；線圖只在打開時掛載；背景捲動靠 `globals.css` 的 `html:has(dialog[open])` 鎖 |
+| components/MarketMoodSections.tsx | 市場溫度三組（當沖比、融資融券、恐慌指數：卡＋走勢圖）＋「📖 說明」；首頁與 /market-mood 共用，`level` 控制標題層級 |
 | app/strong-stocks/page.tsx | 強勢股：上方切換卡片／表格（2026-10-26 由卡片頁與總表合併；表格預設全欄位） |
+| app/strong-stocks/columns.tsx | 強勢股表格的欄位定義（型別、儲存格、22 欄 `COLUMNS`、分組、排序工具；沒有 state，依賴 state 的 JSX 留在 page） |
 | app/strong-monthly/page.tsx | 強勢月報（當月彙整，12 欄對應業主 Word 月報） |
-| app/market-mood/page.tsx | 市場溫度：上市／上櫃當沖比、融資／融券餘額、台股／美股恐慌指數，各有走勢圖；不貼偏高／偏低標籤 |
-| api/market-sentiment/route.ts | API：market_sentiment 四系列（?days=N 或 ?last=N；缺文件回空陣列不回 500；s-maxage=600） |
+| app/market-mood/page.tsx | 市場溫度：上市／上櫃當沖比、融資／融券餘額、台股／美股恐慌指數，各有走勢圖；不貼偏高／偏低標籤；內容就是 `MarketMoodSections` |
+| api/market-sentiment/route.ts | API：market_sentiment 四系列（只有 `?days=N`，預設 400；回應＝四個系列＋`first.taivix`，沒有 latest／generatedAt；缺文件回空陣列不回 500；s-maxage=600） |
 | app/screener/page.tsx | 自訂條件選股 |
-| app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
-| app/stock/[id]/ | 個股詳情：K 線、三大法人、放空籌碼、今日訊號 |
+| app/stock/[id]/ | 個股詳情：K 線、三大法人、放空籌碼、今日訊號、🔔 到價提醒 |
 | api/market-index/[id]/route.ts | API：取得指數歷史資料（TAIEX / TX / SOX / SPX / DJI；`?last=N` 只回最後 N 筆，漲跌仍用完整資料算） |
-| api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數） |
+| api/strong-stocks/route.ts | API：取得今日強勢股（含連續強勢天數；`days` 不是數字就退回 7） |
 | api/strong-monthly/route.ts | API：月報彙整（s-maxage=1800） |
 | api/screener/route.ts | API：自訂條件選股 |
-| api/stock/[id]/route.ts | API：取得個股完整歷史資料 |
-| api/stock/[id]/institutional/route.ts | API：個股法人籌碼 |
-| api/stocks/route.ts | API：取得所有股票清單（分頁繞過 1000 筆限制） |
-| api/quotes/route.ts | API：報價 |
+| api/stock/[id]/institutional/route.ts | API：個股法人籌碼（`/api/stock/[id]` 本身 2026-11-06 已刪） |
 | components/Sidebar.tsx | 側邊導航欄（`hidden md:flex`，**手機不渲染**）+ AuthButton |
 | components/TopBar.tsx | 置頂搜尋列；手機版右側放登入 |
-| components/MobileBottomNav.tsx | 手機底部導覽（5 格；清單與亮燈規則共用 `Sidebar.tsx` 的 `navItems`／`isNavActive`，改一處兩邊同步） |
+| components/MobileBottomNav.tsx | 手機底部導覽（4 格：首頁／強勢／月報／選股；清單與亮燈規則共用 `Sidebar.tsx` 的 `navItems`／`isNavActive`，改一處兩邊同步；`desktopOnly` 的市場溫度不進底部） |
 | components/InfoTip.tsx | 說明泡泡（⚠️ 一律 `position: fixed`，見 skill） |
 | components/StockSignals.tsx | 今日訊號（純前端，零額外 API） |
 | components/InstitutionalChart.tsx | 三大法人籌碼圖 |
 | components/AuthButton.tsx | Google OAuth 登入/登出按鈕 |
-| components/WatchlistButton.tsx | 加入/移除自選股按鈕 |
-| components/IndexChart.tsx | 指數技術分析圖（K 線 + 成交量 + MACD/KD/RSI） |
-| components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + 當沖比 + MACD/KD/RSI） |
+| components/AlertButton.tsx | 個股頁 🔔 到價提醒（需登入；寫 `user_alerts/{uid}/alerts`） |
+| components/IndexChart.tsx | 指數技術分析圖（K 線 + 成交量 + MACD/KD/RSI）；`indexId` 必填 |
+| components/StockChart.tsx | 專業技術分析圖（K 線 + 成交量 + MACD/KD/RSI；當沖在籌碼圖，不在這裡） |
 | components/StockSearchOptimized.tsx | 股票搜尋（Server Action + debounce） |
-| components/StockCard.tsx | 股票資訊卡片元件 |
+| components/StockCard.tsx | 股票資訊卡片（強勢股頁卡片檢視、選股頁共用；首頁已不用）；成交額／當沖比／MACD 底色的公式在 `lib/format.ts` |
 | components/MainContent.tsx | 主內容區（響應式寬度調整） |
 | app/actions/stocks.ts | Server Action：股票搜尋（Firestore） |
-| lib/firebase.ts | Firebase Client SDK + Auth + 型別定義 |
+| lib/firebase.ts | Firebase Client SDK + Auth + 到價提醒（`addAlert`／`getAlertsForStock`／`removeAlert`）+ 型別定義 |
 | lib/firebase-admin.ts | Firebase Admin SDK（伺服器端查詢） |
+| lib/strong-enrich.ts | `/api/strong-stocks` 與 `/api/screener` 共用：哪一天（指定日在清單內才用，否則權威 latest_date）、昨收（查不到就省略 key）、強勢天數（讀取失敗回 null、不寫 0） |
+| lib/use-latest-request.ts | `useLatestRequest()` 序號閘門：只採用最後一次送出的請求（強勢股、月報、選股三頁共用） |
+| lib/format.ts | 共用格式化與公式：`tradingValueOf`／`dayTradingRatioOf`／`macdBadgeClass`、`computeChange`、`isLimitUp`… |
+| lib/table.ts | 表格共用：`ColDef` registry、`normalizeQuery`／`matchesStockQuery`／`industriesOf`／`sortRows`（強勢股頁與月報共用） |
+| lib/candles.ts | K 線純函式：`convertToTimeFrame`（週／月聚合）、`toLineWS`（子圖折線，暖身期留 whitespace） |
 
 ### K 線圖（`CandleChart`；`StockChart`／`IndexChart` 只是包一層）
 
-使用 TradingView 開源的 **lightweight-charts**。個股頁與首頁「指數走勢」共用同一個 `CandleChart`。
+使用 TradingView 開源的 **lightweight-charts**。個股頁與首頁的指數走勢彈跳視窗（點「加權指數」那格打開，
+`IndexChartDialog`）共用同一個 `CandleChart`。純函式（週／月聚合 `convertToTimeFrame`、子圖折線 `toLineWS`）
+在 `lib/candles.ts`（2026-11-06 從 CandleChart 搬出）。
 （2026-10-22 依程式校正：本段先前寫的 TimeRange 同步、十字游標顯示開高低收／成交額／當沖、
 「固定範圍無動態滑動」、16px、`#1a1a2e` 全部與程式不符。）
 
@@ -240,12 +261,16 @@ Claude Code 處理本專案時的指引說明。
 - 技術指標（單選分頁）：MACD／KD／RSI（預設 MACD）
 - ⚙️ 圖表設定（手機收合、桌機常駐）：版面「價格為主／均衡／指標為主」（預設均衡），
   疊加勾選 MA5／MA10／MA20／MA60／布林／量（預設 MA5、MA10、MA20、量 開）
-- ⛶ 全螢幕（只能按 ✕ 離開，Esc 無效）
+- ⛶ 全螢幕（只能按 ✕ 離開，Esc 無效；首頁彈跳視窗裡按 Esc 會直接關掉整個視窗，2026-11-06 實測，關掉後頁面捲動正常）
 
 **讀值**：日期、收、漲跌（%）、量，加上已勾選的 MA、布林與當前指標數值。
 桌機疊在圖左上；**手機改放在控制列與圖之間的圖外讀值區**（兩欄格線，缺值顯示「—」），
 不疊在圖上蓋住 K 棒（2026-10-22 起，之前手機直接隱藏這些數值）。
 ⚠️ 游標日期在新資料裡找不到時一律退回最後一根（換週期時殘留的游標會讓讀值整塊消失、圖往上跳）。
+
+**週K／月K 的量**（2026-11-06 起）：有值的日子照加、缺值跳過，**整段都缺才是 null**（不畫量柱、讀值「—」）；
+0 是有效值照算。不可改回 `sum + v` 或 `|| 0`。週K／月K 的 `day_trading_volume` 是期間最後一根的值、不是加總（技術圖不讀這欄）。
+`CandleChart` 的 `volumeFormatter` 必填（個股「張」、加權「億」、台指期「口」）；`IndexChart` 的 `indexId` 必填。
 
 **時間軸同步**：主圖與指標圖用 **LogicalRange** 同步（`CandleChart.tsx` 的 `subscribeVisibleLogicalRangeChange` 區塊）。
 指標一律用完整資料計算（不 slice），顯示範圍靠 `setVisibleLogicalRange` 控制——
@@ -257,7 +282,8 @@ Claude Code 處理本專案時的指引說明。
 **已知限制**：設定不會記住（每次打開回預設）；換週期／區間／指標／版面時拖曳位置會被重設；
 手機上手指在圖上滑會被圖表拿去拖曳、整頁不捲動（圖高 600px）。
 
-**UI 規格**：圖表字 14px、背景 `#131722`、高度 600px、全幅寬度（跳脫 max-w-7xl）。
+**UI 規格**：圖表字 14px、背景 `#131722`。個股頁高度 600px、全幅寬度（跳脫 max-w-7xl）；
+首頁指數彈跳視窗高度 520px，視窗手機全螢幕、桌機 `min(1200px, 95vw)`。
 
 ## Firestore 集合結構（優化版）
 
@@ -321,7 +347,23 @@ market_index/
 
 **優勢**：單一文件包含完整歷史，讀取從 500+ 次降至 1 次
 
-### user_watchlists/{userId}/stocks/{stock_id} - 自選股
+### user_alerts/{userId}/alerts/{alertId} - 到價提醒
+
+```
+user_alerts/
+└── {userId}                            # Firebase Auth uid
+    └── alerts/
+        └── {auto-id}
+            ├── stock_id, stock_name, type, value   # type：price_above／price_below／macd_bullish／macd_bearish／foreign_streak／trust_streak
+            ├── email                               # 前端照寫，但收集器不用它（收件人一律用 Auth 查 uid 的 email）
+            ├── enabled: true                       # 信確實寄出後收集器改成 false＋寫 triggered_at
+            └── created_at: Timestamp
+```
+`firestore.rules` 只驗 uid、不驗欄位，所以文件內容都當成使用者自填、不可信任（見 skill「到價提醒」）。
+
+### user_watchlists/{userId}/stocks/{stock_id} - 自選股（⚠️ 功能 2026-11-06 拿掉）
+
+功能已移除，**資料與 `firestore.rules` 的規則刻意保留**（業主決定資料不刪；規則部署會整份覆蓋線上版本，不要為了刪這段單獨部署）。網站已沒有任何地方讀寫它。
 
 ```
 user_watchlists/
@@ -403,11 +445,12 @@ metadata/
 ### 統一排程器（daily_collector.py）
 
 整合所有資料收集流程，提供：
-- **休市日跳過**：開頭先問 `trading_calendar.is_market_closed()`；國定假日、補假、颱風停市不收集、
-  不寄告警、exit 0。`--backfill-gaps` 的缺口也用交易日曆算，不再把假日當缺漏。
+- **休市日跳過**：開頭先問 `trading_calendar.is_market_closed()`；國定假日、補假、颱風停市時
+  台股不收集、不重算、不檢查提醒、不寄「收集失敗」告警、exit 0；**美股照常更新**（斷料仍會寄非關鍵告警）。
+  `--backfill-gaps` 的缺口也用交易日曆算，不再把假日當缺漏。
   ⚠️ 不可改回「排除週六日」：平日也會休市，2016～2018 也有補班週六是交易日。
-- **自動重試**：使用 tenacity 套件，失敗時指數退避重試（最多 3 次）
-- **增量更新**：自動偵測缺少的日期，只補抓缺失資料
+- **自動重試**：使用 tenacity 套件，失敗時指數退避重試（最多 3 次）。美股斷料檢查放在重試範圍外，一個執行最多寄 1 封。
+- **缺口回補**：`--backfill-gaps` 用「交易日全集 − 已存在日期」找缺漏日期再補（舊的 `--incremental` 已刪除）
 - **資料驗證**：確保資料筆數 >= 2000、收盤價完整度 >= 95%
 - **日誌記錄**：輸出到 logs/daily_collector_YYYYMMDD.log
 
@@ -569,6 +612,12 @@ gcloud run jobs deploy stock-collector --source=. \
 排程：Cloud Scheduler `stock-collect-1700` / `stock-collect-2200`
 （UTC 09:00 / 14:00 ＝ 台灣 17:00 / 22:00）。
 
+- `--source=.` 的打包排除清單是 `.gcloudignore`：2026-11-06 起排除 `service-account*.json`、`*-key.json`、`*.pem`、`*.p12`、`*.key`
+  （任何子目錄），金鑰不會再被上傳到 Cloud Build 的 source bucket。
+- 到價提醒要用 Firebase Auth 查收件人（`firebaseauth.users.get`）：Cloud Run 預設服務帳號有 `roles/editor`、已含這個權限，
+  **不需另外改 IAM**（`deploy-cloudrun.sh` 步驟 3 多加的 `roles/firebaseauth.viewer` 是給換成專用服務帳號時用的）。
+  少了權限的症狀：提醒不寄也不停用，log 出現「警示收件人查詢失敗」。
+
 ## 執行指令
 
 ### Python 資料收集
@@ -576,32 +625,37 @@ gcloud run jobs deploy stock-collector --source=. \
 ⚠️ **本機跑會寫正式 Firestore，一定要 `export USE_GCS_ARCHIVE=1`**（開頭從 GCS 下載年度檔、結尾上傳）。
 沒設會被 `require_authoritative_archive()` 擋下：本機 `data/daily_reports/archive` 只是某天的副本，
 拿它算前一日收盤／MACD／連買天數會把錯的資料寫進正式站。只是本機實驗才設 `ALLOW_LOCAL_ARCHIVE=1`。
-`--incremental` 已停用（不經過年度檔同步），補缺口用 `--backfill-gaps`。
+`--incremental` 已刪除（2026-11-06；現在帶它會被 argparse 擋下、exit 2），補缺口用 `--backfill-gaps`。
+⚠️ 收集器**只支援 `python -m stock_collector.<模組>`**（`stock_collector/` 是套件）；`python stock_collector/xxx.py`
+腳本模式不支援，`update_strong_matrix`、`sentiment_collector` 一啟動就 ImportError。`scripts/` 底下的工具照舊用 `python3 scripts/xxx.py`。
 
 ```bash
 # === 統一排程器（推薦）===
 python -m stock_collector.daily_collector                    # 今日（股票+指數+矩陣）
 python -m stock_collector.daily_collector --date 2026-06-19  # 指定日期
 python -m stock_collector.daily_collector --days 7           # 批次收集過去 7 天
+python -m stock_collector.daily_collector --backfill-gaps    # 回補歷史區間內缺漏的交易日
 python -m stock_collector.daily_collector --skip-stock       # 只收集指數+矩陣
 python -m stock_collector.daily_collector --skip-index       # 只收集股票+矩陣
 python -m stock_collector.daily_collector --skip-matrix      # 只收集資料，不更新矩陣
 python -m stock_collector.daily_collector --skip-sentiment   # 不抓市場溫度（--days／--backfill-gaps 迴圈內自動跳過、結束後只跑一次）
+python -m stock_collector.daily_collector --us-only          # 只更新美股三大指數後結束（不看休市、不碰年度檔）
+python -m stock_collector.daily_collector --test-alert       # 寄一封測試告警信（驗證 Email 設定）
 python -m stock_collector.sentiment_collector --dry-run      # 只抓不寫，看今天抓到什麼
 python3 scripts/backfill_market_sentiment.py                 # 市場溫度回補 dry-run（2023 起，約 2 小時）；--write 才寫
 
 # === 個別收集（舊方式）===
 # ⚠️ stock_collector.py 單獨執行時，會寫正式資料就拒絕（它不把年度檔存回 Storage）；正式資料一律用 daily_collector
-# 指數資料收集（加權指數 + 台指期）
+# 指數資料收集（加權指數 + 台指期 + 美股三大指數）
 python -m stock_collector.index_collector              # 今日
 python -m stock_collector.index_collector --days 30    # 過去 30 天
 python -m stock_collector.index_collector --start 2024-01-01 --end 2026-06-16
 
 # 每日股票收集（批次 API）
-python stock_collector/stock_collector.py
+python -m stock_collector.stock_collector
 
 # 批次歷史收集（最近 7 天）
-python stock_collector/stock_collector.py --days 7
+python -m stock_collector.stock_collector --days 7
 
 # 更新強勢股矩陣
 USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix   # 會先從 Storage 下載年度檔；沒設會拒絕
@@ -625,6 +679,9 @@ npm run dev
 npm run build && npm start
 ```
 
+預覽設定 `.claude/launch.json`：`frontend`（`npm run dev`，port 3000）、`frontend-prod`（`npm run start -- -p 3100`，
+先 `npm run build`，驗正式 build 用）。
+
 ## 效能優化
 
 ### API Response 快取
@@ -632,18 +689,19 @@ npm run build && npm start
 API Routes 使用 Cache-Control header 減少重複請求：
 
 ```typescript
-// api/stocks/route.ts - 股票清單快取 5 分鐘
-return NextResponse.json({ stocks, count }, {
+// api/market-index/[id]/route.ts - 指數快取 5 分鐘
+return NextResponse.json({ index_id, index_name, latest, history, change, changePercent }, {
   headers: {
     'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
   }
 })
 
-// api/strong-stocks/route.ts - 強勢股快取 2 分鐘
+// api/strong-stocks/route.ts、api/screener/route.ts - 快取 2 分鐘
 headers: {
   'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300'
 }
 ```
+其他：`api/market-sentiment` 是 `s-maxage=600, swr=1800`、`api/strong-monthly` 是 `s-maxage=1800, swr=3600`。
 
 ### Server Actions（股票搜尋優化）
 
@@ -693,7 +751,7 @@ export async function searchStocks(query: string): Promise<StockSearchResult[]> 
 
 ## Firebase 注意事項
 
-### Firebase Auth 設定（自選股功能需要）
+### Firebase Auth 設定（到價提醒需要；收集器也靠它查收件人 email）
 
 1. 到 Firebase Console > Authentication > Sign-in method
 2. 啟用 Google Provider
@@ -746,6 +804,49 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-11-06
+
+**首頁再改版（業主在聊天裡要的；c2c2d6c）**——下面 11-05 那則「首頁改版（晚上…）」是當時的狀態，後續演變如下：
+- 「四個指數均分寬度」：加權指數＋美股三大指數四格（`components/home/MarketIndexCard.tsx`；container query `@min-[40rem]` 四格一排、
+  不夠寬 2×2，320～1280 七種寬度四格等寬不溢出）。11-05 的「三格並排／三列」寫法已換掉。
+- 「市場溫度的融資融卷、走勢圖也放在首頁」：抽出 `components/MarketMoodSections.tsx`，首頁（`components/home/HomeMood.tsx`）
+  與 /market-mood 共用，市場溫度頁的文字與改版前逐字相同。11-05 的「首頁四張大卡」到此變成整份市場溫度。
+- 「改成用點擊台指大盤彈跳視窗顯示」：頁面下方的指數走勢線圖改成點「加權指數」那格打開的彈跳視窗
+  （`components/IndexChartDialog.tsx`，原生 `<dialog>`，保留加權／台指期切換）。背景捲動用 `globals.css` 的
+  `html:has(dialog[open])` 鎖：CandleChart 全螢幕離開時會把 `body.style.overflow` 清成 ''，用 JS 鎖會被洗掉。
+- 加權／台指期抓不到時只讓那張卡變錯誤訊息（有「重新載入」），市場溫度照常顯示。
+
+**拿掉自選股功能**（業主：「首頁、sidebar 的自選股刪除，不用這個功能」；f3b7b78）
+- 刪 `/watchlist` 頁、`WatchlistButton`、`/api/quotes`、`lib/signals.ts` 與 `lib/firebase.ts` 的自選股函式；側欄與手機底部導覽
+  拿掉「⭐ 自選股」→ 底部 **4 格**（首頁／強勢／月報／選股；市場溫度不補進底部，首頁已有完整內容）；個股頁只剩 🔔 到價提醒。
+- `/watchlist` 307 轉首頁（書籤、主畫面捷徑不會看到找不到頁面）；sitemap 拿掉。
+- 保留：Google 登入、到價提醒；Firestore `user_watchlists` 資料與 `firestore.rules` 的規則都不動。
+
+**前端模組化與死碼**（7af5f3c、f192b8a、b1b3837；畫面只有下面註明的兩處不同）
+- `lib/use-latest-request.ts` 序號閘門，強勢股、月報、選股三頁共用。**修掉兩個真 bug**：月報「先選冷的 A 月、再選 B 月」時
+  A 晚到會把下拉與整張表蓋回 A 月；選股頁連點兩個快速策略時，「已套用條件」是新的、卡片與「符合 N 檔」卻是舊條件的結果。
+- 強勢股欄位定義原樣搬到 `app/strong-stocks/columns.tsx`（page 1,488→約 1,050 行）；成交額／當沖比／MACD 底色共用 `lib/format.ts`，
+  搜尋正規化／比對／產業清單／排序共用 `lib/table.ts`。選股頁 7 個下拉補 `<label>`（外觀不變，讀屏念得出是哪個條件）。
+- API：刪掉 repo 內沒人呼叫的 `/api/stock/[id]`（每次未快取的請求都打 FinMind 抓 5 年 K 線）與 `/api/stocks`；
+  `/api/stock/[id]/institutional` 保留。market-sentiment 拿掉 `?last`、`latest`、`generatedAt`，`first` 只剩 `taivix`
+  （11-05 那則的「首頁用 `?last=3`」已不存在，首頁與 /market-mood 都送 `?days=400`）；`market-index/[id]` 的 `?last` 還在（首頁美股三格用）。
+  選股拿掉沒人送的 `trustBuy`；強勢股與選股的日期規則、昨收、強勢天數共用 `lib/strong-enrich.ts`（`days` 不是數字就退回 7）。
+- K 線：純函式搬到 `lib/candles.ts`；**週K／月K 某一整段的量都缺時改成 null**（以前畫 0 高量柱、讀值 0，現在不畫、讀值「—」），
+  部分缺值照舊加有值的日子。另刪 InfoTip 的 `dark`、`ChartSkeleton`、`IndexChart` 的 `indexId` 後備（改必填）等死碼。
+
+**收集器清理＋到價提醒安全修正**（2608e66、1237f5e；Cloud Run image 已重建，雲端用 `--us-only` 實跑成功，2026-11-06 03:21）
+- 安全：到價提醒收件人改用 Firebase Auth 查 uid（取自文件路徑）的 email，不再用文件裡使用者自己寫的 email——以前任何登入的人
+  都能讓收集器用業主的 Gmail 寄信給任意地址。股名用當日資料、條件數值用解析後的數字。
+- 信沒寄出就不停用提醒（以前沒設 SMTP 或 Gmail 拒收也照樣停用）；補舊日期不檢查提醒；告警信時間改台灣時間。
+  預設服務帳號有 `roles/editor`（含 `firebaseauth.users.get`），不需另外改 IAM。
+- 美股：抓窗 7→21 個日曆天（`US_LOOKBACK_DAYS`，蓋過春節連休）、台股休市日只抓美股、新增 `--us-only`（2608e66，11-05 深夜）；
+  斷料檢查移出 tenacity 重試（以前加權指數重試 3 次就可能寄 3 封，現在一個執行最多 1 封）。
+- `stock_collector` 成為套件（`__init__.py`，只支援 `python -m`）；非關鍵告警共用 `notify.send_nonfatal`；刪 `merge_daily_files.py`、
+  `--incremental`／`run_incremental`、`write_strong_stocks`、config 沒用的常數、兩支已跑完的一次性腳本
+  （`backfill_null_vs_zero.py`、`fix_stock_id_leading_zero.py`）。`.gcloudignore` 排除 `service-account*.json` 等憑證。
+- 沒修、記在 skill 待辦：FinMind `DataLoader()` 連網沒有 timeout；**2027-01-04 跨年**（要在 2026-12 底前做、先給業主數字）；
+  美股斷料告警一天可能寄多封；美股每天 17:00 才更新（要不要加台灣早上的 `--us-only` 排程，待業主決定）。
 
 ### 2026-11-05
 

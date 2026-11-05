@@ -7,7 +7,7 @@
  * 與 StockCard 共用；MACD 底色再加上強勢月報。
  *
  * StockDetailClient／StockSignals 的漲跌基準是 history 倒數第二根（不靠 API 的 prev_close），
- * 語境不同，不併進 computeChange。這兩個檔的當沖比目前仍各寫一份（公式相同），之後改用 dayTradingRatioOf。
+ * 語境不同，不併進 computeChange。當沖比：StockDetailClient 已改用 dayTradingRatioOf（2026-11-06）；StockSignals 仍自己算一份（公式相同）。
  */
 
 /** 無資料的統一符號：全形破折號 U+2014（與 app/page.tsx 一致，不是半形 '-'） */
