@@ -19,6 +19,8 @@ Claude Code 處理本專案時的指引說明。
 5. 強勢股分析網站：強勢股 `/strong-stocks`（上方切換卡片／表格）、月報 `/strong-monthly`
 6. 個股詳情：K 線／技術指標／三大法人／放空籌碼／今日訊號
 7. 自選股與到價提醒（Firebase Auth + Google OAuth）
+8. 市場溫度 `/market-mood`（2026-11-05）：大盤當沖比、融資融券餘額、台股／美股恐慌指數；首頁兩行摘要。
+   資料來自證交所／櫃買／期交所／CBOE **官方**（不經 FinMind），存 `market_sentiment/`。
 
 ⚠️ **已移除、文件若再提到就是過時**：基本面分析（OpenAI/Claude 生成報告，
 連同 `app/analysis`、`api/analysis`、`stock_analysis_reports` collection）、
@@ -49,7 +51,7 @@ Claude Code 處理本專案時的指引說明。
 ┌─────────────────────────────────────────────────────────────────┐
 │                         API 層                                   │
 │              Next.js API Routes (App Router)                     │
-│  market-index/[id] │ strong-stocks │ strong-monthly │ screener │
+│  market-index/[id] │ market-sentiment │ strong-stocks │ strong-monthly │ screener │
 │  stock/[id] │ stock/[id]/institutional │ stocks │ quotes         │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -57,15 +59,15 @@ Claude Code 處理本專案時的指引說明。
 ┌─────────────────────────────────────────────────────────────────┐
 │                        資料庫層                                  │
 │                  Firebase Firestore + Auth                       │
-│  daily_data/{date}/chunks │ strong_stocks │ market_index │ metadata │
+│  daily_data/{date}/chunks │ strong_stocks │ market_index │ market_sentiment │ metadata │
 │  （使用者資料：user_watchlists／alerts）                         │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
 ┌─────────────────────────────────────────────────────────────────┐
 │                       資料收集層                                 │
-│                    Python + FinMind API                          │
-│   index_collector.py  │  stock_collector.py  │  update_matrix   │
+│         Python + FinMind API ＋ 證交所／櫃買／期交所／CBOE 官方          │
+│  index_collector │ stock_collector │ sentiment_collector │ update_matrix │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -82,6 +84,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── daily_collector.py              # 統一排程器（重試、增量更新、驗證）
 │   ├── stock_collector.py              # 每日股票資料收集器（6 支批次 API）
 │   ├── index_collector.py              # 指數資料收集器（TAIEX + TX）
+│   ├── sentiment_collector.py          # 市場溫度：大盤當沖比／融資融券／臺指VIX／美股 VIX（官方來源，null-aware）
 │   ├── update_strong_matrix.py         # 強勢股判定與矩陣更新（條件的唯一權威）
 │   ├── trading_calendar.py             # 休市判斷（交易日曆＋加權指數＋證交所三方確認）
 │   ├── indicators.py                   # MACD 狀態（由已刪除的 utils.py 精簡而來）
@@ -100,6 +103,7 @@ Claude Code 處理本專案時的指引說明。
 │   ├── backfill_foreign_hold_shares.py # 回補外資持股五欄（null-aware、只寫交易日、可 --date）
 │   ├── backfill_short_sale.py          # 回補融券／借券賣出／融資餘額
 │   ├── backfill_index_volume_from_twse.py  # FinMind 缺大盤成交量時改抓 TWSE
+│   ├── backfill_market_sentiment.py    # 回補市場溫度歷史（2023 起；逐日 jsonl 可 --resume；dry-run）
 │   ├── dedupe_daily_data.py            # 清 daily_data 重複列與殘留分片（2026-10-22 已跑過）
 │   └── backfill_incomplete_days.py     # 重收年度檔裡收得不完整的日子（只改 GCS 年度檔，不寫 daily_data）
 │
@@ -120,12 +124,13 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── page.tsx                    # 首頁 Dashboard
 │   │   ├── strong-stocks/page.tsx      # 強勢股（卡片）
 │   │   ├── strong-monthly/page.tsx     # 強勢月報（當月彙整）
+│   │   ├── market-mood/page.tsx        # 市場溫度（當沖比／融資融券／恐慌指數；只在桌機側欄，手機從首頁兩行進）
 │   │   ├── screener/page.tsx           # 自訂條件選股
 │   │   ├── watchlist/page.tsx          # 自選股
 │   │   ├── stock/[id]/                 # 個股詳情（page + StockDetailClient）
 │   │   ├── actions/stocks.ts           # Server Action：股票搜尋
 │   │   └── api/                        # market-index/[id]、strong-stocks、
-│   │                                   # strong-monthly、screener、stocks、quotes、
+│   │                                   # market-sentiment、strong-monthly、screener、stocks、quotes、
 │   │                                   # stock/[id]、stock/[id]/institutional
 │   │
 │   ├── components/                     # React 元件
@@ -139,6 +144,7 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── StockChart.tsx              # 個股技術分析圖
 │   │   ├── InstitutionalChart.tsx      # 三大法人籌碼圖
 │   │   ├── StockSignals.tsx            # 今日訊號（純前端判定）
+│   │   ├── SentimentStat.tsx / SentimentChart.tsx  # 市場溫度的指標卡與走勢圖（淺色、大字、不吃觸控捲動）
 │   │   ├── StockCard.tsx / states.tsx / table.tsx / MainContent.tsx
 │   │   ├── WatchlistButton.tsx / AlertButton.tsx
 │   │   └── StockSearchOptimized.tsx    # 搜尋（Server Action + debounce）
@@ -149,6 +155,7 @@ Claude Code 處理本專案時的指引說明。
 │   │   ├── finmind.ts                  # 個股 K 線直打 FinMind REST
 │   │   ├── stock-data.ts               # 個股頁資料彙整
 │   │   ├── monthly-report.ts           # 月報彙整層
+│   │   ├── sentiment.ts                # 市場溫度型別＋Stat（最新值、前一筆、近一年最高最低）
 │   │   ├── indicators.ts / signals.ts / format.ts / table.ts
 │   │
 │   ├── next.config.ts                  # Next.js 配置
@@ -173,6 +180,7 @@ Claude Code 處理本專案時的指引說明。
 | stock_collector/daily_collector.py | 統一排程器：重試機制、缺口回補、資料驗證 |
 | stock_collector/stock_collector.py | 6 支批次 API 收集、CSV 存檔、Firestore 同步 |
 | stock_collector/index_collector.py | 指數資料收集（加權指數 TAIEX + 台指期 TX） |
+| stock_collector/sentiment_collector.py | 市場溫度：官方當沖統計（TWTB4U／intraday/stat）、信用交易（MI_MARGN／margin/balance）、期交所 VIX 月檔、CBOE CSV；每班重抓近 3 個交易日（T+2 定案）；休市／未公布／soft-404 一律 None 不寫 0；斷料會寄非關鍵告警 |
 | stock_collector/update_strong_matrix.py | **強勢股判定的唯一權威**；每次執行重算全部歷史 |
 | stock_collector/trading_calendar.py | 休市判斷：三個來源都說沒交易才跳過；任一抓不到或互相矛盾就照常收集（矛盾會寄信） |
 | stock_collector/indicators.py | MACD 狀態（用本地年度檔算，零 API） |
@@ -188,6 +196,8 @@ Claude Code 處理本專案時的指引說明。
 | app/page.tsx | 首頁 Dashboard：指數、今日強勢、我的自選 |
 | app/strong-stocks/page.tsx | 強勢股：上方切換卡片／表格（2026-10-26 由卡片頁與總表合併；表格預設全欄位） |
 | app/strong-monthly/page.tsx | 強勢月報（當月彙整，12 欄對應業主 Word 月報） |
+| app/market-mood/page.tsx | 市場溫度：上市／上櫃當沖比、融資／融券餘額、台股／美股恐慌指數，各有走勢圖；不貼偏高／偏低標籤 |
+| api/market-sentiment/route.ts | API：market_sentiment 四系列（?days=N 或 ?last=N；缺文件回空陣列不回 500；s-maxage=600） |
 | app/screener/page.tsx | 自訂條件選股 |
 | app/watchlist/page.tsx | 自選股：用戶自訂觀察清單（需登入） |
 | app/stock/[id]/ | 個股詳情：K 線、三大法人、放空籌碼、今日訊號 |
@@ -318,6 +328,19 @@ user_watchlists/
         └── 2454
 ```
 
+### market_sentiment/{doc_id} - 市場溫度（2026-11-05）
+
+```
+market_sentiment/
+├── daytrade   history: [{ date, twse_buy_pct, twse_sell_pct, twse_shares_pct, twse_dt_shares, twse_buy_amount, twse_sell_amount,
+│                          tpex_buy_pct, tpex_sell_pct, tpex_shares_pct, tpex_dt_shares, tpex_buy_amount, tpex_sell_amount }]
+├── margin     history: [{ date, twse_margin_balance(仟元), twse_margin_lots, twse_short_lots, tpex_margin_balance, tpex_margin_lots, tpex_short_lots }]
+├── taivix     history: [{ date, close, close_1min_avg }]           # 期交所 13:45 收盤；2026-03-02 起
+└── vix        history: [{ date(美東), open, high, low, close }]    # CBOE
+```
+單一文件＋history 陣列、依 date **逐欄** upsert（`write_market_sentiment`：新值 None 不蓋既有值）。缺值是 null，**不是 0**。
+每班 4 讀 4 寫（當沖／融資 17:00 那班官方通常還沒公布，寫 0 天是正常）。
+
 ### metadata - 系統元資料
 
 ```
@@ -338,7 +361,8 @@ metadata/
 | 每日股票 | ~2,300 | ~6 | 99.7% |
 | 強勢股 | ~100 | 1 | 99% |
 | 指數 | 2 | 2 | - |
-| **每日總計** | ~2,402 | **~9** | **99.6%** |
+| 市場溫度 | — | ~8（4 文件 × 2 班） | 2026-11-05 新增 |
+| **每日總計** | ~2,402 | **~17** | **99.3%** |
 
 ## 處理流程
 
@@ -556,6 +580,9 @@ python -m stock_collector.daily_collector --days 7           # 批次收集過�
 python -m stock_collector.daily_collector --skip-stock       # 只收集指數+矩陣
 python -m stock_collector.daily_collector --skip-index       # 只收集股票+矩陣
 python -m stock_collector.daily_collector --skip-matrix      # 只收集資料，不更新矩陣
+python -m stock_collector.daily_collector --skip-sentiment   # 不抓市場溫度（--days／--backfill-gaps 迴圈內自動跳過、結束後只跑一次）
+python -m stock_collector.sentiment_collector --dry-run      # 只抓不寫，看今天抓到什麼
+python3 scripts/backfill_market_sentiment.py                 # 市場溫度回補 dry-run（2023 起，約 2 小時）；--write 才寫
 
 # === 個別收集（舊方式）===
 # ⚠️ stock_collector.py 單獨執行時，會寫正式資料就拒絕（它不把年度檔存回 Storage）；正式資料一律用 daily_collector
@@ -713,6 +740,18 @@ for i, chunk in enumerate(chunks):
 https://github.com/Stone-811/stock_helper
 
 ## 最近更新
+
+### 2026-11-05
+
+**市場溫度分頁（大盤當沖比、融資融券、恐慌指數）**（業主在聊天裡逐題決定；收集器與前端都做好、尚未上線）
+- 新頁 `/market-mood` ＋ 首頁加權指數卡下面兩行摘要（整行可點）；手機底部維持 5 格、電腦側欄多一項（`navItems.desktopOnly`）。
+- 當沖比＝官方「成交金額（買進）占比」（新聞口徑），上市、上櫃各一個數字；融資餘額＋融券餘額；恐慌指數台股（首頁）＋美股（新頁）。
+  不貼偏高／偏低標籤，只寫數字、跟前一筆比（寫出日期）、近一年最高最低（寫出天數）。
+- 全部抓官方：證交所 TWTB4U／MI_MARGN、櫃買 intraday/stat?type=Daily／margin/balance、期交所 log2data_eng 月檔、CBOE VIX_History.csv。
+  **融資用次日回應的「前日餘額」當定案值**（官方 notes 說今日餘額只是參考）。
+- 回歸審查 18 項（5 項經反駁者確認、其餘自己核對）全部修完：writer 逐欄合併不讓 None 蓋值、批次模式只跑一次、
+  `--skip-sentiment` 獨立旗標、斷料告警、回補 --resume 不把失敗日當完成、首頁用 `?last=3` 不受春節影響、圖 resize 後 fitContent。
+- 處置股查證：精材 3374 沒當沖資料＝處置期間依規定不得當沖（全市場 637 檔次 0 例外），畫面誤導文字待業主決定。
 
 ### 2026-10-26
 

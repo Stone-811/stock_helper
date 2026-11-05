@@ -20,7 +20,7 @@ description: 選股小幫手（stock_helper，台股技術分析網站）的架�
 1. **Cloud Run Job + Cloud Scheduler**（工作日台灣 17:00／22:00 兩班）→ `daily_collector` 抓 FinMind（股價 / 三大法人 / 外資持股 / 當沖 / 指數）。
    GitHub Actions 的 `daily-collect.yml` **排程已停用**（只留 `workflow_dispatch` 手動備援），避免重複收集。
 2. 寫 Firestore（2026-09-05 實測筆數）：`daily_data/{date}/chunks`（**自 2026-07-24 起一直累積、2026-09-28 實測 45 天**——程式裡沒有任何 prune 邏輯，先前記載的「31 天」已過時；但也沒有保留保證，不要依賴）、`strong_stocks/{date}`（**886 天**，只存 `{stock_id, stock_name}`）、`market_index/{TAIEX,TX}`（**2 份文件**，各含 510 筆 history 陣列）、`metadata/{latest_date, available_dates}`。
-   **就這 4 個 collection**——舊架構 `strong_stock_matrix`／`market_index_daily` 已於 2026-09-05 刪除。
+   **加上 2026-11-05 的 `market_sentiment` 共 5 個 collection**——舊架構 `strong_stock_matrix`／`market_index_daily` 已於 2026-09-05 刪除。
    ⚠️ 數值欄位全在 `daily_data`，所以任何回補（與「強勢月報」的可算月份）上限就是 **2026-07-24**。
    `metadata/available_dates` 與 `daily_data` 的日期集合實測完全一致（差集兩邊皆空）。
 3. 前端讀 Firestore；**但個股 K 線改打 FinMind REST（`lib/finmind.ts`，單股完整歷史，繞過 Firestore）**、MACD 由前端 `lib/indicators.ts` 自算
@@ -423,7 +423,25 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
   `InstitutionalChart.tsx:183` 當沖分頁平常顯示最後一筆有值那天（10-30 的 74.9%）**卻不標日期**，同頁上方「當日當沖」是「—」。
 - 順帶發現：`CandleChart.tsx:492` 週／月 K 合併用 `(day_trading_volume || 0)`（目前技術圖沒畫當沖，未影響）；`strong-stocks/page.tsx:81` 註解說 StockCard 用 `|| 0` 已過時。
 
-## 大盤當沖比例與恐慌指數：資料源調查（2026-11-05，業主想新增分頁；尚未實作、待業主決定）
+## 市場溫度 `/market-mood`：大盤當沖比、融資融券、恐慌指數（2026-11-05 已實作，等業主看改前改後）
+
+業主決定（記憶 `stock-helper-sentiment-page`）：新頁＋首頁兩行、底部維持 5 格、金額口徑、上市上櫃各一、台股＋美股 VIX、
+融資＋融券餘額、2023 起、**不貼標籤**。程式：`stock_collector/sentiment_collector.py`、`firebase_writer.write_market_sentiment`、
+`scripts/backfill_market_sentiment.py`、`frontend/lib/sentiment.ts`、`components/SentimentStat.tsx`／`SentimentChart.tsx`、
+`app/market-mood/`、`app/api/market-sentiment/`、首頁 `MoodRows`。
+
+**鐵則（收集器檔頭也有）**
+- 休市／停市／當天未公布，官方回應**一模一樣**（stat OK＋空表）→ `_find_table` 用表名找、再比對 `fields` 關鍵字；空就回 None、不寫。
+- 期交所舊月份 302→404.htm、查無資料回 200 HTML → `allow_redirects=False` 且看第一行是不是 `Date`。
+- writer **逐欄合併**：新值 None 不蓋既有值（一邊逾時不能把另一邊洗掉）；collect_days 抓不到的那一邊**不放欄位**。
+- 融資：D 日的值＝D+1 回應的「前日餘額」（官方：今日餘額只是輔助參考）；視窗最後一天永遠是初值、下一班修正。
+- 每班重抓近 3 個交易日（`recent_trading_days` 帶 `with_actual=True`）；批次模式（--days／--backfill-gaps）迴圈內跳過、結束後 `_run_sentiment_once` 一次。
+- 17:00 那班當沖／融資 0 天正常；`_check_staleness` 在最新日期落後視窗起點（≈ 兩個交易日沒抓到）或 VIX 一週沒更新時寄非關鍵告警。
+- 前端：首頁用 `?last=3`（日曆天切窗在春節會切成空的）；「本站自 X 起統計」用回應的 `first`（trim 前）；
+  「比 M/D 高…」一定寫出比較的日期（prev 是前一筆有值的日子）；圖 resize 後要 `fitContent()`；手機看某一天要**長按再滑**（畫面有寫）。
+- **Cloud Run 連不連得到櫃買／期交所（Cloudflare）還沒測**：重建 image 後要用 `--date` 實跑一次看 log。
+
+### 資料源調查（2026-11-05；以下是實測結論，不要再重查）
 
 4 位研究者（當沖源／恐慌源／UI／反駁者）實抓驗證過，**不要再重查**。業主的決定與選項見記憶 `stock-helper-sentiment-page`。
 
@@ -948,7 +966,7 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sto
   「位元組增量 == 受影響列數 × 2」＋逐行比對確認 stock_id 以外 0 差異。
 - 這類問題**用「值對不對」是看不出來的**，要比對「兩邊的 stock_id 集合差異」才會現形。
 
-## Firestore 只有 4 個 collection（2026-09-05 清理後）
+## Firestore 只有 5 個 collection（2026-09-05 清理後 4 個；2026-11-05 加 `market_sentiment`）
 
 `daily_data`（約 31 天熱資料，分片每片 500 檔）、`strong_stocks`（每日聚合，886 天）、
 `market_index`（TAIEX/TX 各一份文件，history 陣列）、`metadata`（latest_date／available_dates）。
