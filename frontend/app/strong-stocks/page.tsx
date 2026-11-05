@@ -1087,16 +1087,7 @@ export default function StrongStocksPage() {
     <div className="min-h-screen bg-gray-50">
       {/* 容器比全站慣例的 max-w-7xl 寬：20 欄表格在 1920 螢幕上才不會白白浪費空間。
           PageHeader 也要同步換寬，否則標題會跟表格左緣差 280px。 */}
-      <PageHeader
-        title="強勢股"
-        maxWidth="max-w-[1560px]"
-        subtitle={
-          <>
-            {noTradingDay ? '尚無可用交易日' : `資料日期 ${selectedDate || '—'}`}
-            ｜卡片一眼看一檔，表格一次比較多檔
-          </>
-        }
-      />
+      <PageHeader title="強勢股" maxWidth="max-w-[1560px]" />
 
       <div className="max-w-[1560px] mx-auto px-4 py-6">
         {/* 檢視切換：同一份資料的兩種呈現。按了只換呈現，不打 API、條件與順序不變。

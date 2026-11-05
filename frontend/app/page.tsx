@@ -1,22 +1,21 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import IndexChart from '../components/IndexChart'
-import StockCard from '../components/StockCard'
+import { DaytradeStats, VixStats } from '../components/MoodStats'
 import {
   MarketIndex,
-  StrongStock,
   WatchlistItem,
   getWatchlist,
   onAuthChange,
   signInWithGoogle,
 } from '../lib/firebase'
-import { PageHeader, ChartSkeleton, CardGridSkeleton, ErrorState, EmptyState } from '../components/states'
+import { PageHeader, ErrorState, EmptyState } from '../components/states'
 import { computeSignals } from '../lib/signals'
 import InfoTip from '../components/InfoTip'
 import { DASH } from '../lib/format'
-import { DELTA_ARROW, deltaDir, deltaText, fmtMd, statOf, type SentimentResponse, type Stat } from '../lib/sentiment'
+import { statOf, type SentimentResponse } from '../lib/sentiment'
 
 interface IndexResponse {
   index_id: string
@@ -43,71 +42,119 @@ interface WatchRow extends WatchlistItem {
 }
 
 /**
- * 首頁「市場溫度」摘要（2026-11-05 業主選「新頁＋首頁兩行摘要」）：
- * 第一行上市／上櫃當沖比、第二行台股恐慌指數，整行可點進 /market-mood。
- * 跟 PageHeader／加權指數卡同一套大字；箭頭與差值用中性深灰（紅綠在本站代表股價漲跌）。
- * 業主選「不貼偏高／偏低標籤」：只有數字、日期、跟前一天比。缺值顯示 DASH、不顯示 0。
- * ⚠️ 自己 fetch、自己失敗：絕不可併進上面的 Promise.all（任一 reject 會把整個首頁變錯誤畫面）。
+ * 美股三大指數（2026-11-05 業主要的）：加權指數卡右側三個小格。
+ * 各自獨立 fetch /api/market-index/{SOX|SPX|DJI}（跟 TAIEX 同一支 API、同一個 market_index collection）。
+ * 日期是美東交易日：台灣晚上看到的最新是「前一晚」，所以每格都標「美股 M/D 收盤」。
+ * 漲跌跟美股前一個交易日收盤比（API 已算好 change／changePercent），紅漲綠跌（台股慣例）。
+ * ⚠️ 自己 fetch、自己失敗：三格任一抓不到只顯示「—」，不可併進 load() 的 Promise.all。
  */
-/** 跟前一天比（中性深灰，不用紅綠） */
-function Delta({ st, unit, digits }: { st: Stat | null; unit: '個百分點' | ''; digits: number }) {
-  if (st?.delta == null) return null
+const US_INDICES: { id: 'SOX' | 'SPX' | 'DJI'; label: string }[] = [
+  { id: 'SOX', label: '費半' },
+  { id: 'SPX', label: 'S&P 500' },
+  { id: 'DJI', label: '道瓊' },
+]
+function UsIndexCells() {
+  const [data, setData] = useState<Record<string, IndexResponse | null>>({})
+  useEffect(() => {
+    let alive = true
+    US_INDICES.forEach(({ id }) => {
+      fetch(`/api/market-index/${id}?last=2`)  // 只需要最新與前一筆；完整歷史不必傳
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (alive) setData((d) => ({ ...d, [id]: j })) })
+        .catch(() => { if (alive) setData((d) => ({ ...d, [id]: null })) })
+    })
+    return () => { alive = false }
+  }, [])
+  const fmtUs = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`
+  // 三個指數通常同一天；不同天（例如其中一個還沒更新）才在各自那格寫日期
+  const dates = [...new Set(US_INDICES.map(({ id }) => data[id]?.latest.date).filter((d): d is string => !!d))]
+  const sameDay = dates.length === 1
   return (
-    <span className="text-gray-900 tabular-nums"><span aria-hidden="true">{DELTA_ARROW[deltaDir(st.delta, digits)!]} </span>{deltaText(st.delta, unit, digits, st.prevDate)}</span>
-  )
-}
-/** 大字數值；沒有就是 DASH，不是 0 */
-function Val({ st, digits, unit }: { st: Stat | null; digits: number; unit: string }) {
-  return st ? (
-    <strong className="text-2xl md:text-3xl text-gray-900 tabular-nums">{st.value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}{unit}</strong>
-  ) : (
-    <strong className="text-2xl md:text-3xl text-gray-600"><span aria-hidden="true">{DASH}</span><span className="sr-only">無資料</span></strong>
+    // 依「這一塊自己的寬度」排版（container query）：夠寬（≥26rem）三格並排；手機與窄平板改成三列，名稱在左、數字在右。
+    // 2026-11-05 量過：390px 三格並排時道瓊數字頂到框邊、▲ 自己掉到一行，所以窄的時候不並排。
+    <div className="@container w-full xl:w-[28rem]" aria-label="美股三大指數">
+      <div className="text-sm text-gray-700 mb-1.5">
+        美股三大指數{sameDay && <> · 美股 {fmtUs(dates[0])} 收盤</>}
+      </div>
+      <div className="grid grid-cols-1 gap-2 @min-[26rem]:grid-cols-3">
+        {US_INDICES.map(({ id, label }) => {
+          const d = data[id]
+          const loaded = id in data
+          const up = (d?.change ?? 0) >= 0
+          const cls = !d ? 'text-gray-600' : up ? 'text-red-600' : 'text-green-700'
+          return (
+            <div key={id} className="rounded-lg bg-gray-50 px-3 py-2 min-w-0 flex items-center justify-between gap-3 @min-[26rem]:block">
+              <div className="text-base text-gray-800 font-medium whitespace-nowrap">{label}</div>
+              {d ? (
+                <div className="text-right @min-[26rem]:text-left min-w-0">
+                  <div className={`text-lg @min-[26rem]:text-xl font-bold tabular-nums leading-tight ${cls}`}>{d.latest.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className={`text-sm font-semibold tabular-nums ${cls}`}>
+                    <span className="whitespace-nowrap"><span aria-hidden="true">{up ? '▲' : '▼'} </span>{up ? '+' : ''}{d.change.toFixed(2)}</span>{' '}
+                    <span className="whitespace-nowrap">({up ? '+' : ''}{d.changePercent.toFixed(2)}%)</span>
+                  </div>
+                  {!sameDay && <div className="text-xs text-gray-700">美股 {fmtUs(d.latest.date)} 收盤</div>}
+                </div>
+              ) : (
+                <div className="text-lg font-bold text-gray-600">
+                  <span aria-hidden="true">{loaded ? DASH : '…'}</span>
+                  <span className="sr-only">{loaded ? '無資料' : '載入中'}</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
-function MoodRows() {
+/**
+ * 首頁「市場溫度」展開版（2026-11-05 業主：「首頁不要放今日強勢股，把大盤當沖比、恐慌指數展開放上」
+ * 「補上美國恐慌指數」）：上市／上櫃當沖比、台股／美股恐慌指數四張大卡，跟 /market-mood 同一組卡（MoodStats）。
+ * 融資融券與走勢圖留在 /market-mood，標題列右邊有連結過去。
+ * 用 ?days=400：卡片要算「近一年最高最低」（365 天）；400 個日曆天也不會被春節切成空的。
+ * ⚠️ 自己 fetch、自己失敗：絕不可併進 load() 的 Promise.all（任一 reject 會把整個首頁變錯誤畫面）。
+ *    抓不到時四張卡各自顯示「暫無資料」，不顯示 0。
+ */
+function MoodSection() {
   const [data, setData] = useState<SentimentResponse | null | undefined>(undefined) // undefined=載入中、null=失敗
   useEffect(() => {
     let alive = true
-    fetch('/api/market-sentiment?last=3')  // 用「最後 N 筆」不用日曆天：春節 ≥10 天休市會把日曆窗切成空的（審查 F2）
+    fetch('/api/market-sentiment?days=400')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('http'))))
       .then((j) => { if (alive) setData(j) })
       .catch(() => { if (alive) setData(null) })
     return () => { alive = false }
   }, [])
-  const dtTwse = data ? statOf(data.daytrade, (r) => r.twse_buy_pct) : null
-  const dtTpex = data ? statOf(data.daytrade, (r) => r.tpex_buy_pct) : null
-  const taivix = data ? statOf(data.taivix, (r) => r.close) : null
+  const s = useMemo(() => ({
+    dtTwse: data ? statOf(data.daytrade, (r) => r.twse_buy_pct) : null,
+    dtTpex: data ? statOf(data.daytrade, (r) => r.tpex_buy_pct) : null,
+    taivix: data ? statOf(data.taivix, (r) => r.close) : null,
+    vix: data ? statOf(data.vix, (r) => r.close) : null,
+  }), [data])
 
-  const rowCls = 'flex flex-wrap items-baseline gap-x-3 gap-y-1 min-h-[56px] px-4 py-2 text-base text-gray-700 hover:bg-blue-50 transition-colors'
   return (
-    <section className="bg-white rounded-lg shadow-sm divide-y divide-gray-200" aria-label="市場溫度摘要">
-      <Link href="/market-mood" className={rowCls}>
-        <span className="font-medium text-gray-900">大盤當沖比</span>
-        {data === undefined ? <span className="text-gray-600">載入中…</span> : (
-          <>
-            {/* 上市、上櫃各自帶日期：同一天只寫一次，不同天（一邊還沒公布）各寫各的，不可把上櫃標成上市的日期（審查 F3） */}
-            <span>上市 <Val st={dtTwse} digits={1} unit="%" />{dtTwse && dtTwse.date !== dtTpex?.date && <>（{fmtMd(dtTwse.date)}）</>}</span>
-            <span>上櫃 <Val st={dtTpex} digits={1} unit="%" />{dtTpex && dtTpex.date !== dtTwse?.date && <>（{fmtMd(dtTpex.date)}）</>}</span>
-            {dtTwse && dtTpex && dtTwse.date === dtTpex.date && <span>（{fmtMd(dtTwse.date)}）</span>}
-            <Delta st={dtTwse} unit="個百分點" digits={1} />
-            {data === null && <span className="text-gray-600">暫無資料</span>}
-          </>
-        )}
-        <span className="ml-auto text-blue-700 font-medium whitespace-nowrap">詳情 →</span>
-      </Link>
-      <Link href="/market-mood" className={rowCls}>
-        <span className="font-medium text-gray-900">台股恐慌指數</span>
-        {data === undefined ? <span className="text-gray-600">載入中…</span> : (
-          <>
-            <Val st={taivix} digits={2} unit="" />
-            {taivix && <span>（{fmtMd(taivix.date)}）</span>}
-            <Delta st={taivix} unit="" digits={2} />
-            {data === null && <span className="text-gray-600">暫無資料</span>}
-          </>
-        )}
-        <span className="ml-auto text-blue-700 font-medium whitespace-nowrap">詳情 →</span>
-      </Link>
+    <section aria-labelledby="mood-h" className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3">
+        <h2 id="mood-h" className="text-lg font-bold text-gray-900">🌡️ 市場溫度</h2>
+        <Link href="/market-mood" className="inline-flex items-center min-h-[44px] text-base font-medium text-blue-700 hover:text-blue-800">
+          走勢圖、融資融券 →
+        </Link>
+      </div>
+      {data === undefined ? (
+        <div className="space-y-3" role="status" aria-label="市場溫度載入中">
+          <div className="h-36 bg-white rounded-lg shadow-sm animate-pulse" />
+          <div className="h-36 bg-white rounded-lg shadow-sm animate-pulse" />
+        </div>
+      ) : (
+        <>
+          {data === null && <p className="text-base text-gray-700">暫時抓不到市場溫度資料，請稍後重新整理。</p>}
+          <h3 className="text-base font-medium text-gray-900">大盤當沖比（占成交金額）</h3>
+          <DaytradeStats twse={s.dtTwse} tpex={s.dtTpex} />
+          <h3 className="text-base font-medium text-gray-900 pt-1">恐慌指數</h3>
+          <VixStats taivix={s.taivix} vix={s.vix} taivixFrom={data?.first?.taivix ?? null} />
+        </>
+      )}
     </section>
   )
 }
@@ -116,6 +163,8 @@ function MoodRows() {
 function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexResponse; showOpenInterest?: boolean }) {
   const isPositive = data.change >= 0
   const color = isPositive ? 'text-red-600' : 'text-green-600'
+  // 缺值（null）顯示 DASH，不顯示 0：index writer 2026-11-05 起缺值寫 null
+  const num = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString() : DASH)
   return (
     <div className="bg-white rounded-lg shadow-sm px-4 py-3 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
       <span className="font-medium text-gray-800">{data.index_name}</span>
@@ -125,12 +174,12 @@ function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexRespons
           {isPositive ? '▲' : '▼'} {isPositive ? '+' : ''}{data.change.toFixed(2)} ({isPositive ? '+' : ''}{data.changePercent.toFixed(2)}%)
         </span>
       </span>
-      <span className="text-gray-700">開 <span className="text-gray-900 tabular-nums">{data.latest.open.toLocaleString()}</span></span>
-      <span className="text-gray-700">高 <span className="text-red-600 tabular-nums">{data.latest.high.toLocaleString()}</span></span>
-      <span className="text-gray-700">低 <span className="text-green-600 tabular-nums">{data.latest.low.toLocaleString()}</span></span>
-      <span className="text-gray-700">量 <span className="text-gray-900 tabular-nums">{data.latest.volume.toLocaleString()}</span></span>
+      <span className="text-gray-700">開 <span className="text-gray-900 tabular-nums">{num(data.latest.open)}</span></span>
+      <span className="text-gray-700">高 <span className="text-red-600 tabular-nums">{num(data.latest.high)}</span></span>
+      <span className="text-gray-700">低 <span className="text-green-600 tabular-nums">{num(data.latest.low)}</span></span>
+      <span className="text-gray-700">量 <span className="text-gray-900 tabular-nums">{num(data.latest.volume)}</span></span>
       {showOpenInterest && (
-        <span className="text-gray-700">未平倉 <span className="text-gray-900 tabular-nums">{(data.latest.open_interest || 0).toLocaleString()}</span></span>
+        <span className="text-gray-700">未平倉 <span className="text-gray-900 tabular-nums">{num(data.latest.open_interest)}</span></span>
       )}
       <span className="text-gray-600 ml-auto">{data.latest.date}</span>
     </div>
@@ -140,7 +189,6 @@ function IndexStatStrip({ data, showOpenInterest = false }: { data: IndexRespons
 export default function Home() {
   const [taiexData, setTaiexData] = useState<IndexResponse | null>(null)
   const [txData, setTxData] = useState<IndexResponse | null>(null)
-  const [strong, setStrong] = useState<StrongStock[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'TAIEX' | 'TX'>('TAIEX')
@@ -153,21 +201,13 @@ export default function Home() {
     setLoading(true)
     setError(null)
     try {
-      const [taiexRes, txRes, strongRes] = await Promise.all([
+      // 2026-11-05 業主：首頁不放今日強勢股（強勢股在 /strong-stocks），所以這裡不再抓 strong-stocks
+      const [taiexRes, txRes] = await Promise.all([
         fetch('/api/market-index/TAIEX'),
         fetch('/api/market-index/TX'),
-        fetch('/api/strong-stocks?days=7'),
       ])
-      let taiex: IndexResponse | null = null
-      if (taiexRes.ok) { taiex = await taiexRes.json(); setTaiexData(taiex) }
+      if (taiexRes.ok) setTaiexData(await taiexRes.json())
       if (txRes.ok) setTxData(await txRes.json())
-      if (strongRes.ok) {
-        const sj = await strongRes.json()
-        const list: StrongStock[] = (sj.stocks || []).slice()
-        const pct = (x: StrongStock) => { const b = x.prev_close && x.prev_close > 0 ? x.prev_close : x.open; return b > 0 ? (x.close - b) / b : 0 }
-        list.sort((a, b) => pct(b) - pct(a))
-        setStrong(list)
-      }
       if (!taiexRes.ok && !txRes.ok) throw new Error('無法取得指數資料')
     } catch (err) {
       console.error('Failed to fetch:', err)
@@ -203,7 +243,8 @@ export default function Home() {
         <PageHeader title="今日市場" />
         <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
           <div className="h-32 bg-white rounded-lg shadow-sm animate-pulse" />
-          <CardGridSkeleton count={6} />
+          <div className="h-36 bg-white rounded-lg shadow-sm animate-pulse" />
+          <div className="h-36 bg-white rounded-lg shadow-sm animate-pulse" />
         </div>
       </div>
     )
@@ -247,27 +288,14 @@ export default function Home() {
                   {taiexUp ? '▲' : '▼'} {taiexUp ? '+' : ''}{taiexData.change.toFixed(2)} ({taiexUp ? '+' : ''}{taiexData.changePercent.toFixed(2)}%)
                 </div>
               </div>
+              {/* 美股三大指數：寬螢幕（xl）在右側；其他寬度排在加權指數下面（2026-11-05） */}
+              <UsIndexCells />
             </div>
           </section>
         )}
 
-        {/* 市場溫度兩行摘要（2026-11-05）：放在加權指數卡下面、今日強勢股上面 */}
-        <MoodRows />
-
-        {/* 今日強勢股 */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-gray-900">🔥 今日強勢股</h2>
-            <Link href="/strong-stocks" className="text-sm font-medium text-blue-600 hover:text-blue-700">查看更多 →</Link>
-          </div>
-          {strong.length === 0 ? (
-            <EmptyState icon="🔥" title="今日尚無強勢股" description="資料更新後即可查看" />
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
-              {strong.slice(0, 6).map((s) => <StockCard key={s.stock_id} stock={s} />)}
-            </div>
-          )}
-        </section>
+        {/* 市場溫度展開版（2026-11-05）：取代原本的兩行摘要與今日強勢股 */}
+        <MoodSection />
 
         {/* 我的自選 */}
         <section>

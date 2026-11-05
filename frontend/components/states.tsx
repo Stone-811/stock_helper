@@ -9,12 +9,12 @@ import type { ReactNode } from 'react'
 
 export function PageHeader({
   title,
-  subtitle,
   maxWidth = 'max-w-7xl',
 }: {
   /** 一般是字串；強勢月報要控制手機在哪裡換行，所以也收 ReactNode */
   title: ReactNode
-  subtitle?: ReactNode
+  // 2026-11-05 業主：標題下那行灰色副標題「不用顯示」→ 拿掉 subtitle（原本強勢股、強勢月報、市場溫度三頁有用）。
+  // 那三頁的副標題資訊頁面上都另有地方顯示（強勢股的日期卡、各指標卡的日期、月報統計列的「數字為 M/D」）。
   /** 寬表格頁可放寬容器；預設等同現況，不影響既有呼叫點。
    *  ⚠️ 改這個就要連內文容器一起改，否則標題會跟內容左緣對不齊。 */
   maxWidth?: string
@@ -22,7 +22,6 @@ export function PageHeader({
   return (
     <div className={`${maxWidth} mx-auto px-4 pt-5 pb-1`}>
       <h1 className="text-xl md:text-2xl font-bold text-gray-900">{title}</h1>
-      {subtitle && <p className="text-sm text-gray-700 mt-0.5">{subtitle}</p>}
     </div>
   )
 }

@@ -684,18 +684,6 @@ export default function StrongMonthlyPage() {
       <PageHeader
         title={wordTitleNode(shownMonth)}
         maxWidth="max-w-[1560px]"
-        subtitle={
-          data?.coverage ? (
-            <>
-              本月曾經強勢的股票共 <strong className="tabular-nums">{rows.length}</strong> 檔
-              {baseLabel && (
-                <>
-                  ｜<span className="inline-block">數字為 <strong>{baseLabel}</strong></span>
-                </>
-              )}
-            </>
-          ) : undefined
-        }
       />
 
       <div className="max-w-[1560px] mx-auto px-4 py-4">
@@ -854,6 +842,8 @@ export default function StrongMonthlyPage() {
             顯示 <span className="font-bold text-gray-900 tabular-nums">{sortedRows.length}</span> 檔 ／ 本月{' '}
             <span className="font-medium text-gray-900 tabular-nums">{rows.length}</span> 檔
           </span>
+          {/* 原本在頁首副標題（2026-11-05 業主要拿掉副標題），移到這裡：數字全表同一天，要寫出是哪一天 */}
+          {baseLabel && <span className="text-gray-700">數字為 <strong className="text-gray-900">{baseLabel}</strong></span>}
           <span className="text-gray-700">{sortSummary}</span>
         </div>
 

@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader, ErrorState } from '../../components/states'
 import SentimentStat from '../../components/SentimentStat'
+import { DaytradeStats, VixStats } from '../../components/MoodStats'
 import SentimentChart from '../../components/SentimentChart'
-import { fmtMd, statOf, thousandsToYi, type SentimentResponse } from '../../lib/sentiment'
+import { statOf, thousandsToYi, type SentimentResponse } from '../../lib/sentiment'
 
 /* ------------------------------------------------------------------ *
  * 市場溫度 /market-mood（2026-11-05 業主要的新分頁）
@@ -84,17 +85,7 @@ export default function MarketMoodPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <PageHeader
-        title="市場溫度"
-        subtitle={
-          <>
-            大盤當沖比、融資融券、恐慌指數。
-            {data?.latest.daytrade && <>當沖與融資為 <strong>{fmtMd(data.latest.daytrade)}</strong> 的數字</>}
-            {data?.latest.taivix && <>｜台股恐慌指數 <strong>{fmtMd(data.latest.taivix)}</strong></>}
-            {data?.latest.vix && <>｜美股恐慌指數 美股 <strong>{fmtMd(data.latest.vix)}</strong> 收盤</>}
-          </>
-        }
-      />
+      <PageHeader title="市場溫度" />
 
       <div className="max-w-7xl mx-auto px-4 py-4 space-y-6">
         {/* 這頁不在手機底部導覽裡，所以一定要有回首頁 */}
@@ -114,18 +105,7 @@ export default function MarketMoodPage() {
             {/* 1. 當沖比 */}
             <section aria-labelledby="dt-h">
               <h2 id="dt-h" className="text-xl font-bold text-gray-900 mb-3">大盤當沖比（占成交金額）</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4">
-                <SentimentStat
-                  title="上市當沖比" stat={s.dtTwse} digits={1} unit="%" deltaUnit="個百分點" size="lg"
-                  tipTitle="上市當沖比"
-                  tip="證交所公布的「當日沖銷交易買進金額 ÷ 全市場成交金額」。當沖＝同一天買進又賣出。這是新聞說的「當沖比」；另一種用股數算的數字分母含 ETF 和權證，會跟著它們的成交量亂跳，所以不用。證交所當天晚上才公布，22:00 以前看到的是前一個交易日。"
-                />
-                <SentimentStat
-                  title="上櫃當沖比" stat={s.dtTpex} digits={1} unit="%" deltaUnit="個百分點" size="lg"
-                  tipTitle="上櫃當沖比"
-                  tip="櫃買中心公布的「當日沖銷交易買進金額 ÷ 上櫃市場成交金額」。上櫃股票多為中小型股，當沖比通常比上市高，兩個數字不要直接相比。"
-                />
-              </div>
+              <div className="mb-4"><DaytradeStats twse={s.dtTwse} tpex={s.dtTpex} /></div>
               <div className="bg-white rounded-lg shadow-sm p-4">
                 <SentimentChart series={dtSeries} digits={1} unit="%" />
               </div>
@@ -169,18 +149,7 @@ export default function MarketMoodPage() {
             {/* 3. 恐慌指數 */}
             <section aria-labelledby="vix-h">
               <h2 id="vix-h" className="text-xl font-bold text-gray-900 mb-3">恐慌指數</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4">
-                <SentimentStat
-                  title="台股恐慌指數（臺指VIX）" stat={s.taivix} digits={2} unit="" deltaUnit="" size="lg"
-                  tipTitle="臺指VIX"
-                  tip={<>期貨交易所用臺指選擇權算出來的「市場預期未來 30 天的波動」，每天 13:45 收盤值。數字越高代表市場越緊張。{taivixFrom ? `本站自 ${fmtMd(taivixFrom)}（${taivixFrom.slice(0, 4)} 年）起統計，` : ''}更早的官方不再提供。台股的數字一向比美股高很多，兩個不能互相比。</>}
-                />
-                <SentimentStat
-                  title="美股恐慌指數（VIX）" stat={s.vix} digits={2} unit="" deltaUnit="" size="lg" dateNote="美股收盤"
-                  tipTitle="美股 VIX"
-                  tip="芝加哥選擇權交易所用 S&P 500 選擇權算出的 30 天預期波動。日期是美國當地的交易日：美股 11/4 收盤等於台灣 11/5 清晨，可以當隔天台股開盤前的參考。"
-                />
-              </div>
+              <div className="mb-4"><VixStats taivix={s.taivix} vix={s.vix} taivixFrom={taivixFrom} /></div>
               <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
                 <h3 className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</h3>
                 <SentimentChart series={tvSeries} digits={2} />

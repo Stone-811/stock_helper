@@ -145,7 +145,8 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
     charts.push(priceChart)
 
     const volSeries = priceChart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false })
-    volSeries.setData(chartData.map((d) => ({ time: d.date as Time, value: d.volume, color: d.close >= d.open ? '#ef444440' : '#22c55e40' })))
+    // 量缺值（null）畫成空白、不畫 0 柱（index writer 2026-11-05 起缺值寫 null）
+    volSeries.setData(chartData.map((d) => (d.volume == null ? { time: d.date as Time } : { time: d.date as Time, value: d.volume, color: d.close >= d.open ? '#ef444440' : '#22c55e40' })))
     volSeries.applyOptions({ visible: showVolume })
     volRef.current = volSeries
     priceChart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 }, visible: false })
@@ -418,7 +419,7 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
               <span>收 <span className={up ? 'text-red-400' : 'text-green-400'}>{cur.close.toFixed(2)}</span>
                 <span className={up ? 'text-red-400' : 'text-green-400'}> {up ? '+' : ''}{chg.toFixed(2)} ({up ? '+' : ''}{chgPct.toFixed(2)}%)</span>
               </span>
-              <span>量 <span className="text-gray-300">{volumeFormatter(cur.volume)}</span></span>
+              <span>量 <span className="text-gray-300">{(cur.volume != null ? volumeFormatter(cur.volume) : DASH)}</span></span>
               {/* MA/布林/指標數值：桌機疊在這裡；手機不疊（太密會蓋住 K 棒），改由上方圖外讀值區顯示 */}
               <span className="hidden md:contents">
                 {(showMA5 && ma.ma5[curIndex] != null) && <span className="text-amber-400">MA5 {ma.ma5[curIndex]!.toFixed(1)}</span>}
