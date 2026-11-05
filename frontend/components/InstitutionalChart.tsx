@@ -19,7 +19,7 @@ const rangeLabel: Record<Range, string> = { '1M': '1月', '3M': '3月', '6M': '6
  * - 當沖(daytrade)：每日當沖佔成交量 %（由個股頁以 K 線 history 算好傳入；當沖屬籌碼/交易行為，非技術指標）。
  * 刻意獨立成單一 chart（非 K 線子圖），避開多子圖 priceScale 對齊的已知坑。
  */
-export default function InstitutionalChart({ stockId, height = 300, dayTrade }: { stockId: string; height?: number; dayTrade?: DayTradePoint[] }) {
+export default function InstitutionalChart({ stockId, height = 300, dayTrade, latestDate }: { stockId: string; height?: number; dayTrade?: DayTradePoint[]; /** 個股頁最新交易日：當沖分頁最後一筆比它早時要說明（處置股） */ latestDate?: string }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const [raw, setRaw] = useState<InstitutionalDay[] | null>(null)
   const [holdings, setHoldings] = useState<ForeignHoldingDay[] | null>(null)
@@ -180,7 +180,9 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
       {!(view && legendDate) && <div className="mb-2 min-h-[3.2rem] md:min-h-[1.6rem]" />}
       {view && legendDate && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-sm font-mono min-h-[3.2rem] md:min-h-[1.6rem]">
-          {hoverTime === legendDate && <span className="text-gray-300">{legendDate}</span>}
+          {/* 日期一律顯示（2026-11-05 業主選 B）：當沖分頁平常停在「最後一筆有數字的那天」，處置股那天可能是一週前，
+              不標日期會被當成今天的比例（精材 11/4 上方「當日當沖」是「—」、這裡卻寫 74.9%）。 */}
+          <span className="text-gray-300">{legendDate}</span>
           {view.mode === 'flow' ? (
             <>
               <span className="text-blue-400">外資 {fmtLots(view.points.get(legendDate)!.foreign)}</span>
@@ -192,7 +194,12 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade }: 
               外資持股 {view.points.get(legendDate)!.shares.toLocaleString()} 張（{view.points.get(legendDate)!.ratio.toFixed(2)}%）
             </span>
           ) : (
-            <span className="text-cyan-400">當沖 {view.points.get(legendDate)!.ratio.toFixed(1)}%</span>
+            <>
+              <span className="text-cyan-400">當沖 {view.points.get(legendDate)!.ratio.toFixed(1)}%</span>
+              {hoverTime === null && latestDate && view.lastDate < latestDate && (
+                <span className="text-amber-300">{latestDate} 無當沖數字（處置股處置期間不得當沖，結束後恢復）</span>
+              )}
+            </>
           )}
         </div>
       )}

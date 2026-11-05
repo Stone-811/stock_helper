@@ -14,7 +14,7 @@ import { DASH } from '../lib/format'
 
 /** 無資料儲存格：視覺上是「—」，螢幕報讀器唸「無資料」。
  *  顏色用 gray-600(7.56:1)，不用 gray-400(2.60:1)——「—」視覺量本來就小，再壓對比等於消失。 */
-export function NullCell({ title = 'FinMind 未涵蓋此股此欄資料' }: { title?: string }) {
+export function NullCell({ title = '這天沒有這筆資料（資料來源未提供；當沖欄多為興櫃、處置股或無信用交易資格）' }: { title?: string }) {
   return (
     <span className="text-gray-600" title={title}>
       <span aria-hidden="true">{DASH}</span>

@@ -315,7 +315,7 @@ const COLUMNS: Record<ColKey, ColDef<StrongTableRow, RenderCtx>> = {
     sortable: true,
     nullable: true,
     sortValue: (r) => r.day_trading_volume,
-    desc: 'FinMind 當沖資料集未涵蓋的個股顯示「—」（多為上櫃／新掛牌），這不代表當日沒有當沖，而是沒有這筆資料。',
+    desc: '「—」＝這天交易所沒有公布這檔的當沖數字：興櫃股、處置股（處置期間依規定不得現股當沖）、沒有融資融券資格的股票都不是當沖標的。處置結束的下一個交易日就會恢復。',
     render: (r) => numCell(r.day_trading_volume),
   },
   day_trading_ratio: {
@@ -1378,8 +1378,7 @@ export default function StrongStocksPage() {
             <p className="text-sm text-gray-700 mb-3">
               <span aria-hidden="true">{DASH}</span>
               <span className="sr-only">破折號</span>
-              　表示資料來源未涵蓋此股此欄（多為上櫃或新掛牌），
-              <strong>不是 0</strong>。⚠️ 法人買賣超與連續天數例外：缺資料時目前會顯示 0（收集程式的已知問題）。
+              　表示這天沒有這筆資料，<strong>不是 0</strong>。當沖欄的「—」多半是興櫃股、處置股（處置期間不得現股當沖）或沒有融資融券資格的股票，交易所本來就不公布；其他欄多為 FinMind 未涵蓋。⚠️ 法人買賣超與連續天數例外：缺資料時目前會顯示 0（收集程式的已知問題）。
               <InfoTip title="漲跌幅怎麼算">
                 （收盤 − 前一交易日收盤）÷ 前一交易日收盤。沒有昨收資料時才退回以當日開盤價為基準；不是「收盤 − 開盤」。
               </InfoTip>

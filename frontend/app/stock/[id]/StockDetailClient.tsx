@@ -375,7 +375,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
 
       {/* 三大法人累計買賣超趨勢 - 全幅 */}
       <div className="w-full px-2 mb-6">
-        <InstitutionalChart key={data.stock_id} stockId={data.stock_id} height={320} dayTrade={dayTradeSeries} />
+        <InstitutionalChart key={data.stock_id} stockId={data.stock_id} height={320} dayTrade={dayTradeSeries} latestDate={latest.date} />
       </div>
     </main>
   )
