@@ -7,15 +7,14 @@ import InstitutionalChart from '../../../components/InstitutionalChart'
 import AlertButton from '../../../components/AlertButton'
 import StockSignals from '../../../components/StockSignals'
 import InfoTip from '../../../components/InfoTip'
-import WatchlistButton from '../../../components/WatchlistButton'
 import type { StockDetailData } from '../../../lib/stock-data'
-import { fmtNum, fmtPct, DASH } from '../../../lib/format'
+import { fmtNum, fmtPct, DASH, dayTradingRatioOf } from '../../../lib/format'
 
 export default function StockDetailClient({ data }: { data: StockDetailData }) {
   const [showInst, setShowInst] = useState(false) // 手機版：三大法人明細收合（桌機恆顯示）
   const [showShort, setShowShort] = useState(false) // 手機版：放空籌碼明細收合（桌機恆顯示）
   const router = useRouter()
-  // 返回「上一頁」（強勢股/選股/自選股/搜尋皆可正確回去）；無瀏覽歷史（直接開個股頁）才退回首頁
+  // 返回「上一頁」（強勢股/選股/搜尋皆可正確回去）；無瀏覽歷史（直接開個股頁）才退回首頁
   const handleBack = () => {
     if (typeof window !== 'undefined' && window.history.length > 1) router.back()
     else router.push('/')
@@ -30,17 +29,15 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
   const priceChange = latest.close - base
   const priceChangePct = base > 0 ? ((priceChange / base) * 100).toFixed(2) : '0.00'
   const priceColor = isPositive ? 'text-red-600' : 'text-green-600'
-  // 當日當沖比例 = 當沖量 / 成交量
-  const dayTradeRatio =
-    latest.day_trading_volume != null && latest.volume > 0
-      ? (latest.day_trading_volume / latest.volume) * 100
-      : null
+  // 當日當沖比例 = 當沖量 / 成交量（跟強勢股頁、卡片同一份公式；缺值 null，不是 0）
+  const dayTradeRatio = dayTradingRatioOf(latest.day_trading_volume, latest.volume)
   // 當沖比例歷史序列（籌碼圖「當沖」模式用；當沖屬籌碼，非技術指標）
   const dayTradeSeries = useMemo(
     () =>
-      history
-        .filter((d) => d.day_trading_volume != null && d.volume > 0)
-        .map((d) => ({ date: d.date, ratio: (d.day_trading_volume! / d.volume) * 100 })),
+      history.flatMap((d) => {
+        const ratio = dayTradingRatioOf(d.day_trading_volume, d.volume)
+        return ratio == null ? [] : [{ date: d.date, ratio }]
+      }),
     [history]
   )
 
@@ -92,7 +89,7 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      {/* 個股 Header：名稱醒目 + 代碼 + 加入自選 / 提醒 */}
+      {/* 個股 Header：名稱醒目 + 代碼 + 到價提醒 */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center gap-2">
@@ -109,7 +106,6 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
                 <span className="text-sm md:text-base font-medium text-gray-600 shrink-0 tabular-nums">{data.stock_id}</span>
               )}
             </h1>
-            <WatchlistButton stockId={data.stock_id} stockName={data.stock_name} className="shrink-0" />
             <AlertButton stockId={data.stock_id} stockName={data.stock_name} />
           </div>
         </div>

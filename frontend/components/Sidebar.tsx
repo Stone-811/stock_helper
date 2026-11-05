@@ -9,13 +9,14 @@ export interface NavItem {
   href: string
   /** 全名：桌機側邊欄顯示；手機底部導覽拿來當 aria-label／title */
   label: string
-  /** 手機底部導覽的兩字標籤（5 格，320px 寬每格 64px）。
+  /** 手機底部導覽的兩字標籤（4 格，320px 寬每格 80px）。
    *  ⚠️ 必須是 label 的子字串：aria-label 用全名時，語音控制說畫面上的字才點得到（WCAG 2.5.3） */
   shortLabel: string
   icon: string
   /** 區段標題：兩個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
   section?: string
-  /** 只在桌機側欄顯示、不進手機底部導覽（2026-11-05「市場溫度」：業主選手機底部維持 5 格，入口是首頁那兩行） */
+  /** 只在桌機側欄顯示、不進手機底部導覽（「市場溫度」：首頁已放完整的市場溫度，跟 /market-mood 同一份元件，
+   *  所以手機底部不另開一格；2026-11-06 拿掉自選股後維持 4 格） */
   desktopOnly?: boolean
 }
 
@@ -23,7 +24,7 @@ export interface NavItem {
 // 曾經各寫一份而分岔（手機少了總表與月報），改成單一來源後新增頁面只要改這裡。
 export const navItems: NavItem[] = [
   { href: '/', label: '首頁', shortLabel: '首頁', icon: '📊' },
-  // 市場溫度（當沖比、融資融券、恐慌指數）：桌機側欄有、手機底部沒有（維持 5 格）。
+  // 市場溫度（當沖比、融資融券、恐慌指數）：桌機側欄有、手機底部沒有（首頁已有完整內容，底部維持 4 格）。
   // 圖示避開 🌡️：RSI 超買／超賣訊號已經在用（StockSignals.tsx）。
   { href: '/market-mood', label: '市場溫度', shortLabel: '溫度', icon: '🌤️', desktopOnly: true },
   // 卡片與表格是同一頁的兩種檢視（2026-10-26 合併；舊的 /strong-table 由 next.config.ts 轉到 ?view=table）
@@ -33,7 +34,7 @@ export const navItems: NavItem[] = [
   // 圖示刻意用 🗓️（與 🔥 形狀差異大）：縮排模式下只剩圖示可辨識。
   { href: '/strong-monthly', label: '強勢月報', shortLabel: '月報', icon: '🗓️' },
   { href: '/screener', label: '選股', shortLabel: '選股', icon: '🔍', section: '工具' },
-  { href: '/watchlist', label: '自選股', shortLabel: '自選', icon: '⭐' },
+  // 自選股 2026-11-06 拿掉（業主：「不用這個功能」）；舊網址 /watchlist 由 next.config.ts 轉到首頁。
 ]
 
 /** 判斷是否為當前路徑（或子路徑）；桌機與手機導覽共用同一條亮燈規則 */

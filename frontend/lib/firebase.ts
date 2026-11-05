@@ -16,15 +16,9 @@ import {
   getFirestore,
   collection,
   doc,
-  getDoc,
   getDocs,
-  setDoc,
   addDoc,
   deleteDoc,
-  query,
-  where,
-  orderBy,
-  limit,
   Timestamp
 } from 'firebase/firestore'
 
@@ -81,94 +75,6 @@ export async function signOut(): Promise<void> {
  */
 export function onAuthChange(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback)
-}
-
-// ============ 自選股函數 ============
-
-export interface WatchlistItem {
-  stock_id: string
-  stock_name: string
-  added_at: Date
-}
-
-/**
- * 取得用戶自選股列表
- */
-export async function getWatchlist(): Promise<WatchlistItem[]> {
-  const user = auth.currentUser
-  if (!user) return []
-
-  try {
-    const watchlistRef = collection(db, 'user_watchlists', user.uid, 'stocks')
-    const snapshot = await getDocs(watchlistRef)
-
-    return snapshot.docs.map(doc => {
-      const data = doc.data()
-      return {
-        stock_id: data.stock_id,
-        stock_name: data.stock_name,
-        added_at: data.added_at?.toDate() || new Date()
-      }
-    })
-  } catch (error) {
-    console.error('取得自選股失敗:', error)
-    return []
-  }
-}
-
-/**
- * 新增自選股
- */
-export async function addToWatchlist(stockId: string, stockName: string): Promise<boolean> {
-  const user = auth.currentUser
-  if (!user) return false
-
-  try {
-    const stockRef = doc(db, 'user_watchlists', user.uid, 'stocks', stockId)
-    await setDoc(stockRef, {
-      stock_id: stockId,
-      stock_name: stockName,
-      added_at: Timestamp.now()
-    })
-    return true
-  } catch (error) {
-    console.error('新增自選股失敗:', error)
-    return false
-  }
-}
-
-/**
- * 移除自選股
- */
-export async function removeFromWatchlist(stockId: string): Promise<boolean> {
-  const user = auth.currentUser
-  if (!user) return false
-
-  try {
-    const stockRef = doc(db, 'user_watchlists', user.uid, 'stocks', stockId)
-    await deleteDoc(stockRef)
-    return true
-  } catch (error) {
-    console.error('移除自選股失敗:', error)
-    return false
-  }
-}
-
-/**
- * 檢查股票是否在自選股中
- */
-export async function isInWatchlist(stockId: string): Promise<boolean> {
-  const user = auth.currentUser
-  if (!user) return false
-
-  try {
-    const stockRef = doc(db, 'user_watchlists', user.uid, 'stocks', stockId)
-    const docSnap = await getDoc(stockRef)
-    return docSnap.exists()
-  } catch (error) {
-    console.error('檢查自選股失敗:', error)
-    return false
-  }
 }
 
 // ============ 到價 / 訊號警示 ============

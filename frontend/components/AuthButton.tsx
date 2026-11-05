@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { User } from 'firebase/auth'
-import { auth, signInWithGoogle, signOut, onAuthChange } from '../lib/firebase'
+import { signInWithGoogle, signOut, onAuthChange } from '../lib/firebase'
 
 interface AuthButtonProps {
   isCollapsed?: boolean
