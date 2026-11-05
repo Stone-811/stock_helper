@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 /**
  * 共用狀態/版面元件：
  * - PageHeader：輕量頁面標題（取代舊的 bg-white shadow header，避免與置頂搜尋列形成雙層）
- * - CardGridSkeleton / ChartSkeleton / TableSkeleton：Loading 骨架
+ * - CardGridSkeleton / TableSkeleton：Loading 骨架
  * - EmptyState / ErrorState：一致的空狀態與錯誤狀態（後者含重新載入）
  */
 
@@ -53,14 +53,6 @@ export function CardGridSkeleton({ count = 8 }: { count?: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <CardSkeleton key={i} />
       ))}
-    </div>
-  )
-}
-
-export function ChartSkeleton({ height = 320 }: { height?: number }) {
-  return (
-    <div className="bg-white rounded-lg shadow-sm p-4">
-      <div className="animate-pulse w-full bg-gray-100 rounded" style={{ height }} />
     </div>
   )
 }

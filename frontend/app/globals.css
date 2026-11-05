@@ -9,9 +9,6 @@
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-
   /* 中文一律黑體：原本 body 用 Arial（無中文字），中文會 fallback 成襯線/細體不易閱讀 */
   --font-sans: var(--font-geist-sans), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei",
     "Heiti TC", "Hiragino Sans GB", sans-serif;

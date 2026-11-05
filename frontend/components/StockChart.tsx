@@ -4,7 +4,7 @@ import CandleChart from './CandleChart'
 import { Candle } from '../lib/indicators'
 
 interface StockChartProps {
-  data: (Candle & { day_trading_volume?: number })[]
+  data: Candle[]
   height?: number
 }
 

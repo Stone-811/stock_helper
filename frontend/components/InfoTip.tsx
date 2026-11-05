@@ -20,12 +20,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 export default function InfoTip({
   title,
   children,
-  dark = false,
 }: {
   title: string
   children: ReactNode
-  /** 深色底（圖表區）用淺色按鈕 */
-  dark?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [canHover, setCanHover] = useState(false)
@@ -116,11 +113,7 @@ export default function InfoTip({
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className={`relative inline-flex items-center justify-center w-8 h-8 -my-1 rounded-full text-sm font-bold transition-colors before:absolute before:-inset-1.5 before:content-[''] ${
-          dark
-            ? 'text-gray-300 hover:text-white hover:bg-white/10'
-            : 'text-gray-500 hover:text-blue-700 hover:bg-gray-100'
-        }`}
+        className="relative inline-flex items-center justify-center w-8 h-8 -my-1 rounded-full text-sm font-bold transition-colors before:absolute before:-inset-1.5 before:content-[''] text-gray-500 hover:text-blue-700 hover:bg-gray-100"
       >
         ⓘ
       </button>

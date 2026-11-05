@@ -12,19 +12,16 @@ import {
   toLineData,
   bbandLine,
 } from '../lib/indicators'
+import { convertToTimeFrame, toLineWS, type TimeFrame } from '../lib/candles'
 import { DASH } from '../lib/format'
 
-// 個股會多帶當沖量；大盤沒有（可選）。當沖量保留於資料結構供籌碼區使用，技術圖不再繪製。
-type ChartCandle = Candle & { day_trading_volume?: number }
-
 interface CandleChartProps {
-  data: ChartCandle[]
+  data: Candle[]
   height?: number
   /** 成交量顯示格式（個股：張；大盤：億/口） */
-  volumeFormatter?: (v: number) => string
+  volumeFormatter: (v: number) => string
 }
 
-type TimeFrame = 'day' | 'week' | 'month'
 type Indicator = 'macd' | 'kd' | 'rsi'
 type DatePeriod = '1M' | '3M' | '6M' | '1Y' | '2Y'
 type LayoutPreset = 'price' | 'balanced' | 'indicator'
@@ -33,7 +30,6 @@ const INDICATOR_LABELS: Record<Indicator, string> = { macd: 'MACD', kd: 'KD', rs
 const AXIS_WIDTH = 68 // 固定右軸寬 → 各圖繪圖區左右緣一致、天生對齊（免動態喬寬）
 
 const periodCalendarDays: Record<DatePeriod, number> = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366, '2Y': 731 }
-const defaultVolumeFormatter = (v: number) => `${v.toLocaleString()}張`
 
 const BG = '#131722'
 const GRID = '#1f2530'
@@ -48,7 +44,7 @@ function priceRatio(numInd: number, preset: LayoutPreset): number {
   return 0.64
 }
 
-export default function CandleChart({ data, height = 500, volumeFormatter = defaultVolumeFormatter }: CandleChartProps) {
+export default function CandleChart({ data, height = 500, volumeFormatter }: CandleChartProps) {
   const priceRef = useRef<HTMLDivElement>(null)
   const indicatorRefs = useRef<(HTMLDivElement | null)[]>([])
   const readoutRef = useRef<HTMLDivElement>(null) // 手機圖外讀值區（全螢幕算圖高時要扣掉它的高度）
@@ -450,46 +446,12 @@ export default function CandleChart({ data, height = 500, volumeFormatter = defa
 }
 
 // ========== 工具函數 ==========
-
-// 折線資料，暖身期(null)以 whitespace {time} 佔位（保留完整時間軸，勿濾掉 → 子圖與主圖同步對齊）
-function toLineWS(data: ChartCandle[], values: (number | null)[]) {
-  return data.map((d, i) => (values[i] != null ? { time: d.date as Time, value: values[i] as number } : { time: d.date as Time }))
-}
+// 純函式（週期聚合 convertToTimeFrame、折線 toLineWS）在 lib/candles.ts；這裡只留會動到圖表物件的。
 
 // 指標超買/超賣參考線
-function addBandLines(chart: IChartApi, data: ChartCandle[], upper: number, lower: number) {
+function addBandLines(chart: IChartApi, data: Candle[], upper: number, lower: number) {
   const ob = chart.addLineSeries({ color: '#ef444455', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
   const os = chart.addLineSeries({ color: '#22c55e55', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false })
   ob.setData(data.map((d) => ({ time: d.date as Time, value: upper })))
   os.setData(data.map((d) => ({ time: d.date as Time, value: lower })))
-}
-
-// 日K → 週K / 月K 聚合（保留額外欄位，OHLCV 正確聚合）
-function convertToTimeFrame(data: ChartCandle[], timeFrame: TimeFrame): ChartCandle[] {
-  if (timeFrame === 'day') return data
-  const grouped: { [key: string]: ChartCandle[] } = {}
-  data.forEach((item) => {
-    const date = new Date(item.date)
-    let key: string
-    if (timeFrame === 'week') {
-      const day = date.getDay()
-      const diff = date.getDate() - day + (day === 0 ? -6 : 1)
-      const monday = new Date(date.setDate(diff))
-      key = monday.toISOString().split('T')[0]
-    } else {
-      key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
-    }
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(item)
-  })
-  return Object.entries(grouped).map(([date, items]) => ({
-    ...items[items.length - 1],
-    date,
-    open: items[0].open,
-    high: Math.max(...items.map((i) => i.high)),
-    low: Math.min(...items.map((i) => i.low)),
-    close: items[items.length - 1].close,
-    volume: items.reduce((sum, i) => sum + i.volume, 0),
-    day_trading_volume: items.reduce((sum, i) => sum + (i.day_trading_volume || 0), 0),
-  })).sort((a, b) => a.date.localeCompare(b.date))
 }

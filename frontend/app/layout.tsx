@@ -43,7 +43,7 @@ export default function RootLayout({
       lang="zh-TW"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex bg-gray-50">
+      <body className="min-h-full flex">
         {/* 清除訪客殘留的舊 Service Worker 與快取（已移除 PWA，避免 ChunkLoadError / 資料 stale） */}
         <script
           dangerouslySetInnerHTML={{
