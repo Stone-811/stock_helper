@@ -269,10 +269,10 @@ export default function Home() {
       <PageHeader title="今日市場" />
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* 市場摘要：加權指數 */}
-        {taiexData && (
-          <section className="bg-white rounded-lg shadow-sm p-4 md:p-6">
+        {/* 市場摘要：加權指數＋美股三大指數。卡片一定渲染：加權指數抓不到（只有台指期）時美股那塊仍要顯示（審查 F1） */}
+        <section className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
+              {taiexData ? (
               <div>
                 <div className="text-sm text-gray-700">
                   加權指數 · {taiexData.latest.date}
@@ -288,11 +288,13 @@ export default function Home() {
                   {taiexUp ? '▲' : '▼'} {taiexUp ? '+' : ''}{taiexData.change.toFixed(2)} ({taiexUp ? '+' : ''}{taiexData.changePercent.toFixed(2)}%)
                 </div>
               </div>
+              ) : (
+                <div className="text-base text-gray-700">加權指數暫時抓不到，請稍後重新整理。</div>
+              )}
               {/* 美股三大指數：寬螢幕（xl）在右側；其他寬度排在加權指數下面（2026-11-05） */}
               <UsIndexCells />
             </div>
-          </section>
-        )}
+        </section>
 
         {/* 市場溫度展開版（2026-11-05）：取代原本的兩行摘要與今日強勢股 */}
         <MoodSection />
