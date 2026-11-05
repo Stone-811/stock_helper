@@ -6,7 +6,9 @@
 3. 美股三大指數（2026-11-05 業主要的，首頁加權指數卡右側）：費半 SOX、S&P 500 SPX、道瓊 DJI
    來源 FinMind USStockPrice（data_id ^SOX／^GSPC／^DJI，2000 年起，美國假日沒有列）。
    ⚠️ 日期是美東交易日：台灣 11/5 晚上最新是 11/4，畫面一律標「美股 M/D 收盤」。
-   ⚠️ 美股收盤＝台灣清晨，所以每班抓「最近 7 個日曆天」而不是只抓今天；SOX 的 Volume 永遠是 0，存 null 不存 0。
+   ⚠️ 美股收盤＝台灣清晨，所以每班往回抓 US_LOOKBACK_DAYS（21）個日曆天而不是只抓今天；SOX 的 Volume 永遠是 0，存 null 不存 0。
+   ⚠️ 台股休市日（春節可連休 11 天）daily_collector 也會只抓美股（collect_us_and_save），否則首頁停在封關前一晚、
+      美股那幾天也永遠補不回來（2026-11-05 審查 F1）。斷料超過 US_STALE_DAYS 天寄非關鍵告警（審查 F2）。
 """
 
 import pandas as pd
@@ -192,8 +194,11 @@ US_INDICES = {
     'SPX': ('^GSPC', 'S&P 500'),
     'DJI': ('^DJI', '道瓊工業'),
 }
-# 美股收盤在台灣清晨，17:00／22:00 那兩班「今天」的美股還沒收；每班往回多抓幾天把前一晚補進來
-US_LOOKBACK_DAYS = 7
+# 美股收盤在台灣清晨，17:00／22:00 那兩班「今天」的美股還沒收；每班往回多抓幾天把前一晚補進來。
+# 21 天：蓋過台股春節連休（10～12 個日曆天）＋美國連假，請求數一樣是每檔 1 次（審查 F1）。
+US_LOOKBACK_DAYS = 21
+# 最新一筆比執行日舊超過這麼多天就告警：美國最長的正常空窗是 4 天（耶誕／感恩節＋週末）
+US_STALE_DAYS = 6
 
 
 def collect_us_indices(start_date, end_date):
@@ -231,9 +236,70 @@ def collect_us_indices(start_date, end_date):
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def collect_and_save(start_date=None, end_date=None, days=None):
+def _us_window_start(start_date):
+    return (datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=US_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
+
+
+def check_us_staleness(day):
+    """美股三大指數斷料不可無聲（2026-11-05 審查 F2）：Firestore 最新日期比 day 舊超過 US_STALE_DAYS 天 → 非關鍵告警。
+    不改 exit code；比照 sentiment_collector._check_staleness。只讀 latest_date 欄位（不拉整份 history）。"""
+    if not FIREBASE_ENABLED:
+        return
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from firebase_writer import get_firestore_client
+        db = get_firestore_client()
+        latest = {}
+        for index_id in US_INDICES:
+            snap = db.collection('market_index').document(index_id).get(field_paths=['latest_date'])
+            latest[index_id] = (snap.to_dict() or {}).get('latest_date') if snap.exists else None
+    except Exception as e:
+        logging.warning(f"美股指數陳舊度檢查失敗：{e}")
+        return
+    cutoff = (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=US_STALE_DAYS)).strftime('%Y-%m-%d')
+    problems = [f"{k} 最新 {v}，比 {day} 舊超過 {US_STALE_DAYS} 天" for k, v in latest.items() if v is None or v < cutoff]
+    if not problems:
+        return
+    logging.error("⚠️ 美股三大指數斷料：" + '；'.join(problems))
+    try:
+        from notify import send_alert
+        send_alert('[選股小幫手] 美股三大指數資料斷了',
+                   f'執行日 {day}\n' + '\n'.join(problems) +
+                   '\n\n可能原因：FinMind USStockPrice 改了權限或代號（^SOX／^GSPC／^DJI）、網路問題。'
+                   '\n首頁加權指數旁的美股三格會停在舊日期。'
+                   '\n手動補：python -m stock_collector.daily_collector --us-only，或 index_collector --start／--end。')
+    except Exception as e:
+        logging.warning(f"寄送美股指數告警失敗：{e}")
+
+
+def collect_us_and_save(start_date=None, end_date=None, check_stale=True):
+    """只抓美股三大指數並寫入：台股休市日、批次模式結束後、--us-only 用（台股指數不受影響）。
+    失敗只記錄、不 raise（美股不是關鍵任務，不可讓收集器 exit 1）。回傳寫入筆數。"""
+    end_date = end_date or datetime.now().strftime('%Y-%m-%d')
+    start_date = start_date or _us_window_start(end_date)
+    n = 0
+    try:
+        df = collect_us_indices(start_date, end_date)
+        if not df.empty and FIREBASE_ENABLED:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from firebase_writer import write_market_index
+            n = write_market_index(df)
+        elif df.empty:
+            logging.warning(f"美股三大指數 {start_date}～{end_date} 一筆都沒抓到")
+    except Exception as e:
+        logging.warning(f"美股三大指數收集失敗（不影響台股）：{e}")
+    if check_stale:
+        check_us_staleness(end_date)
+    return n
+
+
+def collect_and_save(start_date=None, end_date=None, days=None, include_us=True):
     """
     收集並儲存指數資料（加權指數 + 台指期 + 美股三大指數）
+
+    include_us=False：批次模式（--days／--backfill-gaps）迴圈內用，美股改在迴圈結束後跑一次（審查 F4）。
 
     Parameters:
     -----------
@@ -260,8 +326,7 @@ def collect_and_save(start_date=None, end_date=None, days=None):
     tx_df = collector.collect_futures_daily(start_date, end_date)
 
     # 美股三大指數：往回多抓 US_LOOKBACK_DAYS 天（美股收盤在台灣清晨）；抓不到不算指數任務失敗
-    us_start = (datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=US_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
-    us_df = collect_us_indices(us_start, end_date)
+    us_df = collect_us_indices(_us_window_start(start_date), end_date) if include_us else pd.DataFrame()
 
     # 合併資料
     all_data = []
@@ -287,6 +352,8 @@ def collect_and_save(start_date=None, end_date=None, days=None):
         logging.info(f"已寫入 Firestore: {count} 筆")
     else:
         logging.warning("未設定 Firebase，跳過資料庫寫入")
+    if include_us:
+        check_us_staleness(end_date)
 
     # ⚠️ 回傳值只算台股（TAIEX／TX）：daily_collector.collect_index 用「回傳非空」判斷成功。
     # 美股往回抓 7 天幾乎永遠有列，若把它算進去，加權指數抓不到的日子就不會重試、也不會寄告警。

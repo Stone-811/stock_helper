@@ -147,14 +147,14 @@ class DailyCollector:
         wait=wait_exponential(multiplier=1, min=4, max=60),
         retry=retry_if_exception_type(Exception)
     )
-    def collect_index(self, date=None):
-        """收集指數資料（含重試機制）"""
+    def collect_index(self, date=None, include_us=True):
+        """收集指數資料（含重試機制）。include_us=False：批次迴圈內不抓美股，結束後 _run_us_once 一次。"""
         from stock_collector.index_collector import collect_and_save
 
         if date:
-            df = collect_and_save(start_date=date, end_date=date)
+            df = collect_and_save(start_date=date, end_date=date, include_us=include_us)
         else:
-            df = collect_and_save()
+            df = collect_and_save(include_us=include_us)
 
         if df is not None and not df.empty:
             self.results['index']['success'] = True
@@ -220,7 +220,7 @@ class DailyCollector:
         logging.info(f"資料驗證通過: {len(df)} 筆")
         return True
 
-    def run_daily(self, date=None, skip_stock=False, skip_index=False, skip_matrix=False, skip_sentiment=False):
+    def run_daily(self, date=None, skip_stock=False, skip_index=False, skip_matrix=False, skip_sentiment=False, include_us=True):
         """
         執行每日收集流程
 
@@ -237,6 +237,8 @@ class DailyCollector:
         skip_sentiment : bool
             跳過市場溫度（當沖比／融資融券／恐慌指數）。批次模式每天都會重抓 3 天的視窗，
             所以 --days／--backfill-gaps 迴圈內一律跳過、結束後只跑一次（2026-11-05 審查 W3）。
+        include_us : bool
+            美股三大指數。批次迴圈內傳 False、結束後 _run_us_once 一次（審查 F4）。
         """
         logging.info("=" * 70)
         logging.info(f"📅 開始每日資料收集: {date or '今日'}")
@@ -262,7 +264,12 @@ class DailyCollector:
         elif closed:
             self.market_closed = why
             self.day_log.append((target, '休市跳過'))
-            logging.info(f"🏖️ {target} 休市，本次不收集股票與指數、不重算強勢股、不檢查提醒、不寄告警")
+            logging.info(f"🏖️ {target} 休市，本次不收集股票與台股指數、不重算強勢股、不檢查提醒、不寄告警")
+            # 台股休市、美股照常開（春節可連休 11 天）：只抓美股，否則首頁停在封關前一晚、
+            # 那幾天美股也永遠補不回來（審查 F1）。失敗只記錄，不影響 exit code。
+            if not skip_index and include_us:
+                logging.info("🇺🇸 台股休市，只更新美股三大指數")
+                _collect_us_only(end_date=target)
             self.print_summary()
             return
 
@@ -288,7 +295,7 @@ class DailyCollector:
         if not skip_index:
             logging.info("\n📈 [2/3] 收集指數資料...")
             try:
-                self.collect_index(date)
+                self.collect_index(date, include_us=include_us)
                 logging.info(f"  ✅ 成功: {self.results['index']['count']} 筆")
             except Exception as e:
                 self.results['index']['error'] = str(e)
@@ -496,6 +503,22 @@ class DailyCollector:
         logging.info("=" * 70)
 
 
+def _collect_us_only(start_date=None, end_date=None):
+    """只抓美股三大指數（休市日、批次結束後、--us-only）。collect_us_and_save 自己吞錯；這裡再包一層保險。"""
+    try:
+        from stock_collector.index_collector import collect_us_and_save
+        return collect_us_and_save(start_date=start_date, end_date=end_date)
+    except Exception as e:
+        logging.error(f"美股三大指數失敗（不影響其他步驟）: {e}")
+        return 0
+
+
+def _us_batch_start(first_date):
+    """批次模式結束後那一次美股的抓窗起點：涵蓋整個批次的第一天再往前 US_LOOKBACK_DAYS 天。"""
+    from stock_collector.index_collector import US_LOOKBACK_DAYS
+    return (datetime.strptime(first_date, '%Y-%m-%d') - timedelta(days=US_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
+
+
 def _run_sentiment_once(collector):
     """批次模式結束後跑一次市場溫度（以今天為視窗終點，重抓最近 3 個交易日）；失敗只記錄。"""
     try:
@@ -585,6 +608,7 @@ def main():
     parser.add_argument('--skip-index', action='store_true', help='跳過指數資料')
     parser.add_argument('--skip-matrix', action='store_true', help='跳過強勢股矩陣')
     parser.add_argument('--skip-sentiment', action='store_true', help='跳過市場溫度（大盤當沖比／融資融券／恐慌指數；官方來源，不經 FinMind）')
+    parser.add_argument('--us-only', action='store_true', help='只更新美股三大指數後結束（不看休市、不碰年度檔；給台灣早上的排程或手動補用）')
 
     args = parser.parse_args()
 
@@ -598,6 +622,12 @@ def main():
                             '這是一封測試信。\n收到代表收集器的 Email 告警管道設定正常。')
             return 0 if ok else 1
 
+        if args.us_only:
+            # 美股收盤在台灣清晨：給「台灣早上」的排程用（Cloud Run Job 以 args 覆寫 --us-only），或手動補
+            n = _collect_us_only(end_date=args.date)
+            logging.info(f"🇺🇸 美股三大指數寫入 {n} 筆")
+            return 0
+
         if args.backfill_gaps:
             # C3：回補歷史區間內缺漏的交易日（掃 daily_data 找中間缺口）
             gaps = collector.get_gap_dates()
@@ -610,12 +640,14 @@ def main():
                 for d in gaps:
                     logging.info(f"\n{'='*70}\n回補缺漏日：{d}")
                     try:
-                        collector.run_daily(date=d, skip_matrix=True, skip_sentiment=True)
+                        collector.run_daily(date=d, skip_matrix=True, skip_sentiment=True, include_us=False)
                     except ArchiveUploadError as e:   # 那天已寫 Firestore；下一天會重新下載最新版，繼續
                         failed_upload.append((d, e))
                 collector.update_strong_matrix()
                 if not args.skip_sentiment:
                     _run_sentiment_once(collector)
+                if not args.skip_index:
+                    _collect_us_only(start_date=_us_batch_start(min(gaps)))
                 collector.print_batch_summary()
                 _raise_batch_upload_errors(failed_upload)
             return 0
@@ -641,6 +673,7 @@ def main():
                         skip_index=args.skip_index,
                         skip_matrix=True,  # 批次時最後再更新一次
                         skip_sentiment=True,  # 同上：每天重抓 3 天視窗太浪費，最後跑一次
+                        include_us=False,     # 美股也一樣：迴圈結束後抓一次涵蓋整個批次（審查 F4）
                     )
                 except ArchiveUploadError as e:
                     failed_upload.append((date, e))
@@ -650,6 +683,8 @@ def main():
                 collector.update_strong_matrix()
             if not args.skip_sentiment:
                 _run_sentiment_once(collector)
+            if not args.skip_index:
+                _collect_us_only(start_date=_us_batch_start((today - timedelta(days=args.days)).strftime('%Y-%m-%d')))
             collector.print_batch_summary()
             _raise_batch_upload_errors(failed_upload)
 
