@@ -419,8 +419,8 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - 11-04 有成交但沒當沖資料的上市櫃普通股 273 檔：處置股 9、其餘多半沒有融資融券資格（本來就不是當沖標的）。
 - 官方逐檔當沖表連當沖量 0 的標的也列出（10-30 有 107 檔是 0），所以「整列不見」≠「當沖量 0」。
 - 查歷史用櫃買網站 API：標的清單 `/www/zh-tw/intraday/list?date=YYYY/MM/DD&response=json`、逐檔統計 `/www/zh-tw/intraday/stat?type=Daily&date=…&response=json`（OpenAPI 只給最新一天／全市場合計）。
-- **畫面會誤導的三處（待業主決定改不改，2026-11-05 已問）**：`strong-stocks/page.tsx:318`、`:1381` 與 `components/table.tsx:17` 把缺當沖寫成「多為上櫃／新掛牌」「FinMind 未涵蓋」（實際多為興櫃、處置、無信用交易資格）；
-  `InstitutionalChart.tsx:183` 當沖分頁平常顯示最後一筆有值那天（10-30 的 74.9%）**卻不標日期**，同頁上方「當日當沖」是「—」。
+- **畫面會誤導的三處（業主 2026-11-05 選 B「只改文字＋圖例加日期」，已上線 2f8bc22）**：`strong-stocks/page.tsx` 當沖量欄說明與欄位說明、`components/table.tsx` NullCell 預設提示改寫成「交易所沒公布：興櫃／處置股／無信用交易資格」；
+  `InstitutionalChart.tsx` 當沖分頁圖例改成一律標日期，且最後一筆早於個股頁最新交易日（`latestDate` prop）時加一行「M/D 無當沖數字（處置股…）」。沒選 A（標「處置中」要收集器多抓處置資料），日後要做可用 FinMind `TaiwanStockDispositionSecuritiesPeriod`，注意公告期間遇休市要自己順延。
 - 順帶發現：`CandleChart.tsx:492` 週／月 K 合併用 `(day_trading_volume || 0)`（目前技術圖沒畫當沖，未影響）；`strong-stocks/page.tsx:81` 註解說 StockCard 用 `|| 0` 已過時。
 
 ## 市場溫度 `/market-mood`：大盤當沖比、融資融券、恐慌指數（2026-11-05 已實作，等業主看改前改後）
