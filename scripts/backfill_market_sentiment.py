@@ -80,8 +80,17 @@ def main():
         skipped = 0
         for line in log_path.read_text().splitlines():
             rec = json.loads(line)
-            # days 已是交易日，兩邊都 None 幾乎只會是「請求失敗」（網路斷、官方 503）→ 要重抓，不算完成（審查 S3）
-            if rec.get('daytrade') is None and rec.get('margin') is None:
+            # days 已是交易日：兩邊都 None（請求失敗）或**單邊缺**（例如證交所偶爾回非 JSON，2026-03-23 實例）都要重抓（審查 S3）
+            dt, mg = rec.get('daytrade'), rec.get('margin')
+            def _complete(side):
+                # 看「值」不看「鍵」：舊版 collect_day 把缺的那一邊存成 null 鍵（2026-03-23 實例），鍵在、值是 None 也算缺
+                if not side: return False
+                flat = {k: v for k, v in side.items() if k not in ('date', 'today', 'prev')}
+                flat.update(side.get('today') or {})
+                has_twse = any(k.startswith('twse_') and v is not None for k, v in flat.items())
+                has_tpex = any(k.startswith('tpex_') and v is not None for k, v in flat.items())
+                return has_twse and has_tpex
+            if not (_complete(dt) and _complete(mg)):
                 skipped += 1
                 continue
             done[rec['date']] = rec
