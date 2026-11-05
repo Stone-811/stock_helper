@@ -63,6 +63,8 @@ export interface SentimentResponse {
   vix: VixDay[]
   /** 各系列最新一筆的日期（沒有資料＝null） */
   latest: { daytrade: string | null; margin: string | null; taivix: string | null; vix: string | null }
+  /** 各系列在資料庫裡的第一筆（不受 days 切窗影響）：「本站自 X 起統計」用 */
+  first: { daytrade: string | null; margin: string | null; taivix: string | null; vix: string | null }
   generatedAt: string
 }
 
@@ -136,12 +138,16 @@ export function deltaDir(delta: number | null, digits: number): 'up' | 'down' | 
 }
 export const DELTA_ARROW = { up: '▲', down: '▼', flat: '＝' } as const
 
-/** 與前一天比的文字：「比前一天高 8.7 個百分點」「比前一天低 1.18」「與前一天相同」；沒有前一天回 null */
-export function deltaText(delta: number | null, unit: '個百分點' | '' | '億元' | '張', digits: number): string | null {
+/**
+ * 跟前一筆比的文字：「比 11/3 高 8.7 個百分點」「比 11/3 低 1.18」「與 11/3 相同」；沒有前一筆回 null。
+ * ⚠️ 一定寫出日期：prev 是「前一筆有值的日子」，單邊缺一天或連假後就不是前一個交易日（審查 F5）。
+ */
+export function deltaText(delta: number | null, unit: '個百分點' | '' | '億元' | '張', digits: number, prevDate: string | null): string | null {
   const dirKey = deltaDir(delta, digits)
   if (delta == null || dirKey == null) return null
-  if (dirKey === 'flat') return '與前一天相同'
+  const ref = prevDate ? fmtMd(prevDate) : '前一筆'
+  if (dirKey === 'flat') return `與 ${ref} 相同`
   const dir = dirKey === 'up' ? '高' : '低'
   const n = Math.abs(delta).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  return `比前一天${dir} ${n}${unit ? ` ${unit}` : ''}`
+  return `比 ${ref} ${dir} ${n}${unit ? ` ${unit}` : ''}`
 }

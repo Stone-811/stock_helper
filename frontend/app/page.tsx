@@ -53,7 +53,7 @@ interface WatchRow extends WatchlistItem {
 function Delta({ st, unit, digits }: { st: Stat | null; unit: '個百分點' | ''; digits: number }) {
   if (st?.delta == null) return null
   return (
-    <span className="text-gray-900 tabular-nums"><span aria-hidden="true">{DELTA_ARROW[deltaDir(st.delta, digits)!]} </span>{deltaText(st.delta, unit, digits)}</span>
+    <span className="text-gray-900 tabular-nums"><span aria-hidden="true">{DELTA_ARROW[deltaDir(st.delta, digits)!]} </span>{deltaText(st.delta, unit, digits, st.prevDate)}</span>
   )
 }
 /** 大字數值；沒有就是 DASH，不是 0 */
@@ -69,7 +69,7 @@ function MoodRows() {
   const [data, setData] = useState<SentimentResponse | null | undefined>(undefined) // undefined=載入中、null=失敗
   useEffect(() => {
     let alive = true
-    fetch('/api/market-sentiment?days=10')
+    fetch('/api/market-sentiment?last=3')  // 用「最後 N 筆」不用日曆天：春節 ≥10 天休市會把日曆窗切成空的（審查 F2）
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('http'))))
       .then((j) => { if (alive) setData(j) })
       .catch(() => { if (alive) setData(null) })
@@ -86,9 +86,10 @@ function MoodRows() {
         <span className="font-medium text-gray-900">大盤當沖比</span>
         {data === undefined ? <span className="text-gray-600">載入中…</span> : (
           <>
-            <span>上市 <Val st={dtTwse} digits={1} unit="%" /></span>
-            <span>上櫃 <Val st={dtTpex} digits={1} unit="%" /></span>
-            {dtTwse && <span>（{fmtMd(dtTwse.date)}）</span>}
+            {/* 上市、上櫃各自帶日期：同一天只寫一次，不同天（一邊還沒公布）各寫各的，不可把上櫃標成上市的日期（審查 F3） */}
+            <span>上市 <Val st={dtTwse} digits={1} unit="%" />{dtTwse && dtTwse.date !== dtTpex?.date && <>（{fmtMd(dtTwse.date)}）</>}</span>
+            <span>上櫃 <Val st={dtTpex} digits={1} unit="%" />{dtTpex && dtTpex.date !== dtTwse?.date && <>（{fmtMd(dtTpex.date)}）</>}</span>
+            {dtTwse && dtTpex && dtTwse.date === dtTpex.date && <span>（{fmtMd(dtTwse.date)}）</span>}
             <Delta st={dtTwse} unit="個百分點" digits={1} />
             {data === null && <span className="text-gray-600">暫無資料</span>}
           </>

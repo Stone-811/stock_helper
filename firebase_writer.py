@@ -543,7 +543,8 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
 
     與 write_market_index 同樣是「單一文件＋history 陣列、依 date upsert」，但**null-aware**：
     缺的欄位存 null，不是 0（write_market_index 用 row.get(..., 0) 會把缺的開高低寫成 0，
-    對當沖比／VIX 這種「沒有就是沒有」的資料是錯的）。同一天重寫會整列覆蓋（T+2 修正值）。
+    對當沖比／VIX 這種「沒有就是沒有」的資料是錯的）。同一天重寫是**逐欄**覆蓋：有值才蓋（T+2 修正值），
+    None 不會把先前存好的值洗掉。
     rows 為空就不碰文件（17:00 那班官方還沒公布是正常的，不算失敗）。
     寫入次數：每個 doc 1 次。
     """
@@ -558,11 +559,17 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
         merged = {h['date']: h for h in doc.to_dict().get('history', [])}
     for row in rows:
         d = str(row['date'])
-        clean = {'date': d}
+        # ⚠️ 逐欄合併、新值是 None 時保留舊值：collect_day 在「上市抓到、上櫃逾時」時會把上櫃欄位填 None，
+        #    整列覆蓋會把前一班已存好的上櫃值洗成 null（2026-11-05 審查 W1，high）。
+        #    官方統計不會「有值變沒有」，所以 None 一律當成「這次沒拿到」而不是「要清掉」。
+        old = merged.get(d, {})
+        clean = {**old, 'date': d}
         for k, v in row.items():
             if k == 'date':
                 continue
-            clean[k] = _opt_num(v, float)
+            nv = _opt_num(v, float)
+            if nv is not None or k not in clean:
+                clean[k] = nv
         merged[d] = clean
     history = sorted(merged.values(), key=lambda x: x['date'])
     doc_ref.set({
@@ -574,6 +581,16 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
     })
     logging.info(f"  market_sentiment/{doc_id}: 寫入/更新 {len(rows)} 天，總計 {len(history)} 天（最新 {history[-1]['date']}）")
     return len(rows)
+
+
+def get_market_sentiment_latest() -> dict:
+    """各系列的 latest_date（沒有文件 → None）。給 sentiment_collector 的陳舊度檢查用；4 次讀取。"""
+    db = get_firestore_client()
+    out = {}
+    for key in ('daytrade', 'margin', 'taivix', 'vix'):
+        doc = db.collection('market_sentiment').document(key).get()
+        out[key] = doc.to_dict().get('latest_date') if doc.exists else None
+    return out
 
 
 def test_connection():

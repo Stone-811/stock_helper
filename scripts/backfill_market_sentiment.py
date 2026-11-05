@@ -70,16 +70,22 @@ def main():
     logging.basicConfig(level=logging.WARNING)
 
     days = trading_days_between(date.fromisoformat(a.start), date.fromisoformat(a.end))
+    sys.stdout.reconfigure(line_buffering=True)  # 導向檔案時也要看得到進度（審查 S4）
     print(f"區間 {a.start}～{a.end}：交易日曆 {len(days)} 天；模式：{'WRITE' if a.write else 'DRY-RUN'}")
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     done = {}
     log_path = Path(a.resume) if a.resume else LOG_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
     if a.resume and log_path.exists():
+        skipped = 0
         for line in log_path.read_text().splitlines():
             rec = json.loads(line)
+            # days 已是交易日，兩邊都 None 幾乎只會是「請求失敗」（網路斷、官方 503）→ 要重抓，不算完成（審查 S3）
+            if rec.get('daytrade') is None and rec.get('margin') is None:
+                skipped += 1
+                continue
             done[rec['date']] = rec
-        print(f"接續 {log_path}：已有 {len(done)} 天")
+        print(f"接續 {log_path}：已有 {len(done)} 天；{skipped} 天先前沒抓到、會重抓", flush=True)
 
     # 1. 當沖＋融資（最花時間）
     t0 = time.time()
@@ -87,15 +93,39 @@ def main():
         for i, d in enumerate(days):
             if d in done:
                 continue
-            dt, mg = sc.collect_day(d, gap=a.gap)
+            dt_t = sc.fetch_twse_daytrade(d); time.sleep(a.gap)
+            dt_o = sc.fetch_tpex_daytrade(d); time.sleep(a.gap)
+            mg_t = sc.fetch_twse_margin(d); time.sleep(a.gap)
+            mg_o = sc.fetch_tpex_margin(d); time.sleep(a.gap)
+            dt = {'date': d, **(dt_t or {}), **(dt_o or {})} if (dt_t or dt_o) else None
+            # 融資存兩組：today＝D 的初值、prev＝官方說的定案值（D-1 的）。寫入前再用 D+1 的 prev 覆蓋 D。
+            mg = None
+            if mg_t or mg_o:
+                mg = {'date': d, 'today': {**((mg_t or {}).get('today') or {}), **((mg_o or {}).get('today') or {})},
+                      'prev': {**((mg_t or {}).get('prev') or {}), **((mg_o or {}).get('prev') or {})}}
             rec = {'date': d, 'daytrade': dt, 'margin': mg}
             done[d] = rec
             f.write(json.dumps(rec, ensure_ascii=False) + '\n'); f.flush()
             if (i + 1) % 20 == 0:
                 el = time.time() - t0
                 print(f"  {i + 1}/{len(days)} {d}  當沖 {'✓' if dt else '－'} 融資 {'✓' if mg else '－'}  已用 {el / 60:.1f} 分")
-    daytrade_rows = [r['daytrade'] for r in done.values() if r.get('daytrade')]
-    margin_rows = [r['margin'] for r in done.values() if r.get('margin')]
+    daytrade_rows = [done[d]['daytrade'] for d in days if done.get(d, {}).get('daytrade')]
+    # 融資：D 的值＝D 的 today，再用 D+1 的 prev（官方定案值）覆蓋；舊格式 jsonl（沒有 today 鍵）直接沿用
+    margin_rows = []
+    for i, d in enumerate(days):
+        mg = done.get(d, {}).get('margin')
+        if not mg:
+            continue
+        if 'today' not in mg:
+            margin_rows.append(mg)
+            continue
+        row = dict(mg['today'])
+        nxt = days[i + 1] if i + 1 < len(days) else None
+        nmg = done.get(nxt, {}).get('margin') if nxt else None
+        if nmg and nmg.get('prev'):
+            row.update({k: v for k, v in nmg['prev'].items() if v is not None})
+        if row:
+            margin_rows.append({'date': d, **row})
 
     # 2. 臺指VIX：期交所當月＋前 3 個月 ＋ FinMind 補更早（2026-03-02 起）
     taivix = fetch_finmind_taivix(max(a.start, '2026-03-02'), a.end)

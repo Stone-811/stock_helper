@@ -220,7 +220,7 @@ class DailyCollector:
         logging.info(f"資料驗證通過: {len(df)} 筆")
         return True
 
-    def run_daily(self, date=None, skip_stock=False, skip_index=False, skip_matrix=False):
+    def run_daily(self, date=None, skip_stock=False, skip_index=False, skip_matrix=False, skip_sentiment=False):
         """
         執行每日收集流程
 
@@ -234,6 +234,9 @@ class DailyCollector:
             跳過指數資料收集
         skip_matrix : bool
             跳過強勢股矩陣更新
+        skip_sentiment : bool
+            跳過市場溫度（當沖比／融資融券／恐慌指數）。批次模式每天都會重抓 3 天的視窗，
+            所以 --days／--backfill-gaps 迴圈內一律跳過、結束後只跑一次（2026-11-05 審查 W3）。
         """
         logging.info("=" * 70)
         logging.info(f"📅 開始每日資料收集: {date or '今日'}")
@@ -291,8 +294,9 @@ class DailyCollector:
                 self.results['index']['error'] = str(e)
                 logging.error(f"  ❌ 失敗: {e}")
 
-        # 2.5 市場溫度（當沖比／融資融券／恐慌指數）：自己包 try，失敗只記錄、不影響其他步驟
-        if not skip_index:
+        # 2.5 市場溫度（當沖比／融資融券／恐慌指數）：自己包 try，失敗只記錄、不影響其他步驟。
+        #     獨立旗標 --skip-sentiment（不綁 --skip-index，審查 W4）。
+        if not skip_sentiment:
             logging.info("\n🌡️ [2.5/3] 收集市場溫度...")
             try:
                 self.collect_sentiment(date)
@@ -492,6 +496,15 @@ class DailyCollector:
         logging.info("=" * 70)
 
 
+def _run_sentiment_once(collector):
+    """批次模式結束後跑一次市場溫度（以今天為視窗終點，重抓最近 3 個交易日）；失敗只記錄。"""
+    try:
+        collector.collect_sentiment()
+    except Exception as e:
+        collector.results['sentiment']['error'] = str(e)
+        logging.error(f"市場溫度失敗（不影響其他步驟）: {e}")
+
+
 def _raise_batch_upload_errors(failed):
     """批次模式：有日子的年度檔沒存回 Storage → 收完全部、重算完再一起報（那些日子已寫 Firestore，
     之後 --backfill-gaps 不會再當成缺口，只能靠這封信補跑）。"""
@@ -571,6 +584,7 @@ def main():
     parser.add_argument('--skip-stock', action='store_true', help='跳過股票資料')
     parser.add_argument('--skip-index', action='store_true', help='跳過指數資料')
     parser.add_argument('--skip-matrix', action='store_true', help='跳過強勢股矩陣')
+    parser.add_argument('--skip-sentiment', action='store_true', help='跳過市場溫度（大盤當沖比／融資融券／恐慌指數；官方來源，不經 FinMind）')
 
     args = parser.parse_args()
 
@@ -596,10 +610,12 @@ def main():
                 for d in gaps:
                     logging.info(f"\n{'='*70}\n回補缺漏日：{d}")
                     try:
-                        collector.run_daily(date=d, skip_matrix=True)
+                        collector.run_daily(date=d, skip_matrix=True, skip_sentiment=True)
                     except ArchiveUploadError as e:   # 那天已寫 Firestore；下一天會重新下載最新版，繼續
                         failed_upload.append((d, e))
                 collector.update_strong_matrix()
+                if not args.skip_sentiment:
+                    _run_sentiment_once(collector)
                 collector.print_batch_summary()
                 _raise_batch_upload_errors(failed_upload)
             return 0
@@ -623,7 +639,8 @@ def main():
                         date=date,
                         skip_stock=args.skip_stock,
                         skip_index=args.skip_index,
-                        skip_matrix=True  # 批次時最後再更新一次
+                        skip_matrix=True,  # 批次時最後再更新一次
+                        skip_sentiment=True,  # 同上：每天重抓 3 天視窗太浪費，最後跑一次
                     )
                 except ArchiveUploadError as e:
                     failed_upload.append((date, e))
@@ -631,6 +648,8 @@ def main():
             # 最後更新強勢股矩陣
             if not args.skip_matrix:
                 collector.update_strong_matrix()
+            if not args.skip_sentiment:
+                _run_sentiment_once(collector)
             collector.print_batch_summary()
             _raise_batch_upload_errors(failed_upload)
 
@@ -640,7 +659,8 @@ def main():
                 date=args.date,
                 skip_stock=args.skip_stock,
                 skip_index=args.skip_index,
-                skip_matrix=args.skip_matrix
+                skip_matrix=args.skip_matrix,
+                skip_sentiment=args.skip_sentiment,
             )
 
     except KeyboardInterrupt:

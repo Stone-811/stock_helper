@@ -85,7 +85,8 @@ export default function SentimentChart({
     }
     chart.timeScale().fitContent()
     chart.subscribeCrosshairMove((p) => setHover(p.time ? String(p.time) : null))
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }))
+    // 寬度變了要重新 fitContent：lightweight-charts 縮窄時會把最右邊幾根推出畫面，而這張圖關了捲動／縮放、拉不回來（審查 F1）
+    const ro = new ResizeObserver(() => { chart.applyOptions({ width: el.clientWidth }); chart.timeScale().fitContent() })
     ro.observe(el)
     return () => {
       ro.disconnect()
@@ -137,6 +138,7 @@ export default function SentimentChart({
       </div>
 
       <div ref={ref} style={{ height }} className={view ? '' : 'hidden'} aria-hidden="true" />
+      {view && <p className="mt-1 text-sm text-gray-700">電腦：滑鼠移到圖上看某一天；手機：長按圖再左右滑。</p>}
       {!view && <div className="flex items-center justify-center text-gray-700" style={{ height }}>暫無資料</div>}
     </div>
   )

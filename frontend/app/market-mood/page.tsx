@@ -80,7 +80,7 @@ export default function MarketMoodPage() {
     { key: 'vx', label: '美股 VIX', color: '#6d28d9', points: (data?.vix ?? []).map((r) => ({ date: r.date, value: r.close })) },
   ], [data])
 
-  const taivixFrom = data?.taivix?.[0]?.date
+  const taivixFrom = data?.first?.taivix ?? null
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -52,7 +52,7 @@ export default function SentimentStat({
             {stat.delta != null && (
               <span className="ml-2 text-gray-900 tabular-nums">
                 <span aria-hidden="true">{DELTA_ARROW[deltaDir(stat.delta, digits)!]} </span>
-                {deltaText(stat.delta, deltaUnit, digits)}
+                {deltaText(stat.delta, deltaUnit, digits, stat.prevDate)}
               </span>
             )}
           </div>

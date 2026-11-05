@@ -83,11 +83,19 @@ def _get_json(url, params):
     return r.json()
 
 
-def _find_table(j, keyword):
+def _find_table(j, keyword, expect_fields=None):
     """在證交所／櫃買的 tables 裡用標題找表；找不到回 None。
-    ⚠️ 不可直接取 tables[0]：休市或還沒公布時 tables[0] 可能是空物件或標的清單。"""
+    ⚠️ 不可直接取 tables[0]：休市或還沒公布時 tables[0] 可能是空物件或標的清單。
+    expect_fields：{索引: 必須包含的關鍵字}。官方若插欄位、順序變了，寧可回 None 也不要把金額存成占比
+    （2026-11-05 審查 S6）。"""
     for t in j.get('tables') or []:
         if keyword in str(t.get('title') or '') and t.get('data'):
+            if expect_fields:
+                fields = t.get('fields') or []
+                for i, kw in expect_fields.items():
+                    if i >= len(fields) or not all(k in str(fields[i]) for k in (kw if isinstance(kw, tuple) else (kw,))):
+                        logging.error(f"官方表格欄位變了（{keyword}）：fields={fields}，不寫入")
+                        return None
             return t
     return None
 
@@ -119,7 +127,7 @@ def fetch_twse_daytrade(day: str):
     except Exception as e:
         logging.warning(f"證交所當沖 {day} 抓取失敗：{e}")
         return None
-    t = _find_table(j, '當日沖銷交易統計')
+    t = _find_table(j, '當日沖銷交易統計', {1: ('股數', '比重'), 3: ('買進', '比重'), 5: ('賣出', '比重')})
     if not t:
         return None
     row = t['data'][0]
@@ -143,7 +151,7 @@ def fetch_tpex_daytrade(day: str):
         logging.warning(f"櫃買當沖 {day} 抓取失敗：{e}")
         return None
     # 櫃買的表標題是「現股當沖交易統計資訊」（證交所叫「當日沖銷交易統計資訊」），找「當沖交易統計」兩邊都中
-    t = _find_table(j, '當沖交易統計')
+    t = _find_table(j, '當沖交易統計', {1: ('股數', '比重'), 3: ('買進', '比重'), 5: ('賣出', '比重')})
     if not t:
         return None
     row = t['data'][0]
@@ -162,26 +170,30 @@ def fetch_tpex_daytrade(day: str):
 def fetch_twse_margin(day: str):
     """證交所上市信用交易統計（合計）。
     tables[標題含「信用交易統計」] 三列：融資(交易單位)、融券(交易單位)、融資金額(仟元)；
-    欄位：項目、買進、賣出、現金(券)償還、前日餘額、今日餘額。取「今日餘額」。"""
+    欄位：項目、買進、賣出、現金(券)償還、前日餘額、今日餘額。
+
+    ⚠️ 官方 notes：授信機構次日仍在調帳，「請以『前日餘額』為準，『今日餘額』為輔助參考」。
+    所以回傳兩組：today＝D 日的今日餘額（初值）、prev＝這份回應的前日餘額（＝D-1 的定案值）。
+    collect_days() 會用 D+1 的 prev 覆蓋 D 的 today（2026-11-05 審查 S1）。"""
     try:
         j = _get_json(TWSE_MARGIN, {'date': day.replace('-', ''), 'selectType': 'MS', 'response': 'json'})
     except Exception as e:
         logging.warning(f"證交所融資 {day} 抓取失敗：{e}")
         return None
-    t = _find_table(j, '信用交易統計')
+    t = _find_table(j, '信用交易統計', {4: '前日餘額', 5: '今日餘額'})
     if not t:
         return None
     rows = {str(r[0]).strip(): r for r in t['data'] if r}
     lots = rows.get('融資(交易單位)')
     short = rows.get('融券(交易單位)')
     amt = rows.get('融資金額(仟元)')
-    if not (lots and short and amt) or len(amt) < 6:
+    if not (lots and short and amt) or min(len(lots), len(short), len(amt)) < 6:
         return None
-    out = {
-        'twse_margin_lots': _num(lots[5]), 'twse_short_lots': _num(short[5]),
-        'twse_margin_balance': _num(amt[5]),
-    }
-    return out if out['twse_margin_balance'] is not None else None
+    today = {'twse_margin_lots': _num(lots[5]), 'twse_short_lots': _num(short[5]), 'twse_margin_balance': _num(amt[5])}
+    prev = {'twse_margin_lots': _num(lots[4]), 'twse_short_lots': _num(short[4]), 'twse_margin_balance': _num(amt[4])}
+    if today['twse_margin_balance'] is None:
+        return None
+    return {'today': today, 'prev': prev if prev['twse_margin_balance'] is not None else None}
 
 
 def fetch_tpex_margin(day: str):
@@ -194,7 +206,7 @@ def fetch_tpex_margin(day: str):
     except Exception as e:
         logging.warning(f"櫃買融資 {day} 抓取失敗：{e}")
         return None
-    t = _find_table(j, '融資融券餘額')
+    t = _find_table(j, '融資融券餘額', {2: '前資餘額', 6: '資餘額', 10: '前券餘額', 14: '券餘額'})
     if not t:
         return None
     summ = {str(r[1]).strip(): r for r in (t.get('summary') or []) if len(r) > 6}
@@ -202,11 +214,11 @@ def fetch_tpex_margin(day: str):
     amt = summ.get('融資金(仟元)')
     if not (lots and amt) or len(lots) < 15:
         return None
-    out = {
-        'tpex_margin_lots': _num(lots[6]), 'tpex_short_lots': _num(lots[14]),
-        'tpex_margin_balance': _num(amt[6]),
-    }
-    return out if out['tpex_margin_balance'] is not None else None
+    today = {'tpex_margin_lots': _num(lots[6]), 'tpex_short_lots': _num(lots[14]), 'tpex_margin_balance': _num(amt[6])}
+    prev = {'tpex_margin_lots': _num(lots[2]), 'tpex_short_lots': _num(lots[10]), 'tpex_margin_balance': _num(amt[2])}
+    if today['tpex_margin_balance'] is None:
+        return None
+    return {'today': today, 'prev': prev if prev['tpex_margin_balance'] is not None else None}
 
 
 # --------------------------------------------------------------------- 恐慌指數
@@ -258,24 +270,44 @@ def fetch_cboe_vix():
 
 # --------------------------------------------------------------------- 組合
 
+def collect_days(days, gap: float = REQUEST_GAP):
+    """抓多個交易日（升冪）的當沖＋融資（上市＋上櫃）。回 (daytrade_rows, margin_rows)。
+
+    - 某一邊抓不到（還沒公布／逾時／被擋）就**不放那幾個欄位**（不是放 None）：
+      writer 逐欄合併時才不會把前一班已存好的值洗掉。兩邊都沒有就不產生那一天的列。
+    - 融資：D 日的值優先用 D+1 回應的「前日餘額」（官方說那才是定案值），D+1 抓不到才用 D 的今日餘額。
+      所以視窗最後一天永遠是初值，下一班會被修正。
+    """
+    days = sorted(days)
+    dt_rows, mg_today, mg_prev = {}, {}, {}
+    for d in days:
+        dt_t = fetch_twse_daytrade(d); time.sleep(gap)
+        dt_o = fetch_tpex_daytrade(d); time.sleep(gap)
+        mg_t = fetch_twse_margin(d); time.sleep(gap)
+        mg_o = fetch_tpex_margin(d); time.sleep(gap)
+        if dt_t or dt_o:
+            dt_rows[d] = {'date': d, **(dt_t or {}), **(dt_o or {})}
+        for side in (mg_t, mg_o):
+            if side:
+                mg_today.setdefault(d, {}).update(side['today'])
+                if side['prev']:
+                    mg_prev.setdefault(d, {}).update(side['prev'])
+    # 融資：D 的定案值＝D+1 的 prev；只有相鄰交易日才能這樣對（視窗本身就是連續交易日）
+    mg_rows = {}
+    for i, d in enumerate(days):
+        row = dict(mg_today.get(d, {}))
+        nxt = days[i + 1] if i + 1 < len(days) else None
+        if nxt and nxt in mg_prev:
+            row.update(mg_prev[nxt])
+        if row:
+            mg_rows[d] = {'date': d, **row}
+    return [dt_rows[d] for d in days if d in dt_rows], [mg_rows[d] for d in days if d in mg_rows]
+
+
 def collect_day(day: str, gap: float = REQUEST_GAP):
-    """抓一個交易日的當沖＋融資（上市＋上櫃）。回 (daytrade_row|None, margin_row|None)。
-    任一邊沒有就那幾欄 None；兩邊都沒有就整列 None（呼叫端不寫）。"""
-    dt_t = fetch_twse_daytrade(day); time.sleep(gap)
-    dt_o = fetch_tpex_daytrade(day); time.sleep(gap)
-    mg_t = fetch_twse_margin(day); time.sleep(gap)
-    mg_o = fetch_tpex_margin(day); time.sleep(gap)
-    daytrade = None
-    if dt_t or dt_o:
-        daytrade = {'date': day}
-        daytrade.update(dt_t or {k: None for k in ('twse_dt_shares', 'twse_shares_pct', 'twse_buy_amount', 'twse_buy_pct', 'twse_sell_amount', 'twse_sell_pct')})
-        daytrade.update(dt_o or {k: None for k in ('tpex_dt_shares', 'tpex_shares_pct', 'tpex_buy_amount', 'tpex_buy_pct', 'tpex_sell_amount', 'tpex_sell_pct')})
-    margin = None
-    if mg_t or mg_o:
-        margin = {'date': day}
-        margin.update(mg_t or {k: None for k in ('twse_margin_lots', 'twse_short_lots', 'twse_margin_balance')})
-        margin.update(mg_o or {k: None for k in ('tpex_margin_lots', 'tpex_short_lots', 'tpex_margin_balance')})
-    return daytrade, margin
+    """單日版（回補腳本用）：回 (daytrade_row|None, margin_row|None)。融資是初值（今日餘額）。"""
+    dt, mg = collect_days([day], gap)
+    return (dt[0] if dt else None), (mg[0] if mg else None)
 
 
 def recent_trading_days(day: str, n: int = RECHECK_DAYS):
@@ -285,8 +317,11 @@ def recent_trading_days(day: str, n: int = RECHECK_DAYS):
     except ImportError:
         from trading_calendar import trading_days_between  # type: ignore
     end = _date.fromisoformat(day)
-    days = trading_days_between(end - timedelta(days=n * 3 + 7), end)
-    return days[-n:] if days else [day]
+    # with_actual：日曆誤標休市但加權指數有 K 棒的日子也要抓（寧可多試；官方沒資料自然回 None）
+    days = trading_days_between(end - timedelta(days=n * 3 + 7), end, with_actual=True)
+    if day not in days:
+        days.append(day)
+    return days[-n:]
 
 
 def collect_and_save(day: str = None, write: bool = True):
@@ -297,15 +332,10 @@ def collect_and_save(day: str = None, write: bool = True):
     days = recent_trading_days(day)
     logging.info(f"🌡️ 市場溫度：重抓 {days[0]}～{days[-1]}（{len(days)} 個交易日）")
 
-    daytrade_rows, margin_rows = [], []
-    for d in days:
-        dt, mg = collect_day(d)
-        if dt:
-            daytrade_rows.append(dt)
-        if mg:
-            margin_rows.append(mg)
-        logging.info(f"  {d}：當沖 {'有' if dt else '無'}（上市 {dt and dt.get('twse_buy_pct')}%／上櫃 {dt and dt.get('tpex_buy_pct')}%）"
-                     f"、融資 {'有' if mg else '無'}")
+    daytrade_rows, margin_rows = collect_days(days)
+    for dt in daytrade_rows:
+        logging.info(f"  {dt['date']}：當沖 上市 {dt.get('twse_buy_pct')}%／上櫃 {dt.get('tpex_buy_pct')}%")
+    logging.info(f"  當沖 {len(daytrade_rows)} 天、融資 {len(margin_rows)} 天（視窗 {len(days)} 天）")
 
     # 臺指VIX：當月＋上個月（跨月那幾天上個月檔也可能才補齊）
     taivix = {}
@@ -325,14 +355,45 @@ def collect_and_save(day: str = None, write: bool = True):
         import sys
         from pathlib import Path
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from firebase_writer import write_market_sentiment
+        from firebase_writer import write_market_sentiment, get_market_sentiment_latest
         write_market_sentiment('daytrade', daytrade_rows)
         write_market_sentiment('margin', margin_rows)
         write_market_sentiment('taivix', taivix_rows)
         write_market_sentiment('vix', vix_rows)
+        _check_staleness(day, days, get_market_sentiment_latest)
     elif write:
         logging.warning("未設定 Firebase，市場溫度跳過寫入")
     return counts
+
+
+def _check_staleness(day, window, get_latest):
+    """市場溫度斷料不可無聲（2026-11-05 審查 S2；放空欄位曾斷七天無人知）。
+    當沖／融資 17:00 那班還沒公布是正常的，所以只看「Firestore 最新日期落後視窗起點」：
+    落後代表連前兩個交易日都沒抓到 → 寄一封非關鍵告警（不改 exit code）。臺指VIX／CBOE 落後 5 天也告警。"""
+    problems = []
+    try:
+        latest = get_latest()
+    except Exception as e:
+        logging.warning(f"市場溫度陳舊度檢查失敗：{e}")
+        return
+    for key in ('daytrade', 'margin'):
+        if latest.get(key) is None or latest[key] < window[0]:
+            problems.append(f"{key} 最新 {latest.get(key)}，已落後視窗起點 {window[0]}")
+    cutoff = (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=7)).strftime('%Y-%m-%d')
+    for key in ('taivix', 'vix'):
+        if latest.get(key) is None or latest[key] < cutoff:
+            problems.append(f"{key} 最新 {latest.get(key)}，超過一週沒更新")
+    if not problems:
+        return
+    logging.error("⚠️ 市場溫度斷料：" + '；'.join(problems))
+    try:
+        from notify import send_alert
+        send_alert('[選股小幫手] 市場溫度資料斷了',
+                   f'執行日 {day}\n' + '\n'.join(problems) +
+                   '\n\n可能原因：Cloud Run 被證交所／櫃買／期交所擋（Cloudflare）、官方改版、網路問題。'
+                   '\n網站 /market-mood 與首頁兩行會停在舊日期。可用 scripts/backfill_market_sentiment.py --start <日期> --write 補。')
+    except Exception as e:
+        logging.warning(f"寄送市場溫度告警失敗：{e}")
 
 
 if __name__ == '__main__':
