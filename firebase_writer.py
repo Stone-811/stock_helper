@@ -507,18 +507,21 @@ def write_market_index(df: pd.DataFrame) -> int:
             existing_dates = {h['date'] for h in existing_history}
 
         # 以 date 為 key upsert：同日覆蓋，讓盤中先存的不完整指數值事後可被修正（C6）
+        # 2026-11-05 起缺值寫 null 不寫 0：美股 SOX 沒有成交量、美股指數沒有未平倉／結算價，
+        # 以前 row.get(..., 0) 會把這些寫成 0，前端就分不出「沒有」和「零」。
+        # TAIEX／TX 的 open_interest／settlement_price 收集器本來就填 0（那是「這個指數沒有這個概念」），照舊存 0。
         merged = {h['date']: h for h in existing_history}
         for _, row in index_df.iterrows():
             date = str(row['date'])
             merged[date] = {
                 'date': date,
-                'open': float(row.get('open', 0)),
-                'high': float(row.get('high', 0)),
-                'low': float(row.get('low', 0)),
-                'close': float(row.get('close', 0)),
-                'volume': int(row.get('volume', 0)),
-                'open_interest': int(row.get('open_interest', 0)),
-                'settlement_price': float(row.get('settlement_price', 0))
+                'open': _opt_num(row.get('open'), float),
+                'high': _opt_num(row.get('high'), float),
+                'low': _opt_num(row.get('low'), float),
+                'close': _opt_num(row.get('close'), float),
+                'volume': _opt_num(row.get('volume'), int),
+                'open_interest': _opt_num(row.get('open_interest'), int),
+                'settlement_price': _opt_num(row.get('settlement_price'), float),
             }
         all_history = sorted(merged.values(), key=lambda x: x['date'])
 
