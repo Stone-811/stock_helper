@@ -15,7 +15,6 @@ export interface StockLatest {
   volume: number
   stock_name: string
   macd_status: string
-  institutionalDate: string | null // 法人資料日期（可能與 K 線日不同；null = 當日無資料）
   foreign_buy: number | null
   trust_buy: number | null
   dealer_buy: number | null
@@ -91,7 +90,6 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     volume: klineLast.volume,
     stock_name: (fsLatest?.stock_name as string) || id,
     macd_status,
-    institutionalDate: (fsLatest?.date as string) ?? null,
     foreign_buy: num(fsLatest?.foreign_buy),
     trust_buy: num(fsLatest?.trust_buy),
     dealer_buy: num(fsLatest?.dealer_buy),

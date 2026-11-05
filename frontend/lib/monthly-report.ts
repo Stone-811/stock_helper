@@ -63,8 +63,6 @@ export interface MonthlyReportRow {
   industry: string | null
   /** 欄位 1：當月第一次入選日（YYYY-MM-DD） */
   firstDate: string
-  /** 當月最後一次入選日。⚠️ 2026-10-26 起數字欄不再以它為基準（改用 report.baseDate） */
-  lastDate: string
   /** 欄位 12：當月所有入選日的「日」，升冪 */
   strongDays: number[]
   /** 基準日的收盤價。null＝那天沒有這檔的明細（例如暫停交易） */
@@ -75,10 +73,8 @@ export interface MonthlyReportRow {
   volume: number | null
   /** 基準日的外資累積持股張數。null = 無資料（未涵蓋，或該日期根本還沒有這個欄位） */
   foreignHoldShares: number | null
-  /** 比較基準：基準日的「前一個交易日」的外資持股張數 */
-  foreignHoldPrev: number | null
   /**
-   * 增減方向。
+   * 增減方向（與基準日的「前一個交易日」的外資持股張數比）。
    * ⚠️ 基準是「前一個交易日」，**不是業主月報說的「前次」**——業主未定義「前次」是
    * 前一交易日還是該檔上一個強勢日，而實測 45.5% 的檔當月只入選 1 天（月內沒有前次可比）。
    * 另外業主的記法只有增／減兩種，但實測日間有 9.6% 真的持平 → 這裡誠實回 'flat'。
@@ -108,8 +104,6 @@ export interface MonthlyReport {
   latestDate: string | null
   /** 數字欄的基準日（當月最後一個交易日；本月＝最新一個交易日）。沒有任何交易日 → null */
   baseDate: string | null
-  /** 本月實際納入計算的交易日範圍 */
-  coverage: { from: string; to: string; tradingDays: number } | null
   /**
    * 本月的明細資料（daily_data）起點晚於月初，或 MA10 暖身不足。
    * 例：daily_data 最早只到 2026-07-24，做 8 月報表時 8 月初那些列的 MA10 必須是「—」。
@@ -119,7 +113,6 @@ export interface MonthlyReport {
   foreignHoldUnavailable: boolean
   /** 該月在 daily_data 完全沒有明細 → 頁面要說「此月份無明細資料」而不是渲染一整頁「—」 */
   dataMissing: boolean
-  generatedAt: string
 }
 
 /* --------------------------- 內部工具 --------------------------- */
@@ -199,11 +192,9 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     availableMonths: [],
     latestDate,
     baseDate: null,
-    coverage: null,
     partialMonth: false,
     foreignHoldUnavailable: false,
     dataMissing: true,
-    generatedAt: new Date().toISOString(),
   })
 
   if (!dates.length) return emptyReport(requestedMonth ?? '')
@@ -235,7 +226,6 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     stockId: string
     stockName: string
     firstDate: string
-    lastDate: string
     days: number[]
   }
   const agg = new Map<string, Agg>()
@@ -251,12 +241,10 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
           stockId: id,
           stockName: s.stock_name || id,
           firstDate: date,
-          lastDate: date,
           days: [day],
         })
       } else {
-        // monthDates 是升冪，所以後面遇到的一定比較晚
-        prev.lastDate = date
+        // monthDates 是升冪，所以 days 自然是升冪（組列時仍會再排一次）
         prev.days.push(day)
         if (!prev.stockName || prev.stockName === id) prev.stockName = s.stock_name || prev.stockName
       }
@@ -268,7 +256,6 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
       ...emptyReport(month),
       availableMonths,
       baseDate: monthDates[monthDates.length - 1],
-      coverage: { from: monthDates[0], to: monthDates[monthDates.length - 1], tradingDays: monthDates.length },
       dataMissing: false, // 有交易日、只是當月沒有任何股票入選
     }
     writeReportCache(cacheKey, r)
@@ -387,13 +374,11 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
       stockName: detail?.stock_name || a.stockName,
       industry: detail?.industry ? String(detail.industry) : null,
       firstDate: a.firstDate,
-      lastDate: a.lastDate,
       strongDays: [...a.days].sort((x, y) => x - y),
       close: detail?.close ?? null,
       limitUp: isLimitUp(prevClose, detail?.close, detail?.high, a.stockId),
       volume: detail?.volume ?? null,
       foreignHoldShares: hold,
-      foreignHoldPrev: holdPrev,
       foreignHoldDir: holdDeltaDir(hold, holdPrev),
       trustNet,
       ma5: maFromCloses(closesFor(5), 5),
@@ -411,11 +396,6 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     availableMonths,
     latestDate,
     baseDate,
-    coverage: {
-      from: monthDates[0],
-      to: monthDates[monthDates.length - 1],
-      tradingDays: monthDates.length,
-    },
     /**
      * 兩種情況都會讓部分列的數字必須是「—」，頁面用同一則提示說明：
      *  (a) 本月最早的交易日就是整個 daily_data 的起點 → 月初可能還有交易日沒有明細
@@ -426,7 +406,6 @@ export async function buildMonthlyReport(requestedMonth?: string): Promise<Month
     partialMonth: monthDates[0] === asc[0] || baseIdx - MA_WARMUP < 0,
     foreignHoldUnavailable: rows.every((r) => r.foreignHoldShares === null),
     dataMissing: false,
-    generatedAt: new Date().toISOString(),
   }
 
   writeReportCache(cacheKey, report)

@@ -26,13 +26,9 @@ export async function GET(request: Request) {
   try {
     const report = await buildMonthlyReport(month)
 
+    // 要求的月份不在可選清單內會靜默退回最新月：前端一律以回應的 month 為準
     return NextResponse.json(
-      {
-        ...report,
-        /** 前端要能分辨「你送的月份被退回最新月」（同 /api/strong-stocks 的靜默退回慣例） */
-        requestedMonth: raw ?? null,
-        count: report.rows.length,
-      },
+      report,
       {
         headers: {
           'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',

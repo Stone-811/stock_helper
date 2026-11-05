@@ -61,11 +61,8 @@ export interface SentimentResponse {
   margin: MarginDay[]
   taivix: TaivixDay[]
   vix: VixDay[]
-  /** 各系列最新一筆的日期（沒有資料＝null） */
-  latest: { daytrade: string | null; margin: string | null; taivix: string | null; vix: string | null }
-  /** 各系列在資料庫裡的第一筆（不受 days 切窗影響）：「本站自 X 起統計」用 */
-  first: { daytrade: string | null; margin: string | null; taivix: string | null; vix: string | null }
-  generatedAt: string
+  /** 臺指VIX 在資料庫裡的第一筆（不受 days 切窗影響；沒有資料＝null）：「本站自 X 起統計」用 */
+  first: { taivix: string | null }
 }
 
 /** 一個指標的「最新值、前一天、近一年最高最低」——業主選的呈現方式（不貼標籤） */

@@ -5,11 +5,9 @@
 
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app'
 import { getFirestore, Firestore } from 'firebase-admin/firestore'
-import { getAuth, Auth } from 'firebase-admin/auth'
 
 let app: App
 let adminDb: Firestore
-let adminAuth: Auth
 
 function initializeFirebaseAdmin() {
   if (getApps().length === 0) {
@@ -41,15 +39,12 @@ function initializeFirebaseAdmin() {
   }
 
   adminDb = getFirestore(app)
-  adminAuth = getAuth(app)
 
-  return { app, adminDb, adminAuth }
+  return { app, adminDb }
 }
 
-// 初始化
-const { adminDb: db, adminAuth: auth } = initializeFirebaseAdmin()
-
-export { db, auth }
+// 初始化（db 只在本檔使用；外部一律呼叫下面的查詢函數）
+const { adminDb: db } = initializeFirebaseAdmin()
 
 // ============ 伺服器端資料查詢函數 ============
 
@@ -242,13 +237,14 @@ export async function getMarketSentiment(docId: string): Promise<any[]> {
  *
  * 從 strong_stocks/{date} 聚合文件中搜尋
  */
-export async function getStockStrongHistory(stockId: string, limitDays: number = 100): Promise<{ date: string, is_strong: boolean }[]> {
+export async function getStockStrongHistory(stockId: string, limitDays: number = 100): Promise<{ date: string }[]> {
   try {
     // 現行架構：逐日讀 strong_stocks/{date} 的強勢股清單。
     // 註：舊架構 strong_stock_matrix 已停止更新（最後一日 2024-07-03），不再作為來源——
     //     否則會讀到過期資料，導致「近 N 日強勢」恆為 0（且該 stock_id+date 查詢還需複合索引）。
     const dates = await getAvailableDates(limitDays)
-    const strongHistory: { date: string, is_strong: boolean }[] = []
+    // 只放「有入選」的日子（沒入選的日子不在陣列裡）；最後依日期升冪排序
+    const strongHistory: { date: string }[] = []
 
     // 分批並行查詢，降低往返延遲
     const batchSize = 20
@@ -259,7 +255,7 @@ export async function getStockStrongHistory(stockId: string, limitDays: number =
       for (let j = 0; j < batchResults.length; j++) {
         const found = batchResults[j].some((s: any) => s.stock_id === stockId)
         if (found) {
-          strongHistory.push({ date: batchDates[j], is_strong: true })
+          strongHistory.push({ date: batchDates[j] })
         }
       }
     }
