@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import StockCard from '../../components/StockCard'
 import { StrongStock } from '../../lib/firebase'
 import { PageHeader, CardGridSkeleton, EmptyState, ErrorState } from '../../components/states'
+import { useLatestRequest } from '../../lib/use-latest-request'
 
 interface ScreenerResponse {
   stocks: StrongStock[]
@@ -39,6 +40,9 @@ export default function ScreenerPage() {
   const [volumeMin, setVolumeMin] = useState(0)
   const [industry, setIndustry] = useState('')
   const [sort, setSort] = useState('foreign_buy')
+  // 只採用最後一次送出的請求：連點兩個快速策略時，舊條件的回應晚到不可蓋掉新條件的結果
+  //（否則「已套用條件」是新的、卡片與「符合 N 檔」卻是舊的）
+  const req = useLatestRequest()
 
   // 還原上次篩選（sessionStorage）→ 從個股頁返回時條件保留
   useEffect(() => {
@@ -75,16 +79,20 @@ export default function ScreenerPage() {
     if (industry) params.set('industry', industry)
     if (sort) params.set('sort', sort)
 
+    const seq = req.start()
     setLoading(true)
     setError(false)
     fetch(`/api/screener?${params.toString()}`)
       .then((r) => { if (!r.ok) throw new Error('http'); return r.json() })
       .then((d: ScreenerResponse) => {
+        if (!req.isLatest(seq)) return
         setData(d)
         if (!date && d.latestDate) setDate(d.latestDate)
       })
-      .catch((e) => { console.error('Screener fetch failed:', e); setError(true) })
-      .finally(() => setLoading(false))
+      .catch((e) => { if (!req.isLatest(seq)) return; console.error('Screener fetch failed:', e); setError(true) })
+      // ⚠️ 只有最新的請求可以關掉載入中：舊請求先回來時，畫面要繼續等新條件的結果
+      .finally(() => { if (req.isLatest(seq)) setLoading(false) })
+    return () => req.cancel() // 條件又變了（或離開頁面）：這個請求作廢
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, date, macd, foreignStreakMin, trustStreakMin, foreignBuy, volumeMin, industry, sort, reloadNonce])
 
@@ -138,22 +146,22 @@ export default function ScreenerPage() {
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div className="flex flex-wrap gap-x-4 gap-y-3 items-center">
             <div className="flex items-center gap-2">
-              <span className="text-gray-700 text-sm">日期</span>
-              <select value={date} onChange={(e) => setDate(e.target.value)} className={SELECT}>
+              <label htmlFor="screener-date" className="text-gray-700 text-sm">日期</label>
+              <select id="screener-date" value={date} onChange={(e) => setDate(e.target.value)} className={SELECT}>
                 {availableDates.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-700 text-sm">MACD</span>
-              <select value={macd} onChange={(e) => setMacd(e.target.value)} className={SELECT}>
+              <label htmlFor="screener-macd" className="text-gray-700 text-sm">MACD</label>
+              <select id="screener-macd" value={macd} onChange={(e) => setMacd(e.target.value)} className={SELECT}>
                 <option value="">全部</option>
                 <option value="多">多頭</option>
                 <option value="空">空頭</option>
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-700 text-sm">外資連買</span>
-              <select value={foreignStreakMin} onChange={(e) => setForeignStreakMin(parseInt(e.target.value))} className={SELECT}>
+              <label htmlFor="screener-foreign-streak" className="text-gray-700 text-sm">外資連買</label>
+              <select id="screener-foreign-streak" value={foreignStreakMin} onChange={(e) => setForeignStreakMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1">≥1 天</option>
                 <option value="3">≥3 天</option>
@@ -162,8 +170,8 @@ export default function ScreenerPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-700 text-sm">投信連買</span>
-              <select value={trustStreakMin} onChange={(e) => setTrustStreakMin(parseInt(e.target.value))} className={SELECT}>
+              <label htmlFor="screener-trust-streak" className="text-gray-700 text-sm">投信連買</label>
+              <select id="screener-trust-streak" value={trustStreakMin} onChange={(e) => setTrustStreakMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1">≥1 天</option>
                 <option value="2">≥2 天</option>
@@ -172,8 +180,8 @@ export default function ScreenerPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-700 text-sm">成交量</span>
-              <select value={volumeMin} onChange={(e) => setVolumeMin(parseInt(e.target.value))} className={SELECT}>
+              <label htmlFor="screener-volume" className="text-gray-700 text-sm">成交量</label>
+              <select id="screener-volume" value={volumeMin} onChange={(e) => setVolumeMin(parseInt(e.target.value))} className={SELECT}>
                 <option value="0">不限</option>
                 <option value="1000">1000張+</option>
                 <option value="5000">5000張+</option>
@@ -182,8 +190,8 @@ export default function ScreenerPage() {
             </div>
             {industries.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-700 text-sm">產業</span>
-                <select value={industry} onChange={(e) => setIndustry(e.target.value)} className={`${SELECT} max-w-[150px]`}>
+                <label htmlFor="screener-industry" className="text-gray-700 text-sm">產業</label>
+                <select id="screener-industry" value={industry} onChange={(e) => setIndustry(e.target.value)} className={`${SELECT} max-w-[150px]`}>
                   <option value="">全部產業</option>
                   {industries.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
                 </select>
@@ -194,8 +202,8 @@ export default function ScreenerPage() {
               僅外資買超
             </label>
             <div className="flex items-center gap-2 ml-auto">
-              <span className="text-gray-700 text-sm">排序</span>
-              <select value={sort} onChange={(e) => setSort(e.target.value)} className={SELECT}>
+              <label htmlFor="screener-sort" className="text-gray-700 text-sm">排序</label>
+              <select id="screener-sort" value={sort} onChange={(e) => setSort(e.target.value)} className={SELECT}>
                 <option value="foreign_buy">外資買超</option>
                 <option value="trust_buy">投信買超</option>
                 <option value="volume">成交量</option>

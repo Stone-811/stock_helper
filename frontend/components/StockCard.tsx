@@ -4,7 +4,18 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { StrongStock } from '../lib/firebase'
 import InfoTip from './InfoTip'
-import { DASH, fmtNum, fmtSigned, fmtTradingValue, computeChange, changeColor, signColor } from '../lib/format'
+import {
+  DASH,
+  fmtNum,
+  fmtSigned,
+  fmtTradingValue,
+  computeChange,
+  changeColor,
+  signColor,
+  tradingValueOf,
+  dayTradingRatioOf,
+  macdBadgeClass,
+} from '../lib/format'
 
 interface StockCardProps {
   /** date 不用：/api/strong-stocks 與 /api/screener 的每檔資料本來就沒有 date（firebase_writer 不寫） */
@@ -17,7 +28,9 @@ interface StockCardProps {
 }
 
 /*
- * 首頁「今日強勢」、強勢股頁的卡片檢視、選股頁共用。
+ * 強勢股頁的卡片檢視、選股頁共用（首頁 2026-11-05 改版後不再放今日強勢股）。
+ * 成交額、當沖比、MACD 底色的公式在 lib/format.ts，與強勢股頁的表格同一份：
+ * 同一頁切換卡片／表格、或依「當沖比」排序時卡片上的兩個當沖比，數字才不會對不上。
  * 2026-10-26 業主同意放大加深（看過改前改後截圖）：
  * - 數字由 text-xs（13.6px）改為 text-sm／text-base，標籤 gray-700、數值 gray-900。
  * - 紅綠改用 lib/format 的 changeColor／signColor（green-600 3.22、orange-500 約 2.6、cyan 都不過 AA）。
@@ -30,15 +43,14 @@ export default function StockCard({ stock, strongCountStale = false, sortExtra }
   const priceCls = dir === 'flat' ? 'text-gray-900' : changeColor(dir)
   const sign = change != null && change > 0 ? '+' : ''
 
-  // 成交額、當沖額：volume 是張數，每張 1000 股。缺任一邊就是「—」，當沖量缺就不顯示那一行
-  const tradingValue = stock.volume != null && stock.close != null ? stock.volume * stock.close * 1000 : null
+  // 成交額、當沖額：volume 是張數，每張 1000 股。缺任一邊就是「—」，當沖量缺（或為 0）就不顯示那一行
+  const tradingValue = tradingValueOf(stock.volume, stock.close)
   const dtv = stock.day_trading_volume
-  const dayTradingValue = dtv != null && dtv > 0 && stock.close != null ? dtv * stock.close * 1000 : null
-  const dayTradingRatio = dtv != null && stock.volume > 0 ? (dtv / stock.volume) * 100 : null
+  const dayTradingValue = dtv != null && dtv > 0 ? tradingValueOf(dtv, stock.close) : null
+  const dayTradingRatio = dayTradingRatioOf(dtv, stock.volume)
 
   const macd = stock.macd_status
-  const macdCls =
-    macd === '多' ? 'bg-red-100 text-red-700' : macd === '空' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+  const macdCls = macdBadgeClass(macd)
 
   // 法人欄只有約 65～110px 寬：「+312,708」這種 7 字元以上的數字縮一級，免得擠出欄位壓到隔壁
   const inst = (v: number | null | undefined) => {

@@ -1,13 +1,13 @@
 /**
  * 共用數值格式化（純函式，無 React / 無 'use client'，server 與 client 皆可用）
  *
- * 為什麼要有這個檔：漲跌幅基準、億/萬 級距、紅綠配色、連買連賣字串
- * 原本散在 StockCard.tsx / watchlist / StockDetailClient / lib/signals.ts 四處各一份。
- * 強勢股頁的表格檢視一次要用到 22 欄，再抄一次就是第五份，因此把「重複且無爭議」的邏輯抽到這裡。
+ * 為什麼要有這個檔：漲跌幅基準、億/萬 級距、紅綠配色、成交額／當沖比、MACD 標籤底色
+ * 原本在 StockCard.tsx、強勢股頁、StockDetailClient 等處各抄一份，日後只改到其中一份就會對不上，
+ * 因此把「重複且無爭議」的邏輯抽到這裡。成交額／當沖比：強勢股頁表格（app/strong-stocks/columns.tsx）
+ * 與 StockCard 共用；MACD 底色再加上強勢月報。
  *
- * 遷移策略只做加法：新頁面直接用本檔；StockCard 的私有 formatTradingValue 改成 import。
- * watchlist / StockDetailClient / signals.ts 各有語境差異（latestData 可能 undefined、
- * base 從 history 倒數第二根取），本次不動，留作後續。
+ * StockDetailClient／StockSignals 的漲跌基準是 history 倒數第二根（不靠 API 的 prev_close），
+ * 語境不同，不併進 computeChange。這兩個檔的當沖比目前仍各寫一份（公式相同），之後改用 dayTradingRatioOf。
  */
 
 /** 無資料的統一符號：全形破折號 U+2014（與 app/page.tsx 一致，不是半形 '-'） */
@@ -50,6 +50,35 @@ export function fmtTradingValue(v: number | null | undefined): string {
   if (abs >= 1e8) return sign + (abs / 1e8).toFixed(2) + '億'
   if (abs >= 1e4) return sign + (abs / 1e4).toFixed(0) + '萬'
   return sign + abs.toFixed(0)
+}
+
+/**
+ * 成交額（元）＝成交量（張）× 收盤價 × 1000 股。任一邊缺 → null（顯示「—」，不是 0）。
+ * 強勢股頁的表格與 StockCard 共用（同一頁切換卡片／表格，數字必須同一份公式）。
+ * 當沖額也是同一條公式：把當沖量當成交量傳進來。
+ */
+export function tradingValueOf(volume: number | null | undefined, close: number | null | undefined): number | null {
+  return volume == null || close == null ? null : volume * close * 1000
+}
+
+/**
+ * 當沖比例（%）＝當沖量 ÷ 成交量 × 100。
+ * ⚠️ 缺值語意（本專案最常出事的地方，改之前先想清楚）：
+ *   當沖量 null（交易所沒公布：興櫃、處置股…）→ null，**不可回 0%**；
+ *   成交量 0 或缺 → null（除不出來）；
+ *   當沖量 0 → 0（真的沒人當沖，是有效值）。
+ * 強勢股頁「排序：當沖比例」與同一張卡片上的「當沖額（x%）」都走這裡，兩個數字才不會對不上。
+ */
+export function dayTradingRatioOf(dtv: number | null | undefined, volume: number | null | undefined): number | null {
+  return dtv != null && volume != null && volume > 0 ? (dtv / volume) * 100 : null
+}
+
+/**
+ * MACD 標籤的底色：「多」紅、「空」綠，其他（「-」資料不足、空值）灰。只回 class，
+ * 標籤文字與缺值要顯示什麼由各頁自己決定（強勢股表格灰底「—」、月報 NullCell、卡片「MACD —」）。
+ */
+export function macdBadgeClass(m: string | null | undefined): string {
+  return m === '多' ? 'bg-red-100 text-red-700' : m === '空' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
 }
 
 export type ChangeDir = 'up' | 'down' | 'flat'
@@ -256,13 +285,4 @@ export interface TrustNetSum {
 /** 這一列的視窗是否被截短（有值、但不足 window 個交易日） */
 export function isTrustShort(t: TrustNetSum | undefined | null): boolean {
   return !!t && t.days > 0 && t.days < t.window
-}
-
-/**
- * 欄名第二行用的視窗標籤。
- * ⚠️ 「累計」兩字固定放在欄名本體（「投信買賣超累計」），這裡只補期間，
- * 否則會變成「投信買賣超累計 / 近 20 日累計」重複兩次。
- */
-export function trustWindowLabel(n: number): string {
-  return `近 ${n} 日`
 }

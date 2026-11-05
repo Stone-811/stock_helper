@@ -4,16 +4,26 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader, TableSkeleton, EmptyState, ErrorState } from '../../components/states'
 import { NullCell, TbdCell, TableScroll } from '../../components/table'
-import { SELECT, alignClass, justifyClass, type ColDef } from '../../lib/table'
+import {
+  SELECT,
+  alignClass,
+  justifyClass,
+  industriesOf,
+  matchesStockQuery,
+  normalizeQuery,
+  sortRows,
+  type ColDef,
+} from '../../lib/table'
+import { useLatestRequest } from '../../lib/use-latest-request'
 import {
   DASH,
   DEFAULT_TRUST_WINDOW,
   TRUST_WINDOWS,
-  compareNullLast,
   fmtDayList,
   fmtNum,
   fmtSigned,
   isTrustShort,
+  macdBadgeClass,
   parseTrustWindow,
   signColor,
   type TrustWindow,
@@ -52,12 +62,9 @@ interface MonthlyResponse {
   latestDate: string | null
   /** 2026-10-26 新增；舊版快取的回應沒有這個欄位 → 一律當成不知道 */
   baseDate?: string | null
-  coverage: { from: string; to: string; tradingDays: number } | null
   partialMonth: boolean
   foreignHoldUnavailable: boolean
   dataMissing: boolean
-  requestedMonth: string | null
-  count: number
 }
 
 /**
@@ -160,7 +167,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: '籌碼・外資（持股張數）',
     align: 'right',
     sortable: true,
-    nullable: true,
     sortValue: (r) => r.foreignHoldShares,
     desc: '外資手上持有的張數（官方申報）。▲ 比前一個交易日多、▽ 比前一個交易日少、「持平」是一樣多。約 15% 的股票（多半是上櫃、新上市）沒有這筆資料，顯示「—」不是 0。',
     render: (r) => {
@@ -195,7 +201,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: `籌碼・投信（近 ${tw} 個交易日買賣超累計，張）`,
     align: 'right',
     sortable: true,
-    nullable: true,
     sortValue: (r) => r.trustNet?.[tw]?.sum ?? null,
     desc: `到表格上方那一天為止，往前 ${tw} 個交易日投信「買進－賣出」加起來的張數。紅色是買超、綠色是賣超。⚠️ 這不是投信手上持有多少張——網站拿不到可靠的投信持股資料，所以跟 Word 那一欄不能直接對照。上方「投信累計」可以改成 5 或 10 日。`,
     render: (r) => {
@@ -228,7 +233,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: '5日均價（元）',
     align: 'right',
     sortable: true,
-    nullable: true,
     sortValue: (r) => r.ma5,
     desc: '到表格上方那一天為止，最近 5 個交易日收盤價的平均。中間缺任何一天就顯示「—」，不會拿較少天數的平均充數。',
     render: (r) => numCell(r.ma5, 2),
@@ -238,7 +242,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: '10日均價（元）',
     align: 'right',
     sortable: true,
-    nullable: true,
     sortValue: (r) => r.ma10,
     desc: '到表格上方那一天為止，最近 10 個交易日收盤價的平均。中間缺任何一天就顯示「—」。',
     render: (r) => numCell(r.ma10, 2),
@@ -253,8 +256,7 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     render: (r) => {
       const m = r.macdStatus
       if (!m || m === '-') return <NullCell title="資料天數不夠，算不出 MACD" />
-      const cls =
-        m === '多' ? 'bg-red-100 text-red-700' : m === '空' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+      const cls = macdBadgeClass(m)
       return (
         <span className={`inline-flex items-center min-h-[28px] px-2 rounded text-sm font-medium ${cls}`}>
           {m}
@@ -267,7 +269,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: '技術分析・KD',
     align: 'center',
     sortable: false,
-    tbd: true,
     sortValue: () => null,
     desc: '待定義：等你提供「+↗／–↗／↗」的判斷方式再接上。',
     render: () => <TbdCell reason="KD 的「+↗／–↗／↗」記法還沒定義" />,
@@ -277,7 +278,6 @@ const makeColumns = (tw: TrustWindow): Record<MKey, ColDef<MonthlyReportRow>> =>
     fullName: '技術分析・均線',
     align: 'center',
     sortable: false,
-    tbd: true,
     sortValue: () => null,
     desc: '待定義：等你提供「四海遊龍／三陽開泰／糾結」的判斷方式再接上。',
     render: () => <TbdCell reason="「四海遊龍／三陽開泰／糾結」的判斷方式還沒定義" />,
@@ -349,7 +349,6 @@ const STICKY_TD: Partial<Record<MKey, string>> = {
 const HEAD1_H = 48
 
 const STORAGE_KEY = 'strong-monthly-word' // 2026-10-26 改版：舊 key 存的是「依日期排序」，不可沿用
-const LEGACY_STORAGE_KEYS = ['strong-monthly-view']
 
 /** 預設排序＝股票代號由小到大：與業主的 Word 月報相同 */
 const DEFAULT_SORT: { key: MKey; dir: 'asc' | 'desc' } = { key: 'stock', dir: 'asc' }
@@ -389,10 +388,14 @@ export default function StrongMonthlyPage() {
   const [trustWindow, setTrustWindow] = useState<TrustWindow>(DEFAULT_TRUST_WINDOW)
 
   const monthTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 只採用最後一次送出的請求：冷算要數十秒，「先選冷的 A 月、再選有快取的 B 月」時，
+  // A 月的回應晚到不可把下拉選單、整張表與 sessionStorage 蓋回 A 月
+  const req = useLatestRequest()
 
   /* --------------------------- 資料抓取 --------------------------- */
 
   const fetchData = async (m?: string) => {
+    const seq = req.start()
     setLoading(true)
     setError(false)
     try {
@@ -401,14 +404,17 @@ export default function StrongMonthlyPage() {
       const res = await fetch(`/api/strong-monthly?${qs}`)
       if (!res.ok) throw new Error('http')
       const json: MonthlyResponse = await res.json()
+      if (!req.isLatest(seq)) return
       setData(json)
       // API 對不在白名單的月份是「靜默退回最新月」，所以一律以回應的 month 為準
       setMonth(json.month || '')
     } catch (e) {
+      if (!req.isLatest(seq)) return
       console.error('Failed to fetch monthly strong report:', e)
       setError(true)
     } finally {
-      setLoading(false)
+      // ⚠️ 只有最新的請求可以關掉載入中：舊請求先回來時，畫面要繼續等新的那個
+      if (req.isLatest(seq)) setLoading(false)
     }
   }
 
@@ -416,7 +422,6 @@ export default function StrongMonthlyPage() {
   useEffect(() => {
     let savedMonth: string | undefined
     try {
-      for (const k of LEGACY_STORAGE_KEYS) sessionStorage.removeItem(k)
       const raw = sessionStorage.getItem(STORAGE_KEY)
       if (raw) {
         const f = JSON.parse(raw)
@@ -436,7 +441,7 @@ export default function StrongMonthlyPage() {
         if (f.trustWindow !== undefined) setTrustWindow(parseTrustWindow(f.trustWindow))
         if (typeof f.query === 'string') {
           setQuery(f.query)
-          setDebouncedQuery(f.query.trim().toLowerCase())
+          setDebouncedQuery(normalizeQuery(f.query))
         }
         if (typeof f.industry === 'string') setIndustry(f.industry)
         if (typeof f.minDays === 'number') setMinDays(f.minDays)
@@ -448,6 +453,8 @@ export default function StrongMonthlyPage() {
     return () => {
       if (monthTimer.current) clearTimeout(monthTimer.current)
     }
+    // fetchData 用到的 req（useLatestRequest）整個生命週期固定不變，lint 看不出來；這裡刻意只在掛載時跑一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // 僅在掛載時還原一次（與 /strong-stocks、/screener 的 ready 閘門模式一致）
 
   useEffect(() => {
@@ -458,13 +465,14 @@ export default function StrongMonthlyPage() {
   }, [ready, month, sort, query, industry, minDays, trustWindow])
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200)
+    const t = setTimeout(() => setDebouncedQuery(normalizeQuery(query)), 200)
     return () => clearTimeout(t)
   }, [query])
 
   // 換月份：先切骨架讓使用者看到反應，再 debounce 400ms 發請求（冷算要數十秒，快速來回切換很貴）
   const handleMonthChange = (m: string) => {
     setMonth(m)
+    req.cancel() // 進行中的請求作廢：防抖這 400ms 內舊回應回來，也不可把剛選的月份蓋掉
     setLoading(true)
     setError(false)
     if (monthTimer.current) clearTimeout(monthTimer.current)
@@ -483,10 +491,7 @@ export default function StrongMonthlyPage() {
     ? `${fmtMd(baseDate)}（${baseDate === data?.latestDate ? '最新交易日' : '當月最後一個交易日'}）`
     : null
 
-  const industries = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.industry).filter(Boolean) as string[])).sort(),
-    [rows]
-  )
+  const industries = useMemo(() => industriesOf(rows, (r) => r.industry), [rows])
 
   // 不能排序的欄（待定義、MACD）不可當排序鍵（sortValue 沒有意義）
   const effectiveSort = useMemo(
@@ -498,22 +503,14 @@ export default function StrongMonthlyPage() {
     return rows.filter((r) => {
       if (industry !== 'all' && r.industry !== industry) return false
       if (minDays > 0 && r.strongDays.length < minDays) return false
-      if (debouncedQuery) {
-        const idHit = r.stockId.toLowerCase().startsWith(debouncedQuery)
-        const nameHit = (r.stockName || '').toLowerCase().includes(debouncedQuery)
-        if (!idHit && !nameHit) return false
-      }
+      if (!matchesStockQuery(r.stockId, r.stockName, debouncedQuery)) return false
       return true
     })
   }, [rows, industry, minDays, debouncedQuery])
 
   const sortedRows = useMemo(() => {
     const col = COLUMNS[effectiveSort.key] ?? COLUMNS.stock
-    return [...filteredRows].sort((a, b) => {
-      const c = compareNullLast(col.sortValue(a), col.sortValue(b), effectiveSort.dir)
-      if (c !== 0) return c
-      return a.stockId.localeCompare(b.stockId) // 同值時穩定排序
-    })
+    return sortRows(filteredRows, col.sortValue, effectiveSort.dir, (r) => r.stockId) // 同值依代號
   }, [COLUMNS, filteredRows, effectiveSort])
 
   const nullCount = useMemo(() => {
