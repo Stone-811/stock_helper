@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useMemo } from 'react'
+import { useId, useMemo, type ReactNode } from 'react'
 import SentimentChart from './SentimentChart'
 import { DaytradeStats, MarginStats, VixStats } from './MoodStats'
 import { statOf, thousandsToYi, type SentimentResponse } from '../lib/sentiment'
@@ -15,6 +15,20 @@ import { statOf, thousandsToYi, type SentimentResponse } from '../lib/sentiment'
  */
 const TWSE = '#1d4ed8' // 上市：藍
 const TPEX = '#b45309' // 上櫃：琥珀（白底對比 4.9，不用紅綠——紅綠在本站代表股價漲跌）
+
+/**
+ * 兩張走勢圖並排、各佔一半（2026-11-06 業主：「圖表平行擺放，各佔50%」）。
+ * 依這一塊自己的寬度排（container query）：≥44rem（約 704px，電腦 1024 以上扣掉側欄）才並排；
+ * 手機與平板維持上下排——一半寬在手機只剩約 170px，圖和區間按鈕都看不清楚。
+ * 只有一張的當沖比圖維持全寬。
+ */
+function ChartPair({ children }: { children: ReactNode }) {
+  return (
+    <div className="@container">
+      <div className="grid grid-cols-1 gap-4 @min-[44rem]:grid-cols-2">{children}</div>
+    </div>
+  )
+}
 
 export default function MarketMoodSections({ data }: { data: SentimentResponse | null }) {
   const uid = useId()
@@ -70,28 +84,32 @@ export default function MarketMoodSections({ data }: { data: SentimentResponse |
       <section aria-labelledby={`${uid}-mg-h`}>
         <h3 id={`${uid}-mg-h`} className={hCls}>融資餘額、融券餘額</h3>
         <div className="mb-4"><MarginStats mgTwse={s.mgTwse} mgTpex={s.mgTpex} shTwse={s.shTwse} shTpex={s.shTpex} /></div>
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-          <h4 className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</h4>
-          <SentimentChart series={mgSeries} digits={0} unit="億" />
-        </div>
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <h4 className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</h4>
-          <SentimentChart series={shSeries} digits={0} unit="張" />
-        </div>
+        <ChartPair>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</h4>
+            <SentimentChart series={mgSeries} digits={0} unit="億" />
+          </div>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</h4>
+            <SentimentChart series={shSeries} digits={0} unit="張" />
+          </div>
+        </ChartPair>
       </section>
 
       {/* 3. 恐慌指數 */}
       <section aria-labelledby={`${uid}-vix-h`}>
         <h3 id={`${uid}-vix-h`} className={hCls}>恐慌指數</h3>
         <div className="mb-4"><VixStats taivix={s.taivix} vix={s.vix} taivixFrom={taivixFrom} /></div>
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-          <h4 className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</h4>
-          <SentimentChart series={tvSeries} digits={2} />
-        </div>
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <h4 className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</h4>
-          <SentimentChart series={vxSeries} digits={2} />
-        </div>
+        <ChartPair>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</h4>
+            <SentimentChart series={tvSeries} digits={2} />
+          </div>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</h4>
+            <SentimentChart series={vxSeries} digits={2} />
+          </div>
+        </ChartPair>
       </section>
 
       <details className="bg-white rounded-lg shadow-sm">
