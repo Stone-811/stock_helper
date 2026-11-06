@@ -14,7 +14,9 @@ FinMind TaiwanStockInfo 對改過名或轉板（創新板 ↔ 一般板）的股
 * **只改 stock_name**，價格、法人等其他欄位一個字都不動。
 * 權威來源是 FinMind TaiwanStockInfo「date 最新」那筆，跟收集器同一條規則。
 * FinMind 回 0 筆（API 暫時失敗）→ 整支中止，不改任何東西。
-* 預設 DRY-RUN，--write 才實際寫入；寫入前把會動到的 chunks 備份到 logs/。冪等：重跑不會再改。
+* 預設 DRY-RUN，--write 才實際寫入；寫入前把會動到的 chunks（改之前的內容）備份到 logs/。冪等：重跑不會再改。
+* ⚠️ 2026-11-06 第一次 --write（3,276 筆、58 檔、70 天）時，備份誤存成「改過名字之後」的內容（在記憶體改完才備份），
+  那份備份不能拿來還原；舊名字要從 GCS 年度檔（stocks_2026.csv 同一天同一檔的 stock_name）找。已修正為改之前備份。
 
 用法
 ----
@@ -22,6 +24,7 @@ FinMind TaiwanStockInfo 對改過名或轉板（創新板 ↔ 一般板）的股
   python3 scripts/fix_stale_stock_names.py --write    # 實際寫入
 """
 import sys
+import copy
 import json
 import argparse
 from collections import Counter, defaultdict
@@ -60,6 +63,7 @@ def main():
     for day in db.collection('daily_data').stream():
         for ch in day.reference.collection('chunks').stream():
             doc = ch.to_dict() or {}
+            original = copy.deepcopy(doc)   # 備份要存「改之前」的內容（2026-11-06 第一次執行時備份存到改過的版本，見 docstring）
             stocks = doc.get('stocks', [])
             changed = False
             for s in stocks:
@@ -72,7 +76,7 @@ def main():
                         s['stock_name'] = new
                     changed = True
             if changed:
-                todo.append((ch.reference, doc, stocks))
+                todo.append((ch.reference, original, stocks))
 
     print(f"會改：{sum(per_stock.values())} 筆、{len(per_stock)} 檔、{len(days)} 天（{min(days) if days else '-'}～{max(days) if days else '-'}）、{len(todo)} 份分片")
     for sid in sorted(per_stock):
