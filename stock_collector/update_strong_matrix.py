@@ -241,11 +241,33 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
     all_data = []
     day_stats = []
+    # 跨年（2026-11-06 業主同意，數字先給過）：每個年度檔各算一次，第一個交易日以前在自己的檔案裡取不到前一日、
+    # 退回用開盤當基準（＝當日振幅）→ 2024-01-02、2025-01-02、2026-01-02 的名單錯了（例：3308 聯德漲停 +9.95% 沒列、
+    # 3049 精金實際跌 0.97% 卻有列）；2027 第一個交易日的年度檔只有 1 天，還會被 _assert_prev_close_sane 擋下、整天沒名單。
+    # 修法：把「前一個年度檔的最後一個交易日」只帶 date／stock_id／open／close 接在前面，算完就丟掉這些列。
+    # ⚠️ 只在這個檔從 1 月上旬開始時才接：年中被截斷的檔（例如只剩今天一天）不接，照舊被護欄擋下、不覆寫歷史。
+    prev_tail = None
 
     for file in all_files:
         try:
-            df = pd.read_csv(file, low_memory=False, dtype={'stock_id': str})
+            raw = pd.read_csv(file, low_memory=False, dtype={'stock_id': str})
+            raw['date'] = raw['date'].astype(str)
+            first = raw['date'].min()
+            lead_date = None
+            df = raw
+            if (prev_tail is not None and len(prev_tail)
+                    and prev_tail['date'].iloc[0][:4] == str(int(first[:4]) - 1)
+                    and first <= f'{first[:4]}-01-15'):
+                lead_date = prev_tail['date'].iloc[0]
+                df = pd.concat([prev_tail, raw], ignore_index=True)
+            # 下一個年度檔要接的「最後一個交易日」：取原始列、只留算漲跌幅要的欄位（不帶 strong／institutional_buy 等算出來的欄）
+            last = raw['date'].max()
+            next_tail = raw.loc[raw['date'] == last, ['date', 'stock_id', 'open', 'close']].copy()
             df = calculate_strong(df)
+            if lead_date is not None:
+                df = df[df['date'] > lead_date].copy()
+                logging.info(f"  {Path(file).name}: 第一個交易日 {first} 用前一年最後一個交易日 {lead_date} 的收盤當基準")
+            prev_tail = next_tail
 
             # 取需要的欄位
             df_subset = df[['date', 'stock_id', 'stock_name', 'strong']].copy()
@@ -258,6 +280,7 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
         except Exception as e:
             logging.error(f"處理檔案失敗 {file}: {e}")
+            prev_tail = None   # 這一年壞了：下一年不可接更早的資料（年份檢查也會擋）
             continue
 
     if len(all_data) == 0:

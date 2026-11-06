@@ -4,7 +4,7 @@
 不必逐檔向 FinMind 重抓。
 """
 import pandas as pd
-from pathlib import Path
+from .archive_history import read_history
 from .indicators import get_buy_streak
 
 # 只看最近這麼多個交易日算連續（連買/連賣極少超過，且省時省記憶體）
@@ -21,16 +21,9 @@ def add_streak_from_archive(df, target_date, data_dir):
     df['date'] = df['date'].astype(str)
 
     cols = ['stock_id', 'date', 'foreign_buy', 'trust_buy']
-    frames = [df[[c for c in cols if c in df.columns]]]
-    year = str(target_date)[:4]
-    archive = Path(data_dir) / 'archive' / f'stocks_{year}.csv'
-    if archive.exists():
-        hist = pd.read_csv(archive, usecols=lambda c: c in cols, dtype={'stock_id': str})
-        hist['stock_id'] = hist['stock_id'].astype(str)
-        hist['date'] = hist['date'].astype(str)
-        # 只取目標日（含）以前：補舊日期時年度檔已經有之後的資料，tail() 會拿到「未來」的序列
-        hist = hist[hist['date'] <= str(target_date)]
-        frames.append(hist)
+    # 歷史：當年不到 _LOOKBACK 個交易日就補前一年最後幾天（跨年的連買不會在 1/1 被切斷，見 archive_history）
+    frames = [df[[c for c in cols if c in df.columns]],
+              read_history(data_dir, target_date, cols, min_days=_LOOKBACK)]
 
     combined = (pd.concat(frames, ignore_index=True)
                 .drop_duplicates(['stock_id', 'date'])

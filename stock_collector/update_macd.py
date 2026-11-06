@@ -5,7 +5,7 @@ MACD 狀態計算：用本地年度檔（零 API），供每日收集標記多�
  已被 add_macd_from_archive 取代並移除——舊做法約 2000 次 API 無節流，生產環境一直 skip。）
 """
 import pandas as pd
-from pathlib import Path
+from .archive_history import read_history
 from .indicators import get_macd_status
 
 
@@ -20,16 +20,9 @@ def add_macd_from_archive(df, target_date, data_dir):
     df['stock_id'] = df['stock_id'].astype(str)
     df['date'] = df['date'].astype(str)
 
-    frames = [df[['stock_id', 'date', 'close']]]
-    year = str(target_date)[:4]
-    archive = Path(data_dir) / 'archive' / f'stocks_{year}.csv'
-    if archive.exists():
-        hist = pd.read_csv(archive, usecols=['stock_id', 'date', 'close'], dtype={'stock_id': str})
-        hist['stock_id'] = hist['stock_id'].astype(str)
-        hist['date'] = hist['date'].astype(str)
-        # 只取目標日（含）以前：補舊日期時年度檔已經有之後的資料，tail() 會拿到「未來」的序列
-        hist = hist[hist['date'] <= str(target_date)]
-        frames.append(hist)
+    # 歷史：當年不到 60 個交易日就補前一年最後 60 天（跨年：一開年 MACD 不會整整 25 天都是「—」，見 archive_history）
+    frames = [df[['stock_id', 'date', 'close']],
+              read_history(data_dir, target_date, ['stock_id', 'date', 'close'], min_days=60)]
 
     combined = (pd.concat(frames, ignore_index=True)
                 .drop_duplicates(['stock_id', 'date'])
