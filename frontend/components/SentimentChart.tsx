@@ -24,9 +24,6 @@ export interface SentimentSeries {
  * - 缺值（null）的日子直接跳過、線不補 0；同一天兩條線只要一條有值就畫。
  * - ⚠️ `vertTouchDrag: false`＋不可縮放：手機上手指在圖上滑要能捲整頁（K 線圖吃掉整頁捲動是 CLAUDE.md 的已知限制，這裡不重蹈）。
  * - 讀值放在圖**外**（上方一列）：手指停在哪天就顯示那天，放開回到最後一天；視力不佳者不必看圖上的小字。
- * - 手機上兩張圖並排（2026-11-06 業主「走勢圖也並排」），一張只剩約 150px：
- *   這張圖自己的寬度 < 19rem（304px，四顆按鈕排一排要 300px）時，區間按鈕改成 2×2、左右內距縮小（仍 ≥44px 高）；
- *   右邊刻度的小數位跟讀值一樣（融資、融券 0 位：「7000.00」→「7000」），刻度窄一點、畫線的地方寬一點。
  */
 export default function SentimentChart({
   series,
@@ -83,10 +80,7 @@ export default function SentimentChart({
       handleScale: { mouseWheel: false, pinch: false, axisPressedMouseMove: false, axisDoubleClickReset: false },
     })
     for (const ln of view.lines) {
-      const s = chart.addLineSeries({
-        color: ln.color, lineWidth: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerRadius: 5,
-        priceFormat: { type: 'price', precision: digits, minMove: 1 / 10 ** digits },
-      })
+      const s = chart.addLineSeries({ color: ln.color, lineWidth: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerRadius: 5 })
       s.setData(ln.data)
     }
     chart.timeScale().fitContent()
@@ -98,22 +92,22 @@ export default function SentimentChart({
       ro.disconnect()
       chart.remove()
     }
-  }, [view, height, digits])
+  }, [view, height])
 
   const readDate = hover && view?.byDate.has(hover) ? hover : view?.last ?? null
   const read = readDate ? view?.byDate.get(readDate) : undefined
 
   return (
-    <div className="@container">
-      {/* 控制列：區間（≥44px）。窄（< 19rem）時 2×2 */}
-      <div className="grid grid-cols-2 gap-2 mb-2 @min-[19rem]:flex @min-[19rem]:flex-wrap @min-[19rem]:items-center" role="group" aria-label="走勢區間">
+    <div>
+      {/* 控制列：區間（≥44px） */}
+      <div className="flex flex-wrap items-center gap-2 mb-2" role="group" aria-label="走勢區間">
         {(Object.keys(RANGE_DAYS) as Range[]).map((r) => (
           <button
             key={r}
             type="button"
             aria-pressed={range === r}
             onClick={() => setRange(r)}
-            className={`min-h-[44px] min-w-[44px] px-2 @min-[19rem]:px-4 rounded-lg text-base font-medium border transition-colors ${
+            className={`min-h-[44px] min-w-[44px] px-4 rounded-lg text-base font-medium border transition-colors ${
               range === r ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-400 hover:border-blue-400'
             }`}
           >

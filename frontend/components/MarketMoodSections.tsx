@@ -17,16 +17,18 @@ const TWSE = '#1d4ed8' // 上市：藍
 const TPEX = '#b45309' // 上櫃：琥珀（白底對比 4.9，不用紅綠——紅綠在本站代表股價漲跌）
 
 /**
- * 兩張走勢圖並排、各佔一半（2026-11-06 業主：「圖表平行擺放，各佔50%」，同一天再要「走勢圖也並排」→ 手機也並排）。
- * 所有寬度都兩欄。手機上一張圖只剩約 150px 寬：區間按鈕在 SentimentChart 裡改排 2×2、右邊刻度不帶多餘的小數。
+ * 兩張走勢圖並排、各佔一半（2026-11-06 業主：「圖表平行擺放，各佔50%」）。
+ * 依這一塊自己的寬度排（container query）：≥44rem（704px）才並排＝側欄展開約視窗 992、收合約 816 以上
+ * （820／834 直拿 iPad 收合側欄時也會並排）；手機與 768 平板上下排——一半寬在手機只剩約 170px，圖和區間按鈕都看不清楚。
  * 只有一張的當沖比圖維持全寬。
  */
 function ChartPair({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3 md:gap-4">{children}</div>
+  return (
+    <div className="@container">
+      <div className="grid grid-cols-1 gap-4 @min-[44rem]:grid-cols-2">{children}</div>
+    </div>
+  )
 }
-
-/** 並排的那幾張圖的白卡：手機內距 12px（多留 8px 給圖），平板電腦照舊 16px。標題的「（億元）」「（張）」不拆開折行 */
-const pairCard = 'bg-white rounded-lg shadow-sm p-3 md:p-4 min-w-0'
 
 export default function MarketMoodSections({ data }: { data: SentimentResponse | null }) {
   const uid = useId()
@@ -83,12 +85,12 @@ export default function MarketMoodSections({ data }: { data: SentimentResponse |
         <h3 id={`${uid}-mg-h`} className={hCls}>融資餘額、融券餘額</h3>
         <div className="mb-4"><MarginStats mgTwse={s.mgTwse} mgTpex={s.mgTpex} shTwse={s.shTwse} shTpex={s.shTpex} /></div>
         <ChartPair>
-          <div className={pairCard}>
-            <h4 className="text-base font-medium text-gray-900 mb-2">融資餘額走勢<span className="whitespace-nowrap">（億元）</span></h4>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</h4>
             <SentimentChart series={mgSeries} digits={0} unit="億" />
           </div>
-          <div className={pairCard}>
-            <h4 className="text-base font-medium text-gray-900 mb-2">融券餘額走勢<span className="whitespace-nowrap">（張）</span></h4>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
+            <h4 className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</h4>
             <SentimentChart series={shSeries} digits={0} unit="張" />
           </div>
         </ChartPair>
@@ -99,11 +101,11 @@ export default function MarketMoodSections({ data }: { data: SentimentResponse |
         <h3 id={`${uid}-vix-h`} className={hCls}>恐慌指數</h3>
         <div className="mb-4"><VixStats taivix={s.taivix} vix={s.vix} taivixFrom={taivixFrom} /></div>
         <ChartPair>
-          <div className={pairCard}>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
             <h4 className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</h4>
             <SentimentChart series={tvSeries} digits={2} />
           </div>
-          <div className={pairCard}>
+          <div className="bg-white rounded-lg shadow-sm p-4 min-w-0">
             <h4 className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</h4>
             <SentimentChart series={vxSeries} digits={2} />
           </div>
