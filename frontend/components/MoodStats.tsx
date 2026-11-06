@@ -3,7 +3,7 @@ import { fmtMd, type Stat } from '../lib/sentiment'
 
 /**
  * 大盤當沖比（上市、上櫃）、融資融券（上市、上櫃）與恐慌指數（台股、美股）的指標卡組。
- * 由 MarketMoodSections 組成三組（卡＋走勢圖），首頁與 /market-mood 共用（2026-11-05／11-06 業主要求首頁也放）。
+ * 由 MarketMoodSections 組成三組（卡＋走勢圖），放在首頁（/market-mood 頁 2026-11-06 拿掉）。
  * 說明文字只有這一份：改一處兩頁同步，不會出現兩套說法。
  *
  * ⚠️ stat 為 null（沒資料／抓不到）時卡片顯示「暫無資料」，不可傳 0 進來。

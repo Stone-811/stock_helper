@@ -7,20 +7,18 @@ import { statOf, thousandsToYi, type SentimentResponse } from '../lib/sentiment'
 
 /**
  * 市場溫度的三組內容（大盤當沖比、融資融券、恐慌指數：每組大卡＋走勢圖）與「📖 說明」。
- * /market-mood 與首頁共用（2026-11-06 業主：「市場溫度的融資融卷、走勢圖也放在首頁」）：改一處兩頁同步。
+ * 放在首頁（2026-11-06 業主：「市場溫度的融資融卷、走勢圖也放在首頁」；同一天 /market-mood 頁拿掉、轉到首頁）。
  *
  * - data 為 null（抓不到）時每張卡顯示「暫無資料」、圖顯示無資料，不顯示 0。
- * - level：這三組標題的層級。/market-mood 的頁首是 h1 → 2；首頁還多一層「🌡️ 市場溫度」h2 → 3。
+ * - 標題層級：首頁 h1「今日市場」→ h2「🌡️ 市場溫度」→ 這三組 h3 → 圖的小標 h4。
  * - 業主的決定：不貼「偏高／偏低」標籤；上市藍、上櫃琥珀（紅綠在本站代表股價漲跌）。
  */
 const TWSE = '#1d4ed8' // 上市：藍
 const TPEX = '#b45309' // 上櫃：琥珀（白底對比 4.9，不用紅綠——紅綠在本站代表股價漲跌）
 
-export default function MarketMoodSections({ data, level = 2 }: { data: SentimentResponse | null; level?: 2 | 3 }) {
+export default function MarketMoodSections({ data }: { data: SentimentResponse | null }) {
   const uid = useId()
-  const H = level === 2 ? 'h2' : 'h3'
-  const Sub = level === 2 ? 'h3' : 'h4'
-  const hCls = level === 2 ? 'text-xl font-bold text-gray-900 mb-3' : 'text-lg font-bold text-gray-900 mb-3'
+  const hCls = 'text-lg font-bold text-gray-900 mb-3'
 
   const s = useMemo(() => {
     const dt = data?.daytrade ?? [], mg = data?.margin ?? [], tv = data?.taivix ?? [], vx = data?.vix ?? []
@@ -61,7 +59,7 @@ export default function MarketMoodSections({ data, level = 2 }: { data: Sentimen
     <>
       {/* 1. 當沖比 */}
       <section aria-labelledby={`${uid}-dt-h`}>
-        <H id={`${uid}-dt-h`} className={hCls}>大盤當沖比（占成交金額）</H>
+        <h3 id={`${uid}-dt-h`} className={hCls}>大盤當沖比（占成交金額）</h3>
         <div className="mb-4"><DaytradeStats twse={s.dtTwse} tpex={s.dtTpex} /></div>
         <div className="bg-white rounded-lg shadow-sm p-4">
           <SentimentChart series={dtSeries} digits={1} unit="%" />
@@ -70,28 +68,28 @@ export default function MarketMoodSections({ data, level = 2 }: { data: Sentimen
 
       {/* 2. 融資融券 */}
       <section aria-labelledby={`${uid}-mg-h`}>
-        <H id={`${uid}-mg-h`} className={hCls}>融資餘額、融券餘額</H>
+        <h3 id={`${uid}-mg-h`} className={hCls}>融資餘額、融券餘額</h3>
         <div className="mb-4"><MarginStats mgTwse={s.mgTwse} mgTpex={s.mgTpex} shTwse={s.shTwse} shTpex={s.shTpex} /></div>
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-          <Sub className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</Sub>
+          <h4 className="text-base font-medium text-gray-900 mb-2">融資餘額走勢（億元）</h4>
           <SentimentChart series={mgSeries} digits={0} unit="億" />
         </div>
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <Sub className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</Sub>
+          <h4 className="text-base font-medium text-gray-900 mb-2">融券餘額走勢（張）</h4>
           <SentimentChart series={shSeries} digits={0} unit="張" />
         </div>
       </section>
 
       {/* 3. 恐慌指數 */}
       <section aria-labelledby={`${uid}-vix-h`}>
-        <H id={`${uid}-vix-h`} className={hCls}>恐慌指數</H>
+        <h3 id={`${uid}-vix-h`} className={hCls}>恐慌指數</h3>
         <div className="mb-4"><VixStats taivix={s.taivix} vix={s.vix} taivixFrom={taivixFrom} /></div>
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-          <Sub className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</Sub>
+          <h4 className="text-base font-medium text-gray-900 mb-2">台股恐慌指數走勢</h4>
           <SentimentChart series={tvSeries} digits={2} />
         </div>
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <Sub className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</Sub>
+          <h4 className="text-base font-medium text-gray-900 mb-2">美股恐慌指數走勢</h4>
           <SentimentChart series={vxSeries} digits={2} />
         </div>
       </section>

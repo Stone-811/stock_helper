@@ -15,18 +15,13 @@ export interface NavItem {
   icon: string
   /** 區段標題：兩個「強勢*」同前綴、同色，加一條輕量分隔讓它們視覺上收成一組 */
   section?: string
-  /** 只在桌機側欄顯示、不進手機底部導覽（「市場溫度」：首頁已放完整的市場溫度，跟 /market-mood 同一份元件，
-   *  所以手機底部不另開一格；2026-11-06 拿掉自選股後維持 4 格） */
-  desktopOnly?: boolean
 }
 
 // 桌機側邊欄與手機底部導覽（MobileBottomNav）共用這一份：兩邊的順序、目的地、圖示
 // 曾經各寫一份而分岔（手機少了總表與月報），改成單一來源後新增頁面只要改這裡。
 export const navItems: NavItem[] = [
   { href: '/', label: '首頁', shortLabel: '首頁', icon: '📊' },
-  // 市場溫度（當沖比、融資融券、恐慌指數）：桌機側欄有、手機底部沒有（首頁已有完整內容，底部維持 4 格）。
-  // 圖示避開 🌡️：RSI 超買／超賣訊號已經在用（StockSignals.tsx）。
-  { href: '/market-mood', label: '市場溫度', shortLabel: '溫度', icon: '🌤️', desktopOnly: true },
+  // 市場溫度頁 2026-11-06 拿掉（業主選「拿掉選單那一項」：首頁已放完整的市場溫度）；舊網址 /market-mood 由 next.config.ts 轉到首頁。
   // 卡片與表格是同一頁的兩種檢視（2026-10-26 合併；舊的 /strong-table 由 next.config.ts 轉到 ?view=table）
   { href: '/strong-stocks', label: '強勢股', shortLabel: '強勢', icon: '🔥', section: '強勢股' },
   // 月報與強勢股**同一層、不是子頁**：強勢股是「某一個交易日」，月報是「某一個月」的彙整（主鍵與粒度都不同）。

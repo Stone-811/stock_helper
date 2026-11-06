@@ -6,9 +6,9 @@ import type { SentimentResponse } from '../../lib/sentiment'
 
 /**
  * 首頁的市場溫度（2026-11-05「首頁不要放今日強勢股，把大盤當沖比、恐慌指數展開放上」「補上美國恐慌指數」；
- * 2026-11-06「市場溫度的融資融卷、走勢圖也放在首頁」）＝跟 /market-mood 同一份 MarketMoodSections。
+ * 2026-11-06「市場溫度的融資融卷、走勢圖也放在首頁」；同一天 /market-mood 頁拿掉、轉到首頁）＝MarketMoodSections。
  *
- * - ?days=400：卡片要算「近一年最高最低」、走勢圖要 1 年；跟 /market-mood 同一個網址，CDN 共用快取。
+ * - ?days=400：卡片要算「近一年最高最低」、走勢圖要 1 年；400 個日曆天不會被春節等長假切成空的。
  * - ⚠️ 自己 fetch、自己失敗：不可併進首頁 load()（任一 reject 會把整頁變錯誤畫面）。抓不到時每張卡「暫無資料」，不顯示 0。
  */
 export default function HomeMood() {
@@ -33,7 +33,7 @@ export default function HomeMood() {
       ) : (
         <>
           {data === null && <p className="text-base text-gray-700">暫時抓不到市場溫度資料，請稍後重新整理。</p>}
-          <MarketMoodSections data={data} level={3} />
+          <MarketMoodSections data={data} />
         </>
       )}
     </section>

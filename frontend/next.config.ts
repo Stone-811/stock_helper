@@ -8,10 +8,12 @@ const nextConfig: NextConfig = {
   // 瀏覽器不會把 308 永久快取住而轉不回來。
   // 2026-11-06 自選股功能拿掉（業主：「不用這個功能」）：舊的 /watchlist 書籤／主畫面捷徑轉到首頁，
   // 不讓它掉到「找不到頁面」。同樣用 307，萬一之後加回來不會被瀏覽器快取住。
+  // 2026-11-06 市場溫度頁拿掉（業主：首頁已有完整的市場溫度，「拿掉選單那一項」）：/market-mood 也轉到首頁。
   async redirects() {
     return [
       { source: '/strong-table', destination: '/strong-stocks?view=table', permanent: false },
       { source: '/watchlist', destination: '/', permanent: false },
+      { source: '/market-mood', destination: '/', permanent: false },
     ]
   },
 };

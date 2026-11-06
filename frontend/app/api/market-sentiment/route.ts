@@ -4,7 +4,7 @@ import type { SentimentResponse } from '../../../lib/sentiment'
 
 /**
  * 市場溫度 API：/api/market-sentiment?days=N（預設 400 個日曆天，夠畫 1 年）
- *   首頁與 /market-mood 都送 ?days=400（同一個網址、CDN 共用快取）；400 個日曆天不會被春節等長假切成空的。
+ *   首頁送 ?days=400（市場溫度頁 2026-11-06 拿掉後只剩首頁在用）；400 個日曆天不會被春節等長假切成空的。
  *
  * 四個系列各 1 次 Firestore 讀取（market_sentiment/{daytrade|margin|taivix|vix}）。
  * 資料每天在台灣 17:00／22:00 那兩班才會變，HTTP 快取 10 分鐘、背景更新 30 分鐘。

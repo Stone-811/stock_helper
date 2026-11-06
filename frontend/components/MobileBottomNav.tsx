@@ -7,7 +7,6 @@ import { navItems, isNavActive } from './Sidebar'
 // 手機版主導覽：與桌機側邊欄**同一份清單**（Sidebar.tsx 的 navItems），順序與目的地完全一致。
 // 2026-10-26 強勢股卡片頁與總表合併成一頁後變 5 格，業主同意順便把字放大一級、所在格加粗並加上方色條
 // （原本只用藍色表示「你在這一頁」）；2026-11-06 拿掉自選股後是 4 格（首頁／強勢／月報／選股），每格寬四分之一。
-// 市場溫度（desktopOnly）不進手機底部：首頁已放完整的市場溫度，/market-mood 頁只在電腦側欄。
 // /strong-stocks 與 /strong-monthly 彼此不是前綴，startsWith 不會雙亮。
 export default function MobileBottomNav() {
   const pathname = usePathname()
@@ -18,7 +17,7 @@ export default function MobileBottomNav() {
       aria-label="主要導覽"
     >
       <div className="flex">
-        {navItems.filter((item) => !item.desktopOnly).map((item) => {
+        {navItems.map((item) => {
           const active = isNavActive(pathname, item.href)
           return (
             // 320px 寬 ÷ 4 = 80px：flex-1 + min-w-0 讓每格永遠等分、不會因內容把導覽列撐出視窗；
