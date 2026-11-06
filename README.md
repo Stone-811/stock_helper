@@ -19,8 +19,7 @@
 │  ┌──────────┬──────────────────────────────────────────────┐    │
 │  │ Sidebar  │               主內容區                        │    │
 │  │ (md 以上)│  首頁：四個指數＋市場溫度（點加權看走勢）     │    │
-│  │ 📊 首頁  │  溫度　：/market-mood（只在桌機側欄）         │    │
-│  │ 🌤️ 溫度  │  強勢股：卡片／表格切換 /strong-stocks        │    │
+│  │ 📊 首頁  │  強勢股：卡片／表格切換 /strong-stocks        │    │
 │  │ 🔥 強勢股│  月報　：當月彙整 /strong-monthly             │    │
 │  │ 🗓️ 月報  │  選股　：自訂條件 /screener                   │    │
 │  │ 🔍 選股  │  個股　：K 線／籌碼／到價提醒 /stock/[id]     │    │
@@ -60,7 +59,7 @@
 - **四個指數均分**：加權指數（TAIEX）＋美股三大指數（費半、S&P 500、道瓊；標「美股 M/D 收盤」）
 - **指數走勢彈跳視窗**：點「加權指數」那格打開，可切換加權指數／台指期（TX，近月期貨，含未平倉量）；
   K 線圖 + 成交量 + MACD/KD/RSI
-- **市場溫度**：大盤當沖比（上市、上櫃）、融資融券餘額、台股／美股恐慌指數，各有走勢圖（與 `/market-mood` 同一份內容；資料來自證交所／櫃買／期交所／CBOE 官方）
+- **市場溫度**：大盤當沖比（上市、上櫃）、融資融券餘額、台股／美股恐慌指數，各有走勢圖，都在首頁（`/market-mood` 頁 2026-11-06 拿掉、轉到首頁；資料來自證交所／櫃買／期交所／CBOE 官方）
 
 ### 2. 批次資料收集（高效能）
 - **全市場股價資料**：一次 API 取得所有股票（開高低收、成交量、當沖量）
@@ -221,7 +220,6 @@ USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix
     │   ├── strong-stocks/page.tsx      # 強勢股（卡片／表格切換）
     │   ├── strong-stocks/columns.tsx   # 強勢股表格的欄位定義
     │   ├── strong-monthly/page.tsx     # 強勢月報
-    │   ├── market-mood/page.tsx        # 市場溫度
     │   ├── screener/page.tsx           # 自訂條件選股
     │   ├── stock/[id]/page.tsx         # 個股詳情
     │   ├── actions/stocks.ts           # Server Action（股票搜尋）
@@ -239,7 +237,7 @@ USE_GCS_ARCHIVE=1 python -m stock_collector.update_strong_matrix
     │   ├── AlertButton.tsx             # 到價提醒按鈕
     │   ├── home/                       # 首頁的指數卡與市場溫度
     │   ├── IndexChartDialog.tsx        # 指數走勢彈跳視窗
-    │   ├── MarketMoodSections.tsx      # 市場溫度內容（首頁與 /market-mood 共用）
+    │   ├── MarketMoodSections.tsx      # 市場溫度內容（首頁用）
     │   ├── MainContent.tsx             # 主內容區（響應式）
     │   ├── CandleChart.tsx             # K 線主圖（IndexChart／StockChart 共用）
     │   ├── StockCard.tsx               # 股票卡片（強勢股、選股頁）
