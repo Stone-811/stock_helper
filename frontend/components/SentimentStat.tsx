@@ -34,19 +34,22 @@ export default function SentimentStat({
   size?: 'md' | 'lg'
 }) {
   const fmt = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  // md 卡（只有融資融券用）在手機上一排兩張（2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」）。
+  // 手機上六張卡都一排兩張（2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」→「當沖、恐慌指數也要並排」）。
+  // md 卡（融資融券）數字會長到「277,051 張」，要跟著卡寬縮；lg 卡（當沖比、恐慌指數）最長「88.8%」「88.88」，
+  // 36px 只要 100px，320 寬手機的卡片內容寬 114px 也放得下，所以 lg 不縮。
   // @container 六張卡都加（lg 卡沒用到 cqi）；實測不影響 InfoTip 的 fixed 泡泡位置。
   // 數字依卡片內容寬縮放：min(30px, 19.5cqi)。量過「277,051 張」單行寬＝4.98 倍字級（單位 0.75em），
   // 19.5cqi 留 3% 餘裕 → 320～430 寬都不會把「張」擠到下一行；412 以上就是原本的 30px（text-3xl）。
   // 單位 0.75em＝原本 text-xl（22.4px）÷ text-3xl（30px）。用 max-md 限定：平板、電腦的字級跟以前一模一樣。
-  // 內距手機 p-3（原本 p-4）：多 8px 讓 375 寬的標題「上市融資餘額」跟 ⓘ 留在同一行（需要 138px）。
+  // 內距手機 p-3（原本 p-4）：多 8px 讓 375 寬的標題「上市融資餘額」跟 ⓘ 留在同一行（需要 138px）。平板、電腦照舊 p-5。
   const num = size === 'lg' ? 'text-4xl md:text-5xl' : 'max-md:text-[length:min(1.875rem,19.5cqi)] md:text-4xl'
   const unitCls = size === 'lg' ? 'text-xl md:text-2xl' : 'max-md:text-[0.75em] md:text-2xl'
-  const pad = size === 'lg' ? 'p-4' : 'p-3'
+  // 標題括號那段不拆開：「台股恐慌指數（臺指VIX）」在半寬卡片放不下一行時，從「（」前面折，不會變成「（臺」「指VIX）」
+  const paren = title.indexOf('（')
   return (
-    <div className={`@container bg-white rounded-lg shadow-sm ${pad} md:p-5 flex flex-col gap-1 min-w-0`}>
+    <div className="@container bg-white rounded-lg shadow-sm p-3 md:p-5 flex flex-col gap-1 min-w-0">
       <div className="text-base text-gray-700">
-        {title}
+        {paren > 0 ? <>{title.slice(0, paren)}<span className="whitespace-nowrap">{title.slice(paren)}</span></> : title}
         <InfoTip title={tipTitle}>{tip}</InfoTip>
       </div>
       {stat ? (

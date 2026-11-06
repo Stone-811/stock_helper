@@ -10,7 +10,7 @@ import { fmtMd, type Stat } from '../lib/sentiment'
  */
 export function DaytradeStats({ twse, tpex }: { twse: Stat | null; tpex: Stat | null }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+    <div className="grid grid-cols-2 gap-3 md:gap-4">
       <SentimentStat
         title="上市當沖比" stat={twse} digits={1} unit="%" deltaUnit="個百分點" size="lg"
         tipTitle="上市當沖比"
@@ -27,6 +27,7 @@ export function DaytradeStats({ twse, tpex }: { twse: Stat | null; tpex: Stat | 
 
 export function MarginStats({ mgTwse, mgTpex, shTwse, shTpex }: { mgTwse: Stat | null; mgTpex: Stat | null; shTwse: Stat | null; shTpex: Stat | null }) {
   // 手機也一排兩張（上市｜上櫃）：2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」。電腦本來就是兩欄。
+  // 當沖比、恐慌指數兩組同一天也改成手機兩欄（業主：「當沖、恐慌指數也要並排」）。
   return (
     <div className="grid grid-cols-2 gap-3 md:gap-4">
       <SentimentStat
@@ -55,7 +56,7 @@ export function MarginStats({ mgTwse, mgTpex, shTwse, shTpex }: { mgTwse: Stat |
 
 export function VixStats({ taivix, vix, taivixFrom }: { taivix: Stat | null; vix: Stat | null; taivixFrom: string | null }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+    <div className="grid grid-cols-2 gap-3 md:gap-4">
       <SentimentStat
         title="台股恐慌指數（臺指VIX）" stat={taivix} digits={2} unit="" deltaUnit="" size="lg"
         tipTitle="臺指VIX"
