@@ -407,7 +407,8 @@ require_institutional      三大法人「合計」買超 > 0（外資＋投信�
   2023~2025 每個交易日約 24 組、全史 17,760 組，2026 檔目前 0 組）。直接對原始列 `shift(1)` 會讓
   第二列把「同一天的自己」當前一日 → change_pct=0 → 誤判為非強勢。**必須先對 (stock_id, date)
   去重算前一日再按鍵對回**（現行程式已如此）。
-  ⚠️ 同一個原因的下游問題**還沒修**：寫 `strong_stocks` 前的 pivot 用 (stock_id, stock_name) 當 index，這兩列會變成兩筆（見待辦「改過名的股票同一天出現兩次」）。
+  ✅ 同一個原因的下游問題 2026-11-06 已修（249ea7f，業主看過數字同意）：寫 `strong_stocks` 前同一天同一檔只留一列、強勢取 max、
+  合併過的日子標上網站現在顯示的股名（`firebase_writer.get_latest_stock_names`）。269 天拿掉 358 筆重複、每天的強勢股不增不減（雲端重算後與改前快照逐日比對）。
 - ⚠️⚠️ **`update_matrix()` 每次執行都重算全部歷史**（讀 4 個年度檔、對每一天重新判定 strong）
   並透過 `write_strong_stock_matrix()` 覆寫 `strong_stocks/{date}` → 這個改動會**自動改寫全部
   887 天的歷史強勢股清單**（本機年度檔 dry-run：強勢檔次 54,777 → 68,815，日均 61.8 → 77.6，
@@ -728,12 +729,19 @@ FinMind 未涵蓋 25,378 檔次（保持 null）。
 - ~~**🔴 強勢股歷史重算 / 放空斷料**~~ **✅ 2026-10-18 已完成**（見下方「image 重建實錄」）。
 - ~~**🔴 2027-01-04 跨年**、**跨年第一個交易日的 fallback 根治**、**❓ 美股早上的排程**~~ **✅ 2026-11-06 都做完**
   （跨年見上方「change_pct 曾用錯基準」與 GCS 年度檔那段；早上排程見「美股三大指數」）。
-- **🟡 改過名的股票在同一天的 `strong_stocks` 出現兩次**（2026-11-06 審查跨年修正時順帶發現，還沒修）：`update_matrix()` 寫入前的
+- ~~**🟡 改過名的股票在同一天的 `strong_stocks` 出現兩次**~~ **✅ 2026-11-06 已修**（見上方 change_pct 專章的 ✅；下面是當時的紀錄）：`update_matrix()` 寫入前的
   `combined.pivot_table(index=['stock_id', 'stock_name'], ...)` 把同一檔的兩個股名當成兩列（年度檔 2023～2025 有「同一 (date, stock_id) 兩列、
   只差股名」，見上方 change_pct 專章）→ 兩列都 strong 就寫兩筆。全史多 **358 筆、269 天、19 檔**（2023-01-09～2025-12-31）；
   例：2025-01-02 的 6757 有「台灣虎航」「台灣虎航-創」兩筆 → 那天 `count` 是 50 不是 49、前端兩張一樣的卡。
   修的方向：pivot 只用 `stock_id` 當 index，股名另外取一個（例如當天第一筆，或該檔最近一次的股名——前面補 NaN 股名那段已經有 `names` map）。
   ⚠️ 修了會改寫 269 天的名單（去重），**動工前先給業主數字**（各天改前改後筆數、哪幾檔）；改完要重建 image、只重算強勢股一次，並比對 Firestore 全史。
+- **✅ 2026-11-06 改過名／轉板股票顯示舊股名（同一個根因，順著查到）**：FinMind `TaiwanStockInfo` 對改名或轉板（創新板↔一般板）的股票
+  同時留著舊名（舊 `date`）與新名（當天 `date`），收集器 `drop_duplicates(keep='first')` 拿到舊名 → **45 檔一直顯示舊名字**
+  （例：3521 鴻翊→台鋼建設、6757 台灣虎航-創→台灣虎航、1443 立益→立益物流、2072 世紀風電→世紀能源）。修法：`_merge_data` 股名取 `date` 最新那筆，
+  **產業照舊取第一筆**（同名多產業約 800 檔，不可因此換產業）。既有 `daily_data` 用 `scripts/fix_stale_stock_names.py` 改成最新名稱：
+  3,276 筆、58 檔、70 天（顯示錯的 45 檔 3,134 筆＋期間中真的改名 5 檔 127 筆＋股名存成「nan」8 檔 15 筆；業主選「全部改成現在的名字」），
+  只改 `stock_name`，重跑 dry-run 為 0。⚠️ 那次 `--write` 的備份誤存成改過的版本（在記憶體改完才備份），已修；舊名要從 GCS 年度檔找。
+  另修：`firebase_writer._name_or_empty`——新掛牌股票的股名在每日 CSV 來回後變 NaN，`str(NaN)` 以前存成字串「nan」。
 - **FinMind `DataLoader()` 建構子連網、沒有 timeout**（2026-11-06 驗證者抓到，這次沒改）：`DataLoader()` 建構時就會連網登入
   （打 `user_info`），`StockCollector`／`IndexCollector` 的 `__init__` 在 `_login_finmind()` 那個 try 之前就呼叫它，
   `trading_calendar._get_api()` 也一樣，而且都沒有 timeout（外層的 try／tenacity 只接得住例外、接不住卡住）。FinMind 卡住時會一直等到 Cloud Run

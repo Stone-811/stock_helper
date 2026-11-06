@@ -823,6 +823,13 @@ https://github.com/Stone-811/stock_helper
 
 ### 2026-11-06
 
+**改過名的股票：強勢股名單去重、全站股名改成最新正式名稱**（業主看過數字後選「照這個數字改」「改成最新名稱」「全部改成現在的名字」；249ea7f）
+- `strong_stocks`：同一天同一檔只留一筆（以前改名股兩個股名各寫一筆）→ 269 天（2023-01-09～2025-12-31）拿掉 358 筆重複，每天的強勢股不增不減；
+  合併的日子用網站現在的股名。雲端只重算強勢股（execution stock-collector-82b59）後與改前快照逐日比對：只有這 269 天變、count 也對了（例 2025-01-02 50→49）。
+- 收集器股名改取 FinMind `TaiwanStockInfo` `date` 最新那筆（以前 keep='first' 拿到舊名，45 檔顯示舊名字，例 3521 鴻翊→台鋼建設、6757 台灣虎航-創→台灣虎航）；
+  產業照舊取第一筆。`scripts/fix_stale_stock_names.py` 把既有 `daily_data` 的 3,276 筆（58 檔、70 天）改成最新名稱，只改 `stock_name`。
+- 股名缺值不再存成字串「nan」（`firebase_writer._name_or_empty`）。Cloud Run image 已重建；live 個股頁標題已是新名字。
+
 **拿掉市場溫度頁**（業主選「拿掉選單那一項」，首頁已有完整內容；6d53d2d，已上線 App Hosting `build-2026-11-06-002`）
 - 刪 `app/market-mood/`（page、layout）；側欄拿掉「🌤️ 市場溫度」→ 側欄與手機底部是**同一份 4 項**（首頁／強勢股／強勢月報／選股），
   只有它在用的 `navItems.desktopOnly` 機制一起刪。首頁是市場溫度唯一的入口。
@@ -848,7 +855,7 @@ https://github.com/Stone-811/stock_helper
 - 新模組 `stock_collector/archive_history.py`（`read_history`：當年不到 60 個交易日就補前一年最後 60 天），`update_macd` 與 `streak` 共用
   → 2026-01-02 MACD「-」從 2,296 檔降到 9 檔、6 月以後與舊版 100% 相同；跨年的連買不在 1/1 歸零。只影響之後收集的日子，舊的 `daily_data` 不改。
 - `update_matrix` 跳過某個年度檔時改寄非關鍵告警（以前只有 log，那一年的名單整年不更新也沒人知道）。
-- 審查順帶發現、**還沒修**（記在 skill 待辦）：pivot 用 (stock_id, stock_name) 當 index，改過名的股票在同一天的 `strong_stocks` 出現兩次
+- 審查順帶發現（**同一天稍晚已修**，見本則最上面「改過名的股票」）：pivot 用 (stock_id, stock_name) 當 index，改過名的股票在同一天的 `strong_stocks` 出現兩次
   （全史多 358 筆、269 天、19 檔，2023-01-09～2025-12-31；例 2025-01-02 的 6757 有「台灣虎航」「台灣虎航-創」兩筆 → count 50 不是 49、
   前端兩張一樣的卡）。修了會改寫 269 天的名單，要先給業主數字。
 
@@ -891,7 +898,7 @@ https://github.com/Stone-811/stock_helper
   `--incremental`／`run_incremental`、`write_strong_stocks`、config 沒用的常數、兩支已跑完的一次性腳本
   （`backfill_null_vs_zero.py`、`fix_stock_id_leading_zero.py`）。`.gcloudignore` 排除 `service-account*.json` 等憑證。
 - 沒修、記在 skill 待辦：FinMind `DataLoader()` 連網沒有 timeout；美股斷料告警一天可能寄多封；
-  強勢股名單裡改過名的股票同一天出現兩次（pivot 重複名稱，見上方「跨年」那段）。
+  強勢股名單裡改過名的股票同一天出現兩次（pivot 重複名稱；同一天稍晚已修，見本則最上面）。
   （當時列在這裡的「2027-01-04 跨年」與「早上的 `--us-only` 排程」同一天稍晚做完，見上方兩段。）
 
 ### 2026-11-05
