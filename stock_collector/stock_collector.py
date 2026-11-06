@@ -466,7 +466,17 @@ class StockCollector:
                 cols_to_keep.append('industry_category')
             # 指定 subset=['stock_id']：taiwan_stock_info 同一代號可能多筆（不同市場/產業類別），
             # 全欄位 drop_duplicates 會殘留多筆 → 後續 merge 一對多產生重複股票
-            stock_info = stock_info[cols_to_keep].drop_duplicates(subset=['stock_id'], keep='first')
+            # ⚠️ 股名取「date 最新」那筆（2026-11-06 業主同意）：改過名或轉板的股票，FinMind 同時留著舊名（舊 date）和新名
+            #    （當天 date）；以前 keep='first' 拿到的是舊名 → 全站 45 檔顯示舊名字（例：3521 顯示鴻翊、現在是台鋼建設）。
+            #    產業照舊取第一筆：同名、多產業的股票（約 800 檔）不可因為這次修改而換產業。
+            newest_name = None
+            if 'date' in stock_info.columns:
+                newest_name = (stock_info.sort_values('date', kind='stable')
+                               .drop_duplicates(subset=['stock_id'], keep='last')
+                               .set_index('stock_id')['stock_name'])
+            stock_info = stock_info[cols_to_keep].drop_duplicates(subset=['stock_id'], keep='first').copy()
+            if newest_name is not None:
+                stock_info['stock_name'] = stock_info['stock_id'].map(newest_name).fillna(stock_info['stock_name'])
             # 重新命名產業欄位
             if 'industry_category' in stock_info.columns:
                 stock_info = stock_info.rename(columns={'industry_category': 'industry'})

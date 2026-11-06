@@ -311,14 +311,25 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
 
     # 改過名的股票：年度檔同一天同一檔有兩列、兩個股名（FinMind 股票清單兩個名字都列；2023～2026-07 都有），
     # pivot 以 (stock_id, stock_name) 為 index → 同一天的 strong_stocks 列兩次（2026-11-06 審查：358 筆、269 天、19 檔）。
-    # 同一天只留一列：股名用這檔「最新一天」的股名（＝網站現在顯示的名字）；兩列的強勢判定不同時取強勢（max）。
+    # 同一天只留一列：股名用網站現在顯示的股名（最新交易日 daily_data；讀不到就用年度檔最後一天的股名）；
+    # 兩列的強勢判定不同時取強勢（max）。業主 2026-11-06 看過數字同意（269 天、拿掉 358 筆、每天的強勢股不增不減）。
     combined['strong'] = combined.groupby(['date', 'stock_id'])['strong'].transform('max')
     last_day = combined.groupby('stock_id')['date'].transform('max')
     current = combined[combined['date'] == last_day].groupby('stock_id')['stock_name'].first()
+    if FIREBASE_ENABLED:
+        from firebase_writer import get_latest_stock_names
+        site_names = get_latest_stock_names()
+        if site_names:
+            current = current.to_dict(); current.update(site_names); current = pd.Series(current)
+    dup = combined.duplicated(['date', 'stock_id'], keep=False)
     combined['_cur'] = combined['stock_name'] == combined['stock_id'].map(current)
+    combined['_dup'] = dup
     combined = (combined.sort_values(['date', 'stock_id', '_cur'], ascending=[True, True, False])
-                .drop_duplicates(['date', 'stock_id'], keep='first')
-                .drop(columns='_cur'))
+                .drop_duplicates(['date', 'stock_id'], keep='first'))
+    # 合併過的那幾天一律標上現在的股名（兩列都不是現在的名字時也一樣）；沒有重複的日子名字不動
+    fix = combined['_dup'] & combined['stock_id'].isin(current.index)
+    combined.loc[fix, 'stock_name'] = combined.loc[fix, 'stock_id'].map(current)
+    combined = combined.drop(columns=['_cur', '_dup'])
 
     # Pivot：row=股票, columns=日期, values=strong
     pivot = combined.pivot_table(

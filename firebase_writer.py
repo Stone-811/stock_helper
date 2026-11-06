@@ -79,6 +79,20 @@ def get_firestore_client():
     return _db
 
 
+def _name_or_empty(v) -> str:
+    """股名：缺值（None／NaN）存空字串，不可存成字串 'nan'（2026-11-06：新掛牌股票的股名在 CSV 來回後變 NaN，
+    str(NaN) 寫進 Firestore 變成「nan」，網站顯示「nan」）。"""
+    if v is None:
+        return ''
+    try:
+        if pd.isna(v):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return '' if s.lower() == 'nan' else s
+
+
 def _opt_num(v, cast):
     """數值欄位：缺漏（None/NaN/pd.NA/空字串）一律回 None → Firestore 存 null。
 
@@ -114,7 +128,7 @@ def _convert_stock_row(row) -> Dict[str, Any]:
     """將 DataFrame 行轉換為字典"""
     return {
         'stock_id': _norm_stock_id(row.get('stock_id', '')),
-        'stock_name': str(row.get('stock_name', '')),
+        'stock_name': _name_or_empty(row.get('stock_name')),
         'industry': str(row.get('industry', '')),
         'open': float(row.get('open', 0) or 0),
         'high': float(row.get('high', 0) or 0),
@@ -316,7 +330,7 @@ def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
 
     for _, row in df.iterrows():
         stock_id = _norm_stock_id(row['stock_id'])
-        stock_name = str(row.get('stock_name', ''))
+        stock_name = _name_or_empty(row.get('stock_name'))
 
         for date_col in date_columns:
             if row[date_col] == 1:  # 強勢股
@@ -346,7 +360,7 @@ def write_strong_stock_matrix(df: pd.DataFrame, complete_dates=None) -> int:
             by_date[date] = []
         by_date[date].append({
             'stock_id': _norm_stock_id(row['stock_id']),
-            'stock_name': str(row.get('stock_name', ''))
+            'stock_name': _name_or_empty(row.get('stock_name'))
         })
 
     # 重算後變成 0 檔的日期要刪掉舊文件，否則網站會繼續顯示舊名單
@@ -530,6 +544,25 @@ def write_market_sentiment(doc_id: str, rows: list) -> int:
     })
     logging.info(f"  market_sentiment/{doc_id}: 寫入/更新 {len(rows)} 天，總計 {len(history)} 天（最新 {history[-1]['date']}）")
     return len(rows)
+
+
+def get_latest_stock_names() -> dict:
+    """最新交易日 daily_data 的 {stock_id: stock_name}（＝網站現在顯示的股名）。讀不到回 {}。
+    給 update_strong_matrix 決定「改名股同一天兩列時留哪個名字」用（2026-11-06）。"""
+    try:
+        db = get_firestore_client()
+        latest = (db.collection('metadata').document('latest_date').get().to_dict() or {}).get('date')
+        if not latest:
+            return {}
+        names = {}
+        for ch in db.collection('daily_data').document(latest).collection('chunks').stream():
+            for s in (ch.to_dict() or {}).get('stocks', []):
+                if s.get('stock_id') and s.get('stock_name'):
+                    names[str(s['stock_id'])] = s['stock_name']
+        return names
+    except Exception as e:
+        logging.warning(f"讀最新股名失敗（改用年度檔最後一天的股名）：{e}")
+        return {}
 
 
 def get_latest_dates(collection: str, doc_ids) -> dict:
