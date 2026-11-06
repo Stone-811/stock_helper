@@ -362,7 +362,7 @@ def _check_staleness(day, window, get_latest):
     send_nonfatal('[選股小幫手] 市場溫度資料斷了',
                   f'執行日 {day}\n' + '\n'.join(problems) +
                   '\n\n可能原因：Cloud Run 被證交所／櫃買／期交所擋（Cloudflare）、官方改版、網路問題。'
-                  '\n網站 /market-mood 與首頁兩行會停在舊日期。可用 scripts/backfill_market_sentiment.py --start <日期> --write 補。')
+                  '\n首頁的市場溫度（當沖比、融資融券、恐慌指數）會停在舊日期。可用 scripts/backfill_market_sentiment.py --start <日期> --write 補。')
 
 
 if __name__ == '__main__':
