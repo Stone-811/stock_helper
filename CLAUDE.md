@@ -219,7 +219,7 @@ Claude Code 處理本專案時的指引說明。
 | components/home/MarketIndexCard.tsx | 首頁四格：container query `@min-[40rem]` 四格一排、不夠寬 2×2；美股三格各自 `?last=2`、一檔抓不到只那格「—」 |
 | components/home/HomeMood.tsx | 首頁的市場溫度：自己 fetch `?days=400`、自己失敗（不可併進首頁 `load()`） |
 | components/IndexChartDialog.tsx | 指數走勢彈跳視窗：原生 `<dialog>.showModal()`（焦點、Esc、背景不可點都由瀏覽器處理）；保留加權／台指期切換；線圖只在打開時掛載；背景捲動靠 `globals.css` 的 `html:has(dialog[open])` 鎖 |
-| components/MarketMoodSections.tsx | 市場溫度三組（當沖比、融資融券、恐慌指數：卡＋走勢圖）＋「📖 說明」；只有首頁用（/market-mood 頁 2026-11-06 拿掉後 `level` 參數一起拿掉，標題固定 h3／h4：首頁 h1「今日市場」→ h2「🌡️ 市場溫度」→ h3 → h4）；融資融券、恐慌指數的兩張圖用 `ChartPair`（container query ≥44rem 並排，手機平板上下排） |
+| components/MarketMoodSections.tsx | 市場溫度三組（當沖比、融資融券、恐慌指數：卡＋走勢圖）＋「📖 說明」；只有首頁用（/market-mood 頁 2026-11-06 拿掉後 `level` 參數一起拿掉，標題固定 h3／h4：首頁 h1「今日市場」→ h2「🌡️ 市場溫度」→ h3 → h4）；融資融券、恐慌指數的兩張圖用 `ChartPair`（container query ≥44rem 並排：側欄展開約視窗 992、收合約 816 起；手機與 768 平板上下排） |
 | app/strong-stocks/page.tsx | 強勢股：上方切換卡片／表格（2026-10-26 由卡片頁與總表合併；表格預設全欄位） |
 | app/strong-stocks/columns.tsx | 強勢股表格的欄位定義（型別、儲存格、22 欄 `COLUMNS`、分組、排序工具；沒有 state，依賴 state 的 JSX 留在 page） |
 | app/strong-monthly/page.tsx | 強勢月報（當月彙整，12 欄對應業主 Word 月報） |
@@ -825,11 +825,11 @@ https://github.com/Stone-811/stock_helper
 
 **首頁走勢圖兩兩並排、手機上融資融券卡一排兩張**（業主：「圖表平行擺放，各佔50%」「上市融資、上櫃融資同一排，各佔版面50%」，兩次都看過改前改後說「可以上線」／「push」；
 459fe2f → `build-2026-11-06-006`、e258d49 → `build-2026-11-06-007`，live 量過）
-- `MarketMoodSections` 的 `ChartPair`：融資／融券、台股／美股恐慌指數兩張走勢圖依**這一塊自己的寬度**（container query `@min-[44rem]`，約螢幕 1024 以上扣側欄）並排各半；
-  手機、平板上下排（一半寬在手機只剩約 170px，圖和區間按鈕看不清楚）；當沖比只有一張，維持全寬。
+- `MarketMoodSections` 的 `ChartPair`：融資／融券、台股／美股恐慌指數兩張走勢圖依**這一塊自己的寬度**（container query `@min-[44rem]`＝內容寬 ≥704px：側欄展開約視窗 992、收合約 816 起並排（實測 990／1000、810／820 為界））並排各半；
+  手機與 768 平板上下排（一半寬在手機只剩約 170px，圖和區間按鈕看不清楚；820／834 直拿 iPad 收合側欄時會並排、每張約 350px，不是 bug）；當沖比只有一張，維持全寬。
 - `MarginStats` 手機也 `grid-cols-2`（平板、電腦本來就兩欄）。`SentimentStat` 的 md 卡（**只有融資融券用**）在手機上：數字 `min(1.875rem,19.5cqi)`、單位 `0.75em`、內距 `p-3`
   → 320～430 寬「277,051 張」都不折行，412 以上與原本同為 30px（390 約 29px、360 約 26px、320 約 22px）；320／360 寬標題旁的 ⓘ 會排到標題下一行（375 以上同一行）。
-  平板、電腦字級與內距都不變；當沖比、恐慌指數的 lg 卡不變。
+  平板、電腦字級與內距都不變；當沖比、恐慌指數的 lg 卡字級與內距不變（`@container` 六張卡都有、只有 md 用到 cqi；實測 Chrome 與 WebKit 的 ⓘ 泡泡位置與計算值差 0px，fixed 泡泡不受影響）。
 
 **改過名的股票：強勢股名單去重、全站股名改成最新正式名稱**（業主看過數字後選「照這個數字改」「改成最新名稱」「全部改成現在的名字」；249ea7f）
 - `strong_stocks`：同一天同一檔只留一筆（以前改名股兩個股名各寫一筆）→ 269 天（2023-01-09～2025-12-31）拿掉 358 筆重複，每天的強勢股不增不減；

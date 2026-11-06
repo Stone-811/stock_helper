@@ -35,6 +35,7 @@ export default function SentimentStat({
 }) {
   const fmt = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   // md 卡（只有融資融券用）在手機上一排兩張（2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」）。
+  // @container 六張卡都加（lg 卡沒用到 cqi）；實測不影響 InfoTip 的 fixed 泡泡位置。
   // 數字依卡片內容寬縮放：min(30px, 19.5cqi)。量過「277,051 張」單行寬＝4.98 倍字級（單位 0.75em），
   // 19.5cqi 留 3% 餘裕 → 320～430 寬都不會把「張」擠到下一行；412 以上就是原本的 30px（text-3xl）。
   // 單位 0.75em＝原本 text-xl（22.4px）÷ text-3xl（30px）。用 max-md 限定：平板、電腦的字級跟以前一模一樣。
