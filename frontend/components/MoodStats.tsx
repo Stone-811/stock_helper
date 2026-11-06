@@ -26,8 +26,9 @@ export function DaytradeStats({ twse, tpex }: { twse: Stat | null; tpex: Stat | 
 }
 
 export function MarginStats({ mgTwse, mgTpex, shTwse, shTpex }: { mgTwse: Stat | null; mgTpex: Stat | null; shTwse: Stat | null; shTpex: Stat | null }) {
+  // 手機也一排兩張（上市｜上櫃）：2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」。電腦本來就是兩欄。
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+    <div className="grid grid-cols-2 gap-3 md:gap-4">
       <SentimentStat
         title="上市融資餘額" stat={mgTwse} digits={0} unit=" 億" deltaUnit="億元"
         tipTitle="融資餘額"

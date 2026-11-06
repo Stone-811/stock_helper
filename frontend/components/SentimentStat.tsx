@@ -34,9 +34,16 @@ export default function SentimentStat({
   size?: 'md' | 'lg'
 }) {
   const fmt = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  const num = size === 'lg' ? 'text-4xl md:text-5xl' : 'text-3xl md:text-4xl'
+  // md 卡（只有融資融券用）在手機上一排兩張（2026-11-06 業主：「上市融資、上櫃融資同一排，各佔版面50%」）。
+  // 數字依卡片內容寬縮放：min(30px, 19.5cqi)。量過「277,051 張」單行寬＝4.98 倍字級（單位 0.75em），
+  // 19.5cqi 留 3% 餘裕 → 320～430 寬都不會把「張」擠到下一行；412 以上就是原本的 30px（text-3xl）。
+  // 單位 0.75em＝原本 text-xl（22.4px）÷ text-3xl（30px）。用 max-md 限定：平板、電腦的字級跟以前一模一樣。
+  // 內距手機 p-3（原本 p-4）：多 8px 讓 375 寬的標題「上市融資餘額」跟 ⓘ 留在同一行（需要 138px）。
+  const num = size === 'lg' ? 'text-4xl md:text-5xl' : 'max-md:text-[length:min(1.875rem,19.5cqi)] md:text-4xl'
+  const unitCls = size === 'lg' ? 'text-xl md:text-2xl' : 'max-md:text-[0.75em] md:text-2xl'
+  const pad = size === 'lg' ? 'p-4' : 'p-3'
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4 md:p-5 flex flex-col gap-1 min-w-0">
+    <div className={`@container bg-white rounded-lg shadow-sm ${pad} md:p-5 flex flex-col gap-1 min-w-0`}>
       <div className="text-base text-gray-700">
         {title}
         <InfoTip title={tipTitle}>{tip}</InfoTip>
@@ -45,7 +52,7 @@ export default function SentimentStat({
         <>
           <div className={`${num} font-bold tabular-nums text-gray-900 leading-tight`}>
             {fmt(stat.value)}
-            <span className="text-xl md:text-2xl font-semibold">{unit}</span>
+            <span className={`${unitCls} font-semibold`}>{unit}</span>
           </div>
           <div className="text-base text-gray-700">
             {fmtMd(stat.date)}{dateNote ? `（${dateNote}）` : ''}
