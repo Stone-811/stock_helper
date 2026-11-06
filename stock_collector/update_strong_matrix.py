@@ -309,6 +309,17 @@ def update_matrix(data_dir: str = 'data/daily_reports', output_dir: str = 'data/
     names = combined.dropna(subset=['stock_name']).groupby('stock_id')['stock_name'].last()
     combined['stock_name'] = combined['stock_name'].fillna(combined['stock_id'].map(names)).fillna('')
 
+    # 改過名的股票：年度檔同一天同一檔有兩列、兩個股名（FinMind 股票清單兩個名字都列；2023～2026-07 都有），
+    # pivot 以 (stock_id, stock_name) 為 index → 同一天的 strong_stocks 列兩次（2026-11-06 審查：358 筆、269 天、19 檔）。
+    # 同一天只留一列：股名用這檔「最新一天」的股名（＝網站現在顯示的名字）；兩列的強勢判定不同時取強勢（max）。
+    combined['strong'] = combined.groupby(['date', 'stock_id'])['strong'].transform('max')
+    last_day = combined.groupby('stock_id')['date'].transform('max')
+    current = combined[combined['date'] == last_day].groupby('stock_id')['stock_name'].first()
+    combined['_cur'] = combined['stock_name'] == combined['stock_id'].map(current)
+    combined = (combined.sort_values(['date', 'stock_id', '_cur'], ascending=[True, True, False])
+                .drop_duplicates(['date', 'stock_id'], keep='first')
+                .drop(columns='_cur'))
+
     # Pivot：row=股票, columns=日期, values=strong
     pivot = combined.pivot_table(
         index=['stock_id', 'stock_name'],
