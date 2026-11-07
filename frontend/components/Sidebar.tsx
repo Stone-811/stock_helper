@@ -76,7 +76,8 @@ export default function Sidebar() {
         `}
       >
         {/* Logo/標題 + 縮排/關閉按鈕 */}
-        <div className={`border-b border-[#2a2a3e] ${isCollapsed ? 'md:p-2' : 'p-6'} relative`}>
+        {/* 縮排時（80px 寬）📊 與展開鈕上下排：以前展開鈕 absolute 在右上角，剛好疊在置中的 📊 上（2026-11-07 業主指出這一塊） */}
+        <div className={`border-b border-[#2a2a3e] ${isCollapsed ? 'md:p-2 flex flex-col items-center gap-1' : 'p-6'} relative`}>
           <div>
             {/* 站名與分頁標題、加入主畫面的名稱、手機頁尾統一叫「選股小幫手」。
                 原本的英文副標「Taiwan Stock Analysis」拿掉：別處都沒有這個說法，
@@ -95,11 +96,13 @@ export default function Sidebar() {
           {/* 縮排按鈕 */}
           <button
             onClick={toggleCollapse}
-            className="absolute top-4 right-4 p-2 text-gray-300 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors"
+            className={`${isCollapsed ? 'w-11 h-11 flex items-center justify-center' : 'absolute top-4 right-4 p-2'} text-gray-300 hover:text-white hover:bg-[#2a2a3e] rounded-lg transition-colors`}
             title={isCollapsed ? '展開側邊欄' : '收合側邊欄'}
+            aria-label={isCollapsed ? '展開側邊欄' : '收合側邊欄'}
+            aria-expanded={!isCollapsed}
           >
             <svg
-              className={`w-4 h-4 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
+              className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

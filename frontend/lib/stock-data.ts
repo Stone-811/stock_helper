@@ -40,6 +40,8 @@ export interface StockDetailData {
   latest: StockLatest
   history: StockCandle[]
   recentStrongDays: number
+  /** daily_data 已經有 K 線最後一天這檔的資料（收集器跑過）。false＝那天的當沖可能還沒公布（下午 3～5 點）。 */
+  latestCollected: boolean
 }
 
 /**
@@ -117,5 +119,6 @@ export const getStockData = cache(async (id: string): Promise<StockDetailData | 
     latest,
     history: historyWithDayTrading,
     recentStrongDays,
+    latestCollected: hasInst,
   }
 })

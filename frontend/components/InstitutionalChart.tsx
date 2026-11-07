@@ -6,7 +6,8 @@ import type { InstitutionalDay, ForeignHoldingDay } from '../lib/finmind'
 
 type Range = '1M' | '3M' | '6M' | '1Y'
 type Mode = 'flow' | 'holding' | 'daytrade'
-type DayTradePoint = { date: string; ratio: number }
+/** missing＝這天沒有當沖數字，圖上畫成 0（業主 2026-11-07），讀值寫「無當沖數字」 */
+type DayTradePoint = { date: string; ratio: number; missing?: boolean }
 const rangeCalendarDays: Record<Range, number> = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366 }
 const rangeLabel: Record<Range, string> = { '1M': '1月', '3M': '3月', '6M': '6月', '1Y': '1年' }
 
@@ -59,7 +60,7 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade, la
       const inRange = dayTrade.filter((d) => d.date >= cutoffOf(dayTrade))
       if (!inRange.length) return null
       const line: LineData[] = inRange.map((d) => ({ time: d.date as Time, value: d.ratio }))
-      const points = new Map(inRange.map((d) => [d.date, { ratio: d.ratio }]))
+      const points = new Map(inRange.map((d) => [d.date, { ratio: d.ratio, missing: !!d.missing }]))
       return { mode: 'daytrade' as const, lines: [{ color: '#06b6d4', data: line }], baseline: false, points, lastDate: inRange[inRange.length - 1].date }
     }
 
@@ -195,9 +196,14 @@ export default function InstitutionalChart({ stockId, height = 300, dayTrade, la
             </span>
           ) : (
             <>
-              <span className="text-cyan-400">當沖 {view.points.get(legendDate)!.ratio.toFixed(1)}%</span>
+              {view.points.get(legendDate)!.missing ? (
+                <span className="text-amber-300">無當沖數字（圖上畫成 0；常見原因是處置股處置期間不得當沖，結束後恢復）</span>
+              ) : (
+                <span className="text-cyan-400">當沖 {view.points.get(legendDate)!.ratio.toFixed(1)}%</span>
+              )}
+              {/* 沒當沖的日子已經畫成 0，最後一天還比個股頁最新交易日早，只剩「收集器還沒跑、當沖還沒公布」這一種情況 */}
               {hoverTime === null && latestDate && view.lastDate < latestDate && (
-                <span className="text-amber-300">{latestDate} 無當沖數字（處置股處置期間不得當沖，結束後恢復）</span>
+                <span className="text-amber-300">{latestDate} 的當沖數字還沒公布（收盤後傍晚才有）</span>
               )}
             </>
           )}

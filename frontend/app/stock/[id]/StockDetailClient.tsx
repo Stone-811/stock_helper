@@ -32,14 +32,16 @@ export default function StockDetailClient({ data }: { data: StockDetailData }) {
   // 當日當沖比例 = 當沖量 / 成交量（跟強勢股頁、卡片同一份公式；缺值 null，不是 0）
   const dayTradeRatio = dayTradingRatioOf(latest.day_trading_volume, latest.volume)
   // 當沖比例歷史序列（籌碼圖「當沖」模式用；當沖屬籌碼，非技術指標）
-  const dayTradeSeries = useMemo(
-    () =>
-      history.flatMap((d) => {
-        const ratio = dayTradingRatioOf(d.day_trading_volume, d.volume)
-        return ratio == null ? [] : [{ date: d.date, ratio }]
-      }),
-    [history]
-  )
+  // 2026-11-07 業主：「如果當沖沒有資料，在線圖上要顯示，就直接連到0」→ 沒當沖數字的交易日**只在圖上**畫成 0（missing 標記，
+  // 讀值仍寫「無當沖數字」）；資料本身照舊是 null，上方「當日當沖」照舊「—」。常見原因是處置股處置期間不得現股當沖。
+  // - 這檔從來沒有當沖數字（興櫃等）→ 回空陣列，「當沖」分頁照舊不出現，不畫一整條 0。
+  // - 最新一天收集器還沒跑（下午 3～5 點，當沖可能還沒公布）→ 那天先不畫，免得每天下午所有股票最後一天都掉到 0。
+  const dayTradeSeries = useMemo(() => {
+    const pts = history.map((d) => ({ date: d.date, ratio: dayTradingRatioOf(d.day_trading_volume, d.volume) }))
+    if (!pts.some((p) => p.ratio != null)) return []
+    const usable = !data.latestCollected && pts.length && pts[pts.length - 1].ratio == null ? pts.slice(0, -1) : pts
+    return usable.map((p) => (p.ratio == null ? { date: p.date, ratio: 0, missing: true } : { date: p.date, ratio: p.ratio }))
+  }, [history, data.latestCollected])
 
   // ===== 放空籌碼 =====
   // 融券（散戶放空）與借券賣出（法人放空）是兩種不同制度，**刻意分開顯示不給合計**：
